@@ -656,6 +656,23 @@ class KitContract(unittest.TestCase):
         for key in ("branchModel.style", "branchModel.maxBehind"):
             self.assertIn(key, readme)
 
+    def test_the_visible_plan_is_a_rule_with_a_fallback_and_an_exit_condition(self):
+        agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+        self.assertIn('"todo"', frontmatter(KIT / "agents/zethus.agent.md")["tools"])
+        for rule in ("## Keep the plan visible",
+                     "Exactly one step is in progress at a time",
+                     "When the plan changes, change the list in the same turn",
+                     "A stage isn't exited with open steps",
+                     "You have no todo-list tool",
+                     "- [ ] ▶ ",
+                     "plan.checklist",
+                     "Start each reply with the current stage and step",
+                     '"Skip the todo list, just do it"'):
+            self.assertIn(rule, agent)
+        config = json.loads((KIT / "zethus.config.example.json").read_text(encoding="utf-8"))
+        self.assertEqual(config["plan"]["checklist"], "auto")
+        self.assertIn("plan.checklist", (KIT / "README.md").read_text(encoding="utf-8"))
+
     def test_kit_markdown_has_no_broken_pointers(self):
         code, out = run(pointer_mod, "--repo", str(REPO), "zethus")
         self.assertEqual(code, 0, out)

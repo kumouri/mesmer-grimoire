@@ -39,6 +39,10 @@
     "aiTrailer": ""
   },
 
+  "plan": {
+    "checklist": "auto"
+  },
+
   "_jiraReadme": "Everything below is only read by the optional Jira integration skills (see docs/jira-skills.md). Leave it out entirely if you haven't installed spec-to-stories or story-enrich.",
 
   "stories": {

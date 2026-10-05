@@ -28,12 +28,55 @@ flowchart LR
     F -.->|"ranked leads"| I
 ```
 
-The agent states which stage it's in at the top of every reply. It asks decisions as a short list
+The agent states which stage and step it's on at the top of every reply, and keeps its plan visible
+throughout (see [Seeing the plan](#seeing-the-plan)). It asks decisions as a short list
 of options with the recommendation first and marked, and it records each answer as an ADR. Its
 refusals are written into the agent file as a table. "Skip the spec" gets the minimum spec, about
 ten minutes. "Just push, CI will tell us" gets the local gates. "Merge it" gets a no: a person
 merges, only on green. One narrow exemption is written down too. A change with no behaviour change
 (a typo, a comment, formatting) may skip research, spec and tests, but never gates, docs or the PR.
+
+### Seeing the plan
+
+On starting, and on entering each stage, the agent writes the plan before doing the stage's work.
+The plan is the stage map (done, current, still to come) plus the current stage's concrete steps,
+each worded so you can tell what "done" means. Exactly one step is in progress at a time. A step is
+ticked the moment it's done. When the plan changes, the list changes in the same turn and the reply
+says what changed and why. A stage isn't exited while any of its steps is open, unless the step was
+dropped with a reason you've seen.
+
+Where you see it depends on the Copilot surface, because only some of them render the `todo` tool:
+
+| Surface | `todo` tool | Where the plan shows |
+|---|---|---|
+| VS Code agent mode | Supported ([GitHub][gh-agents-config]); the list shows at the top of the Chat view. It shipped as experimental in 1.103, behind `chat.todoListTool.enabled` ([VS Code][vsc-todo]) | The todo list. Each reply's header names the current step, and the full checklist appears in the reply only on the turn the plan is written or changes. |
+| Copilot CLI | Not documented as supported, and reported to resolve to nothing ([copilot-sdk#1641][cli-todo]) | The checklist under the header of every reply |
+| JetBrains agent mode | Not documented either way | Whichever the agent has. If it has the tool but you can't see a list, say so once, or set `plan.checklist` to `"always"` |
+| Copilot cloud agent | "Not supported in cloud agent today" ([GitHub][gh-agents-config]) | The checklist under the header of every reply |
+
+The checklist looks like this, directly under the header line:
+
+```markdown
+Stage 3 · Implement — Phase 1, step 2 of 4: wire `retryLimit` into the retry loop
+
+✓ 0 Orient · ✓ 1 Research · ✓ 2 Spec · **▶ 3 Implement** · 4 Tests · 5 Gates · 6 Docs · 7 PR
+
+- [x] Add `retryLimit` to the config loader, default 3; a test reads it back
+- [ ] ▶ Wire `retryLimit` into the retry loop in `RetryingClient.send`
+- [ ] Log the attempt number at WARN on each retry
+- [ ] Flag anything outside Phase 1's scope in the *As built* list
+```
+
+Where the todo tool is shown, the agent doesn't repeat the full list in every reply. Two copies of
+the same list would be noise, and the step named in the header is enough to tie a reply to the
+plan. `plan.checklist: "always"` turns the copy back on.
+
+**No script checks the plan.** The kit's scripts check the repository, and the plan lives in the
+chat. A script could check a plan file the agent wrote, but not that you saw it, so a green result
+would vouch for the wrong thing. The plan is held instead the way the rest of the procedure is: a
+rule in the agent file, a stage exit condition (no open steps), a row in the refusal table, and a
+header on every reply that names the step, so a missing plan shows straight away.
+[`tests/test_zethus.py`](../tests/test_zethus.py) pins those rules into the agent file.
 
 ## What's in the kit
 
@@ -41,7 +84,7 @@ merges, only on green. One narrow exemption is written down too. A change with n
 |---|---|---|
 | [`copilot-instructions.md`](copilot-instructions.md) | `.github/copilot-instructions.md` | The standing rules, short and imperative. Copilot loads them for every request in the repo. |
 | [`instructions/docs.instructions.md`](instructions/docs.instructions.md) | `.github/instructions/` | Path-scoped rules (`applyTo: "**/*.md"`): Markdown is canonical, router vs leaf docs, pointers resolve, spec status vocabulary, ADRs superseded rather than rewritten. |
-| [`agents/zethus.agent.md`](agents/zethus.agent.md) | `.github/agents/` | **The enforcer.** The stage table with exit conditions, per-turn behaviour, and the refusal table. |
+| [`agents/zethus.agent.md`](agents/zethus.agent.md) | `.github/agents/` | **The enforcer.** The stage table with exit conditions, the visible plan, per-turn behaviour, and the refusal table. |
 | [`skills/research-existing-code`](skills/research-existing-code/SKILL.md) | `.github/skills/` | Facts cited to `file:line`, the search behind every negative claim, and what the research did *not* cover. |
 | [`skills/write-spec-minimum`](skills/write-spec-minimum/SKILL.md) | `.github/skills/` | The one-screen spec for one PR, and the fast path when someone says "just code it". |
 | [`skills/write-spec-full`](skills/write-spec-full/SKILL.md) | `.github/skills/` | Verbatim ask, measured problem, facts, assumptions checked, options, phases, rollback, out of scope, open questions, then stop for sign-off. |
@@ -284,6 +327,7 @@ The keys are the same in every location.
 | `docSync.map[]` | `docs-pointer-check --sync-base` | `{doc, describes[globs]}`: which code each doc describes. Globs use `fnmatch` rules, so `*` also matches `/`. |
 | `docs.pointerIgnore[]` | `docs-pointer-check` | Markdown files to skip, such as generated changelogs. |
 | `commits.aiTrailer` | agent | The co-author trailer that AI-assisted commits carry. |
+| `plan.checklist` | agent | `"auto"` (default): the plan goes in the todo tool where the agent has one, else as a checklist in every reply. `"always"`: the checklist goes in every reply as well, for a surface that accepts the tool but doesn't show it. See [Seeing the plan](#seeing-the-plan). |
 
 ### Branch models
 
@@ -324,7 +368,8 @@ in VS Code and JetBrains agent mode, the Copilot CLI, and the Copilot cloud agen
 invoked by `/name` as well as picked automatically from their description. The agent's tool list
 uses GitHub's portable aliases (`read`, `search`, `edit`, `execute`, `web`, `todo`, `agent`).
 Surfaces that don't support a tool ignore it; for example, `web` and `todo` aren't used by the
-cloud agent.
+cloud agent, and `todo` is documented only for VS Code. The agent's plan falls back to a checklist
+in its replies wherever `todo` isn't available (see [Seeing the plan](#seeing-the-plan)).
 
 **The limit of enforcement.** Copilot has no hook that can block a tool call the way a
 pre-tool-use hook can. So the agent enforces the process through its instructions, its stage
@@ -504,6 +549,8 @@ Unlike the rest of this kit, these two skills also work unmodified under Claude 
 [gh-skills-create]: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/create-skills
 [vsc-skills]: https://code.visualstudio.com/docs/copilot/customization/agent-skills
 [vsc-settings]: https://code.visualstudio.com/docs/copilot/reference/copilot-settings
+[vsc-todo]: https://code.visualstudio.com/updates/v1_103
+[cli-todo]: https://github.com/github/copilot-sdk/issues/1641
 [cli-ref]: https://docs.github.com/en/copilot/reference/cli-plugin-reference
 [cli-skills]: https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills
 [cli-instr]: https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-custom-instructions
