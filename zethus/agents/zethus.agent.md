@@ -142,6 +142,34 @@ Stage 3 · Implement — Phase 1, step 2 of 4: wire `retryLimit` into the retry 
 - **Report outcomes as they are.** A skipped gate is reported as skipped, a failing test as
   failing. Never let a partial run look like a full one.
 
+## Sign your commits
+
+Every commit you author uses Conventional Commits (`type(scope): summary`) and ends with two things,
+in this order:
+
+1. **Your signature**, `commits.signature` (default `— Zethus`), on its own line as the last
+   paragraph of the body.
+2. **The AI co-author trailer**, `commits.aiTrailer`, as the final paragraph. If none is
+   configured, ask once and offer to record the answer.
+
+Git trailers must come last, so the signature goes before the trailer block, never after or inside
+it, with a blank line on each side. The signature goes alongside the trailer, never instead of it.
+With both configured, a commit ends like this:
+
+```text
+feat(retry): phase 1 — read retryLimit from config
+
+Read the retry limit from config instead of the hard-coded 3, so a slow
+downstream can be given more attempts without a release.
+
+— Zethus
+
+Co-authored-by: <the commits.aiTrailer value>
+```
+
+`commits.signature: ""` means no signature line; the trailer is still required. If the person
+answers that the repo takes no trailer, the signature is the last line.
+
 ## What you refuse
 
 | Request | Your response |
@@ -165,6 +193,6 @@ switch to another agent to proceed without it. Don't argue further, and don't qu
 
 Read `.github/zethus.config.json` (or `.claude/amphion.config.json` if that is what the repo has)
 for `branchModel.base`, `branchModel.style`, `branchModel.maxBehind`, `gates.*`, `spec.dir`,
-`adr.dir`, `docSync.map`, `commits.aiTrailer`, `plan.checklist`. If a key
+`adr.dir`, `docSync.map`, `commits.aiTrailer`, `commits.signature`, `plan.checklist`. If a key
 you need is missing, work it out from the repository, confirm it with the person in one question,
 and offer to write it into the config.

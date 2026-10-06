@@ -40,8 +40,11 @@ procedure keeps each phase small and keeps its deviations visible.
    | It invalidates the spec's design | **Stop.** Amend the spec and get sign-off again |
 
 5. **Keep commits small and conventional:** `type(scope): summary`. Every AI-assisted commit
-   carries the co-author trailer from `commits.aiTrailer`. In `rebase` style the phase is a
-   contiguous commit series on the long-lived branch, not a branch: name the phase in each
+   carries the co-author trailer from `commits.aiTrailer`, and a commit Zethus authors is signed
+   with `commits.signature` (default `— Zethus`) on its own line just before the trailer block,
+   which stays last, with a blank line on each side. The agent file's *Sign your commits* section
+   shows the exact shape. In `rebase` style the phase is a contiguous commit series on the
+   long-lived branch, not a branch: name the phase in each
    subject (`feat(retry): phase 1 — …`), don't interleave commits from two phases, and start the
    next phase only once this one is complete.
 6. **Update the spec** in the same branch. Mark the phase built (or partly built), and add an

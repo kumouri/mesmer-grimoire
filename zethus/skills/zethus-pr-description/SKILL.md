@@ -53,7 +53,8 @@ Start from `.github/zethus/templates/pr.md`:
 - **Decisions needed from the reviewer:** as options, with your recommendation first and marked
   **(Recommended)**.
 - **Docs updated:** from [docs-sync-check](../docs-sync-check/SKILL.md).
-- **AI assistance:** name the tool, and confirm the co-author trailer is on the commits.
+- **AI assistance:** name the tool, and confirm the co-author trailer is on the commits, with the
+  Zethus signature (`commits.signature`, unless set to `""`) just before it.
 
 Delete any other heading that is empty.
 

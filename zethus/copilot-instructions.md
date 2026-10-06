@@ -66,6 +66,9 @@ or ask. Never guess one.
 - Use Conventional Commits: `type(scope): summary`. Every AI-assisted commit carries the AI
   co-author trailer (`commits.aiTrailer` in config). If none is configured, ask once and record the
   answer.
+- A commit the Zethus agent authors is also signed: its signature (`commits.signature`, default
+  `— Zethus`; `""` for none) goes on its own line before the trailer block, with a blank line on
+  each side. Trailers stay last. The signature goes alongside the trailer, never instead of it.
 
 ## Docs stay in sync
 

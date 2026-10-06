@@ -78,6 +78,26 @@ rule in the agent file, a stage exit condition (no open steps), a row in the ref
 header on every reply that names the step, so a missing plan shows straight away.
 [`tests/test_zethus.py`](../tests/test_zethus.py) pins those rules into the agent file.
 
+### Signed commits
+
+Every commit Zethus authors is signed with its name as well as carrying the AI co-author trailer.
+The signature (`commits.signature`, default `— Zethus`) sits on its own line just before the
+trailer block, because git and GitHub only read trailers in the last paragraph:
+
+```text
+feat(retry): phase 1 — read retryLimit from config
+
+Read the retry limit from config instead of the hard-coded 3.
+
+— Zethus
+
+Co-authored-by: <the commits.aiTrailer value>
+```
+
+Set `commits.signature` to `""` to leave the signature off; the trailer is still required. Like the
+plan, this is a rule in the agent file rather than a script check: the kit has no commit hook, and
+[`tests/test_zethus.py`](../tests/test_zethus.py) pins the rule and its order.
+
 ## What's in the kit
 
 | File | Installs to | Purpose |
@@ -103,7 +123,7 @@ header on every reply that names the step, so a missing plan shows straight away
 | [`scripts/new-adr.py`](scripts/new-adr.py) | `.github/zethus/scripts/` | Creates `docs/adr/YYYY-MM-DD-slug.md` and adds its row to the ADR index. Ids are keyed by date, so parallel branches never collide. |
 | [`scripts/new-spec.py`](scripts/new-spec.py) | `.github/zethus/scripts/` | `new-spec.py full\|minimum "Title"` creates `docs/specs/<slug>.md` as `DRAFT`. |
 | [`scripts/docs-pointer-check.py`](scripts/docs-pointer-check.py) | `.github/zethus/scripts/` | Fails on relative Markdown links that don't resolve, including case mismatches that only break on Linux. With `--sync-base`, it also lists docs whose described code changed (report-only). |
-| [`zethus.config.example.json`](zethus.config.example.json) | `.github/zethus.config.json` | Project facts: integration branch, gate commands, spec and ADR dirs, the doc-to-code map, the AI co-author trailer. |
+| [`zethus.config.example.json`](zethus.config.example.json) | `.github/zethus.config.json` | Project facts: integration branch, gate commands, spec and ADR dirs, the doc-to-code map, the AI co-author trailer and commit signature. |
 | [`install.py`](install.py) | — | Copies all of the above into place: into a repo (`--target`) or for your user account (`--user`, with `--uninstall`). Never clobbers a file it didn't write, and writes nothing if there are conflicts. |
 
 The scripts are Python 3.10+ standard library only. There are no PowerShell twins: Python runs
@@ -327,6 +347,7 @@ The keys are the same in every location.
 | `docSync.map[]` | `docs-pointer-check --sync-base` | `{doc, describes[globs]}`: which code each doc describes. Globs use `fnmatch` rules, so `*` also matches `/`. |
 | `docs.pointerIgnore[]` | `docs-pointer-check` | Markdown files to skip, such as generated changelogs. |
 | `commits.aiTrailer` | agent | The co-author trailer that AI-assisted commits carry. |
+| `commits.signature` | agent | The line Zethus signs its commits with, just before the trailer block. Default `"— Zethus"`; `""` means no signature line. It goes alongside `commits.aiTrailer`, never instead of it. See [Signed commits](#signed-commits). |
 | `plan.checklist` | agent | `"auto"` (default): the plan goes in the todo tool where the agent has one, else as a checklist in every reply. `"always"`: the checklist goes in every reply as well, for a surface that accepts the tool but doesn't show it. See [Seeing the plan](#seeing-the-plan). |
 
 ### Branch models

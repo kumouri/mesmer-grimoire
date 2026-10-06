@@ -49,6 +49,6 @@ The docs that describe the changed code, and whether each was updated in this PR
 ## AI assistance
 
 Name the AI tool that helped, and confirm that the commits carry the co-author trailer this repo
-requires.
+requires, signed `— Zethus` (or the configured `commits.signature`) just before it.
 
 <!-- Delete any heading that is empty, except "Evidence" and "What was not checked". -->

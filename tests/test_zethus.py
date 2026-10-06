@@ -673,6 +673,26 @@ class KitContract(unittest.TestCase):
         self.assertEqual(config["plan"]["checklist"], "auto")
         self.assertIn("plan.checklist", (KIT / "README.md").read_text(encoding="utf-8"))
 
+    def test_commits_are_signed_before_the_trailer_block_alongside_the_trailer(self):
+        agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+        for rule in ("## Sign your commits", "commits.signature", "commits.aiTrailer",
+                     "never instead of it", '`commits.signature: ""` means no signature line'):
+            self.assertIn(rule, agent)
+        # The example commit in the agent file: signature, then the trailer as the last paragraph.
+        example = agent.split("## Sign your commits", 1)[1].split("```text\n", 1)[1]
+        lines = example.split("\n```", 1)[0].splitlines()
+        sig, trailer = lines.index("— Zethus"), lines.index(
+            "Co-authored-by: <the commits.aiTrailer value>")
+        self.assertEqual(trailer, len(lines) - 1, "the trailer block stays last")
+        self.assertEqual(lines[sig - 1:trailer], ["", "— Zethus", ""],
+                         "the signature is its own paragraph, just before the trailer")
+        config = json.loads((KIT / "zethus.config.example.json").read_text(encoding="utf-8"))
+        self.assertEqual(config["commits"]["signature"], "— Zethus")
+        self.assertIn("aiTrailer", config["commits"], "the signature never replaces the trailer")
+        for doc in ("README.md", "copilot-instructions.md", "skills/implement-phase/SKILL.md",
+                    "skills/zethus-pr-description/SKILL.md", "templates/pr.md"):
+            self.assertIn("commits.signature", (KIT / doc).read_text(encoding="utf-8"), doc)
+
     def test_kit_markdown_has_no_broken_pointers(self):
         code, out = run(pointer_mod, "--repo", str(REPO), "zethus")
         self.assertEqual(code, 0, out)
