@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check that the current branch is not behind the integration branch, before a stage starts.
+"""Check that the current branch is not behind the integration branch, at the two points it costs.
 
 A stale base fails quietly. Every diff, measurement and research note taken on it compares
 *branch drift* against the base instead of the change itself, and a PR cut from it can revert work
@@ -20,9 +20,16 @@ code.
 freshly fetched base) or ``"rebase"`` (one long-lived branch, kept rebased onto the base). Both
 styles run the same check; only the advice on how to catch up differs.
 
+**The gate runs at two points, not at every stage:** Stage 0 (Orient), so the branch is cut from
+or rebased onto a fresh base, and ``pre-push-gates``, so the pushed diff and the PR are against
+the current base. Nothing in between re-runs it. A stage that needs only the **merge-base** to
+diff against asks for it with ``--merge-base-only``: that mode prints the merge-base and exits 0
+whatever the branch's freshness, so it can never stop a stage.
+
 Exit codes: 0 fresh (behind <= maxBehind) · 1 stale: rebase before doing anything else ·
 2 usage error (not a git repo, bad config, base not found) · 3 no answer: the fetch failed, so
-freshness is unknown and must not be assumed.
+freshness is unknown and must not be assumed. With ``--merge-base-only`` the only non-zero code
+is 2: there is no gate to fail, and a failed fetch falls back to the last one.
 """
 from __future__ import annotations
 
@@ -145,6 +152,17 @@ def report(f: Freshness, fetched: bool) -> list[str]:
     return lines
 
 
+def merge_base_report(f: Freshness, fetched: bool) -> list[str]:
+    """The merge-base alone, for a stage that needs a diff base and must not be gated."""
+    return [
+        f"diff base (merge-base) {f.merge_base[:12] or 'none'} — base {f.ref}"
+        + ("" if fetched else " (NOT fetched: as of the last fetch)"),
+        f"  diff, research and PR bodies against this, e.g. git diff {f.ref}...HEAD",
+        f"  no gate: this is --merge-base-only ({f.behind} commit(s) behind; freshness is "
+        f"checked at Stage 0 and before the push, not here).",
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="base-freshness",
                                 description="Stop work on a branch that is behind its base.")
@@ -155,12 +173,16 @@ def main(argv: list[str] | None = None) -> int:
                                   "else the remote's default branch)")
     p.add_argument("--max-behind", type=int, help="override branchModel.maxBehind")
     p.add_argument("--no-fetch", action="store_true", help="don't fetch; check the last fetch")
+    p.add_argument("--merge-base-only", action="store_true",
+                   help="print the merge-base to diff against and exit 0 whatever the freshness; "
+                        "never gates a stage (the gate is Stage 0 and pre-push-gates)")
     args = p.parse_args(argv)
+    fetched = not args.no_fetch
     try:
         repo = Path(args.repo).resolve() if args.repo else find_repo_root()
         config, _ = load_config(repo, args.config)
         branch_model(config)                        # a bad config is a usage error, fetch or not
-        if not args.no_fetch:
+        if fetched:
             proc = git(repo, "fetch", "--quiet", args.remote)
             if proc is None or proc.returncode != 0:
                 if proc is None:
@@ -168,16 +190,25 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     err = proc.stderr.strip().splitlines()
                     detail = err[-1] if err else f"exit {proc.returncode}"
-                print(f"base freshness: NO ANSWER — could not fetch {args.remote}: {detail}\n"
-                      "Freshness is unknown. Don't treat the base as fresh; fix the fetch, or "
-                      "re-run with --no-fetch and say the result is as of the last fetch.")
-                return 3
+                if args.merge_base_only:
+                    # No gate to fail: report the merge-base as of the last fetch, and say so.
+                    print(f"base-freshness: could not fetch {args.remote}: {detail} — the "
+                          "merge-base below is as of the last fetch.")
+                    fetched = False
+                else:
+                    print(f"base freshness: NO ANSWER — could not fetch {args.remote}: {detail}\n"
+                          "Freshness is unknown. Don't treat the base as fresh; fix the fetch, or "
+                          "re-run with --no-fetch and say the result is as of the last fetch.")
+                    return 3
         result = check(repo, config, remote=args.remote, base=args.base,
                        max_behind=args.max_behind)
     except UsageError as exc:
         print(f"base-freshness: {exc}", file=sys.stderr)
         return 2
-    print("\n".join(report(result, fetched=not args.no_fetch)))
+    if args.merge_base_only:
+        print("\n".join(merge_base_report(result, fetched=fetched)))
+        return 0
+    print("\n".join(report(result, fetched=fetched)))
     return 1 if result.stale else 0
 
 

@@ -509,6 +509,36 @@ class BaseFreshness(TempRepo):
         self.assertIn("NO ANSWER", out)
         self.assertNotIn("FRESH", out)
 
+    def test_merge_base_only_prints_the_diff_base_and_never_gates(self):
+        mb = self.git(self.work, "merge-base", "HEAD", "origin/develop")
+        code, out = self.check("--merge-base-only")
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"diff base (merge-base) {mb[:12]}", out)
+        self.assertIn("base origin/develop", out)
+        self.assertNotIn("FRESH", out)
+
+        self.land_on_base(3)                        # three commits behind: stale for the gate
+        self.assertEqual(self.check()[0], 1, "the gating form still stops")
+        code, out = self.check("--merge-base-only")
+        self.assertEqual(code, 0, f"the merge-base is never a gate: {out}")
+        self.assertIn("no gate", out)
+        self.assertNotIn("STALE", out)
+
+    def test_merge_base_only_falls_back_to_the_last_fetch_instead_of_no_answer(self):
+        self.git(self.work, "remote", "set-url", "origin", str(self.repo / "_gone.git"))
+        self.assertEqual(self.check()[0], 3, "the gating form refuses to guess")
+        code, out = self.check("--merge-base-only")
+        self.assertEqual(code, 0, out)
+        self.assertIn("could not fetch", out)
+        self.assertIn("NOT fetched", out)
+        self.assertIn("diff base (merge-base)", out)
+
+    def test_merge_base_only_still_reports_a_usage_error(self):
+        self.set_config({"maxBehind": -1})
+        code, out = self.check("--merge-base-only", "--no-fetch")
+        self.assertEqual(code, 2, out)
+        self.assertIn("branchModel.", out)
+
     def test_not_a_git_repo_is_a_usage_error(self):
         plain = self.repo / "plain"
         plain.mkdir()
@@ -647,14 +677,39 @@ class KitContract(unittest.TestCase):
         self.assertEqual(fresh_mod.branch_model({}), ("branch-per-change", 0),
                          "no config keeps today's behaviour")
 
-    def test_the_freshness_check_is_wired_into_every_stage_and_the_gates(self):
+    def test_the_freshness_gate_runs_at_two_checkpoints_and_no_others(self):
+        """Stage 0 and the pre-push gates: the two points where staleness costs something.
+
+        It used to run at the start of all seven stages, and again inside four skills, each of
+        which can stop the work for a rebase (``maxBehind`` defaults to 0) — see
+        ``zethus/docs/base-freshness-cadence.md``. A third gating call is that cadence creeping
+        back, so this test names the two files allowed to make one.
+        """
         agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
         gates = (KIT / "skills/pre-push-gates/SKILL.md").read_text(encoding="utf-8")
         for text in (agent, gates):
             self.assertIn("python .github/zethus/scripts/base-freshness.py", text)
+        self.assertIn("## Check the base at two points, not at every stage", agent)
+        self.assertIn("two freshness checkpoints", gates)
+
+        # A gating call is the script without --merge-base-only on the same line.
+        offenders = []
+        for path in sorted((KIT / "skills").glob("*/SKILL.md")):
+            if path.parent.name == "pre-push-gates":
+                continue
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if "scripts/base-freshness.py" in line and "--merge-base-only" not in line:
+                    offenders.append(f"{path.parent.name}: {line.strip()[:80]}")
+        self.assertEqual(offenders, [], "only Stage 0 (the agent file) and pre-push-gates may gate "
+                                        "on freshness; a stage that needs the diff base uses "
+                                        "--merge-base-only")
+
         readme = (KIT / "README.md").read_text(encoding="utf-8")
-        for key in ("branchModel.style", "branchModel.maxBehind"):
+        for key in ("branchModel.style", "branchModel.maxBehind", "--merge-base-only"):
             self.assertIn(key, readme)
+        instructions = (KIT / "copilot-instructions.md").read_text(encoding="utf-8")
+        for rule in ("Stage 0", "--merge-base-only", "don't re-run it"):
+            self.assertIn(rule, instructions)
 
     def test_the_visible_plan_is_a_rule_with_a_fallback_and_an_exit_condition(self):
         agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")

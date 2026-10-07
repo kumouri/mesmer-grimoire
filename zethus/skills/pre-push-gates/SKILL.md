@@ -12,9 +12,15 @@ would have saved, and it tells the reviewer the author didn't check.
 ## Procedure
 
 0. **Check the base is fresh:** `python .github/zethus/scripts/base-freshness.py`.
-   Gates run on a stale base check a tree that won't be the one that merges. Exit 1 (STALE) means
-   stop: rebase onto `origin/<base>` first, then come back here. Exit 3 means the fetch failed and
-   freshness is unknown; say so, and don't treat the base as fresh.
+   Gates run on a stale base check a tree that won't be the one that merges, and the PR describes
+   a diff against a base that has moved. Exit 1 (STALE) means stop: rebase onto `origin/<base>`
+   first, then come back here. Exit 3 means the fetch failed and freshness is unknown; say so, and
+   don't treat the base as fresh.
+
+   **This is one of the change's two freshness checkpoints** — the other is Stage 0, when the
+   branch is created or rebased. The stages in between don't check, because staleness costs
+   nothing until a diff leaves the machine; that makes this run the one that catches a base which
+   moved while you were building, so don't skip it on the grounds that Stage 0 was green.
 1. **See what will run:** `python .github/zethus/scripts/run-local-gates.py --list`.
    Gates come from `gates.steps` in `.github/zethus.config.json`, or else from the repo's build
    files (`package.json`, `Makefile`, `pyproject.toml`, Gradle, Maven, .NET, Go, Cargo). **Compare

@@ -20,7 +20,7 @@ The skills linked below hold the procedure for each stage. Use them; don't impro
 | 2 | Spec | [write-spec-minimum](../skills/write-spec-minimum/SKILL.md) or [write-spec-full](../skills/write-spec-full/SKILL.md) | **A person has explicitly signed off.** Its test plan is filled in with [test-plan](../skills/test-plan/SKILL.md), and every decision is recorded with [write-adr](../skills/write-adr/SKILL.md) |
 | 3 | Implement | [implement-phase](../skills/implement-phase/SKILL.md) | One phase built, anything unplanned flagged. Phase 0 first |
 | 4 | Tests | [test-plan](../skills/test-plan/SKILL.md) | Every test the plan names for this phase exists and passes, refusal and failure paths included, and the key test fails when the change is reverted |
-| 5 | Gates | [pre-push-gates](../skills/pre-push-gates/SKILL.md) | `run-local-gates` exits 0, or every gate that didn't run is named |
+| 5 | Gates | [pre-push-gates](../skills/pre-push-gates/SKILL.md) | `base-freshness` reports FRESH, and `run-local-gates` exits 0, or every gate that didn't run is named |
 | 6 | Docs | [docs-sync-check](../skills/docs-sync-check/SKILL.md) | Every doc describing the changed code is updated or confirmed; no broken pointers |
 | 7 | PR | [zethus-pr-description](../skills/zethus-pr-description/SKILL.md) | Branch pushed, PR opened against the integration branch, **not merged** |
 
@@ -32,25 +32,45 @@ ref, and rebase first if it is. Then read the config and the repo's instructions
 After the PR opens, go back to stage 3 for the next phase, on a new branch. Each phase is its own PR
 unless the spec says otherwise.
 
-## Start every stage on a fresh base
+## Check the base at two points, not at every stage
 
-At the **start of every stage**, before anything else in it, run:
+A stale base fails silently: every diff, measurement and research note taken on it compares branch
+drift instead of the change, and the PR can revert work that already landed. But it only *costs*
+something at two moments — when the branch is created or rebased, and when a diff leaves your
+machine. So the check runs at exactly those two, and nowhere else:
+
+| When | Why there |
+|---|---|
+| **Stage 0 · Orient**, before any work | The branch is cut from, or rebased onto, a base you have just confirmed is current. |
+| **Stage 5 · Gates**, immediately before the push and the PR | The gates, the diff and the PR body are against the base as it stands now, not as it stood when you started. |
+
+At each of those two points, before anything else in the stage, run:
 
 ```bash
 python .github/zethus/scripts/base-freshness.py
 ```
 
 It fetches, counts the commits in `HEAD..origin/<base>`, and compares that with
-`branchModel.maxBehind` (default `0`). A stale base fails silently: every diff, measurement and
-research note taken on it compares branch drift instead of the change, and the PR can revert work
-that already landed. So act on the exit code, not on how the checkout looks:
+`branchModel.maxBehind` (default `0`). Act on the exit code, not on how the checkout looks:
 
 | Exit | Meaning | What you do |
 |---|---|---|
-| 0 | FRESH | Carry on. Use the merge-base it prints as the diff base for this stage. |
+| 0 | FRESH | Carry on. Use the merge-base it prints as the diff base from here on. |
 | 1 | STALE | **Stop.** Tell the person how many commits behind the branch is and ask them to rebase first. Do no stage work on a stale base. |
 | 3 | No answer: the fetch failed | Say so. Don't proceed as if the base were fresh. |
 | 2 | Usage error | Fix the config (`branchModel.*`) or name the base, then re-run. |
+
+**Stages 1–4 and 6–7 don't run it.** They carry the merge-base forward from Stage 0. A stage that
+needs that diff base and no longer has it asks for it alone, with a mode that cannot stop the
+stage:
+
+```bash
+python .github/zethus/scripts/base-freshness.py --merge-base-only
+```
+
+It prints the merge-base and exits 0 whatever the branch's freshness. Don't reach for the gating
+form to get a diff base. See [the cadence decision](../docs/base-freshness-cadence.md) for why
+this is two checkpoints rather than seven.
 
 ## Branch model
 
@@ -64,7 +84,8 @@ that already landed. So act on the exit code, not on how the checkout looks:
   - **Stage 0** checks out that branch instead of cutting a new one. If `base-freshness` says it
     is stale, the person rebases it (`git rebase origin/<base>`) before any other work.
   - **Every diff, research note and PR body is taken against the merge-base** with the freshly
-    fetched `origin/<base>`, which `base-freshness` prints. Never diff against a local `<base>`:
+    fetched `origin/<base>`, which `base-freshness` prints at Stage 0 and again at Stage 5
+    (`--merge-base-only` prints it in between, without gating). Never diff against a local `<base>`:
     on a long-lived branch it is almost always stale. After a rebase, commit ids on the branch
     change, so research cites code on the base at the merge-base commit, not at `HEAD`.
   - **Phases are commit series on the same branch, not branches.** Phase 0 first; each phase is
@@ -92,7 +113,8 @@ name, not a step.
 **The rules:**
 
 1. **Write the steps before doing the stage's work.** On starting, and on entering each stage, list
-   that stage's steps before you do anything else in it except the freshness check. The next phase
+   that stage's steps before you do anything else in it, except the freshness check where that
+   stage has one (stages 0 and 5; see above). The next phase
    starts a new set of steps at stage 3.
 2. **Exactly one step is in progress at a time.** Mark it done the moment it's done, not in a batch
    at the end of the turn.
@@ -181,7 +203,7 @@ answers that the repo takes no trailer, the signature is the last line.
 | "Do Phase 1 and 2 together" | Decline, unless the signed-off spec already says so. Offer to amend the spec, and get sign-off on the amendment. |
 | Code before sign-off, however small | Decline. Put the change into the spec as a proposal. |
 | "Skip the todo list, just do it" | Decline. The plan is how the person sees where you are. Offer to keep the steps coarser, never to drop them. |
-| "Skip the freshness check, I rebased yesterday" / "work on it anyway, it's only a few behind" | Decline. Run `base-freshness`; if it says stale, rebase first. A tolerance is a config decision (`branchModel.maxBehind`), made once and recorded as an ADR, not a per-stage exception. |
+| "Skip the freshness check, I rebased yesterday" / "work on it anyway, it's only a few behind" | Decline at either checkpoint — Stage 0 and Stage 5 are the only two, so neither is skippable. Run `base-freshness`; if it says stale, rebase first. A tolerance is a config decision (`branchModel.maxBehind`), made once and recorded as an ADR, not an exception at the checkpoint. |
 
 **The one exemption.** A change that alters no behaviour at all, such as a docs typo, a comment, or
 a formatting-only diff, may skip Research, Spec and Tests. It never skips Gates, Docs, or the PR.
