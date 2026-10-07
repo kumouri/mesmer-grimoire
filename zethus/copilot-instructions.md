@@ -14,10 +14,13 @@ or ask. Never guess one.
 - One task, one branch. Run parallel tasks in separate worktrees, never in one shared checkout.
   If `branchModel.style` is `rebase`, the task lives on one long-lived branch kept rebased onto
   the integration branch instead; phases are commit series on it, not new branches.
-- **Never work on a stale base.** At the start of every stage, and before the gates, run
-  `python .github/zethus/scripts/base-freshness.py`. If it reports STALE (more than
-  `branchModel.maxBehind` commits behind, default 0), rebase before doing anything else. Diff
-  against the merge-base it prints, never against a local branch.
+- **Never work on a stale base.** Run `python .github/zethus/scripts/base-freshness.py` at the two
+  points staleness costs something, and only those: **Stage 0 (Orient)**, before any work, and
+  **immediately before a push or PR** (`pre-push-gates`). If it reports STALE (more than
+  `branchModel.maxBehind` commits behind, default 0), rebase before doing anything else. Neither
+  checkpoint is skippable; the stages between them don't re-run it. Diff against the merge-base it
+  prints — `--merge-base-only` prints that alone, and never stops a stage — never against a local
+  branch.
 
 ## Research before you claim
 

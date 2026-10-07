@@ -19,12 +19,23 @@ Work out the integration branch. Don't assume `main`:
 
 Fetch first, then read `git log --oneline origin/<base>..HEAD` and `git diff origin/<base>...HEAD`.
 The three-dot diff is against the merge-base, so it describes *your* changes, not everything that
-landed on the base since you branched. `python .github/zethus/scripts/base-freshness.py` fetches,
-prints that merge-base, and stops you if the branch is behind the base: rebase first if it does.
-Never diff against a local `<base>`; it is only as fresh as your last pull.
+landed on the base since you branched. Never diff against a local `<base>`; it is only as fresh as
+your last pull.
 
-**A rebased branch.** If `branchModel.style` is `rebase`, or `base-freshness` reports the upstream
-as *rewritten since the last push*, the branch has been rebased. Push it with
+**Reuse the merge-base [pre-push-gates](../pre-push-gates/SKILL.md) just printed** — it ran the
+freshness check immediately before this stage, so the base is already confirmed current and there
+is nothing here to re-gate. If you don't have it to hand, ask for it alone:
+
+```bash
+python .github/zethus/scripts/base-freshness.py --merge-base-only
+```
+
+That fetches, prints the merge-base, and exits 0 whatever the branch's freshness, so it cannot
+stop this stage. `git merge-base HEAD origin/<base>` after a fetch gives the same commit. Don't
+run the gating form here: freshness is checked at Stage 0 and at the gates, not at every stage.
+
+**A rebased branch.** If `branchModel.style` is `rebase`, or `base-freshness` reported the upstream
+as *rewritten since the last push* at the gates, the branch has been rebased. Push it with
 `git push --force-with-lease`, never a plain `--force`. Then, in the PR body (under *What*), and in
 a PR comment if the PR already exists, say:
 

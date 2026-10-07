@@ -27,10 +27,12 @@ the look behind it: "it's only called from here" when only one directory was sea
    | F2 | Nothing outside `src/webhooks/` calls `schedule_retry` | — | `git grep -n "schedule_retry("` → 4 hits, all in `src/webhooks/` |
 
    Record the commit once, at the top, if every fact comes from the same one:
-   `git rev-parse --short HEAD`. First run `python .github/zethus/scripts/base-freshness.py`: on a
-   stale base, the facts describe code that has already changed. On a long-lived branch
+   `git rev-parse --short HEAD`. The base was confirmed fresh at Stage 0, so don't re-run the
+   freshness gate here; research on the base it confirmed. On a long-lived branch
    (`branchModel.style` `rebase`), `HEAD` ids change at every rebase, so cite code on the base at
-   the **merge-base** it prints, and cite `HEAD` only for code this branch changed.
+   the **merge-base**, and cite `HEAD` only for code this branch changed. If you don't have that
+   merge-base to hand, `python .github/zethus/scripts/base-freshness.py --merge-base-only` prints
+   it and cannot stop this stage.
 5. **Back every negative claim with the search that proved it.** "Nothing else calls X" is only
    true to the extent of the search, so record the command and its result.
 6. **Re-check inherited claims before you rely on them.** A claim from a ticket, an older spec, or

@@ -18,7 +18,10 @@ procedure keeps each phase small and keeps its deviations visible.
 - You're on a branch for **this phase only**, cut from the freshly fetched integration branch
   (`git fetch` first, then branch from `origin/<base>`). If `branchModel.style` is `rebase`, you're
   instead on the one long-lived branch, and this phase is the next commit series on it (below).
-- `python .github/zethus/scripts/base-freshness.py` exits 0. If it says STALE, rebase first.
+- The base was confirmed fresh when the branch was created or rebased (Stage 0). **Don't re-run
+  the freshness gate to start a phase** — it runs twice per change, at Stage 0 and again before
+  the push ([pre-push-gates](../pre-push-gates/SKILL.md)), which is where a base that moved while
+  you were building gets caught.
 
 ## Procedure
 

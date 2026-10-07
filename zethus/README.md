@@ -119,7 +119,7 @@ plan, this is a rule in the agent file rather than a script check: the kit has n
 | [`templates/adr.md`](templates/adr.md) | `.github/zethus/templates/` | The ADR record: a field table (including *Enforced where*), decision, context, options, consequences. |
 | [`templates/pr.md`](templates/pr.md) | `.github/zethus/templates/` | The PR body: What · Why · Changes · Evidence · What was not checked · deferrals · decisions · docs · AI assistance. |
 | [`scripts/run-local-gates.py`](scripts/run-local-gates.py) | `.github/zethus/scripts/` | Discovers and runs lint/build/test, then prints a PASS/FAIL/SKIP table and an explicit verdict. Prefers a repo's `mvnw`/`gradlew` wrapper; on Windows a bare `mvn` or `./mvnw` resolves to `mvn.cmd`/`mvnw.cmd` through `PATHEXT`. Exit codes: `0` full green · `1` red · `3` green but incomplete · `2` nothing to run. |
-| [`scripts/base-freshness.py`](scripts/base-freshness.py) | `.github/zethus/scripts/` | Fetches, counts the commits in `HEAD..origin/<base>`, and stops the stage if there are more than `branchModel.maxBehind`. Prints the merge-base to diff against, and whether the branch was rewritten since its last push. The agent runs it at the start of every stage. Exit codes: `0` fresh · `1` stale, rebase first · `2` usage error · `3` no answer (the fetch failed). |
+| [`scripts/base-freshness.py`](scripts/base-freshness.py) | `.github/zethus/scripts/` | Fetches, counts the commits in `HEAD..origin/<base>`, and stops the stage if there are more than `branchModel.maxBehind`. Prints the merge-base to diff against, and whether the branch was rewritten since its last push. The agent runs it at **two** points: Stage 0 (Orient) and immediately before the push (`pre-push-gates`) — see [Branch models](#branch-models). `--merge-base-only` prints the merge-base alone and always exits 0, for a stage that needs a diff base and must not be stopped. Exit codes: `0` fresh · `1` stale, rebase first · `2` usage error · `3` no answer (the fetch failed). |
 | [`scripts/new-adr.py`](scripts/new-adr.py) | `.github/zethus/scripts/` | Creates `docs/adr/YYYY-MM-DD-slug.md` and adds its row to the ADR index. Ids are keyed by date, so parallel branches never collide. |
 | [`scripts/new-spec.py`](scripts/new-spec.py) | `.github/zethus/scripts/` | `new-spec.py full\|minimum "Title"` creates `docs/specs/<slug>.md` as `DRAFT`. |
 | [`scripts/docs-pointer-check.py`](scripts/docs-pointer-check.py) | `.github/zethus/scripts/` | Fails on relative Markdown links that don't resolve, including case mismatches that only break on Linux. With `--sync-base`, it also lists docs whose described code changed (report-only). |
@@ -339,7 +339,7 @@ The keys are the same in every location.
 |---|---|---|
 | `branchModel.base` | agent, `zethus-pr-description`, `docs-sync-check`, `base-freshness` | The integration branch. Default: `develop` if it exists, else the default branch. |
 | `branchModel.style` | agent, `implement-phase`, `zethus-pr-description`, `base-freshness` | `"branch-per-change"` (default): a new branch per change, cut from the freshly fetched base, one branch and PR per phase. `"rebase"`: one long-lived branch kept rebased onto the base; phases are commit series on it, every diff is taken against the merge-base with `origin/<base>`, and the PR body says when the branch was rebased. See [Branch models](#branch-models). |
-| `branchModel.maxBehind` | `base-freshness`, agent, `pre-push-gates` | How many commits the branch may be behind `origin/<base>` before a stage refuses to start. Default `0`: any commit behind means rebase first. |
+| `branchModel.maxBehind` | `base-freshness`, agent, `pre-push-gates` | How many commits the branch may be behind `origin/<base>` before a freshness checkpoint (Stage 0, and the pre-push gates) refuses to continue. Default `0`: any commit behind means rebase first. |
 | `gates.steps[]` | `run-local-gates` | Ordered `{name, command, exitCode?}`. `command` is a string or an argv list; there's no shell. |
 | `gates.lint` / `.build` / `.test` / `.mandatedChecks[]` | `run-local-gates` | Amphion's gate keys, read when `gates.steps` is absent. A mandated check with only a prose `expect` shows as **MANUAL** (not checked). |
 | `spec.dir`, `spec.templates.{full,minimum}` | `new-spec` | Default `docs/specs`, and the kit's templates. |
@@ -361,12 +361,22 @@ Zethus assumes nothing about how long a branch lives. It insists only that the b
 | Diff base | `origin/<base>...HEAD` | The same: the merge-base with the freshly fetched `origin/<base>`, never a local ref |
 | After a rebase | — | Push with `--force-with-lease`; the PR body names the new base |
 
-In both, the agent runs `base-freshness.py` at the start of every stage, and `pre-push-gates`
-runs it before the gates. A stale base doesn't look stale. Diffs, measurements and research notes
-taken on one quietly compare branch drift instead of the change, and the PR can revert work that
-already landed. So the check counts commits rather than trusting the checkout. Raise
-`branchModel.maxBehind` only as a recorded decision; the default of `0` means any commit behind
-stops the stage.
+In both, the agent runs `base-freshness.py` at **exactly two** points per change:
+
+1. **Stage 0 · Orient** — before any work, so the branch is cut from, or rebased onto, a base just
+   confirmed current;
+2. **`pre-push-gates`** — immediately before the push and the PR, so the gates, the diff and the PR
+   body are against the base as it stands now.
+
+The stages in between don't re-run it. A stale base doesn't look stale — diffs, measurements and
+research notes taken on one quietly compare branch drift instead of the change, and the PR can
+revert work that already landed — so the check counts commits rather than trusting the checkout.
+But that only *costs* something when the branch is created and when a diff leaves the machine,
+which is what makes two checkpoints enough and seven pure interruption
+([the cadence decision](docs/base-freshness-cadence.md)). A stage that needs the merge-base to
+diff against gets it from `--merge-base-only`, which prints that one line and always exits 0.
+Raise `branchModel.maxBehind` only as a recorded decision; the default of `0` means any commit
+behind stops the checkpoint.
 
 ```json
 { "branchModel": { "base": "develop", "style": "rebase", "maxBehind": 0 } }
