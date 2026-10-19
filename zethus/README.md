@@ -1,8 +1,8 @@
 # Zethus 🪨
 
 **A development process for GitHub Copilot, in a form Copilot can follow and enforce.** One custom
-agent runs every change through research → spec → sign-off → phased implementation → tests → local
-gates → a PR with evidence, and refuses to skip a stage. Ten standalone skills hold one procedure
+agent runs every change through research → spec → sign-off → phased implementation → tests → docs →
+local gates → a PR with evidence, and refuses to skip a stage. Ten standalone skills hold one procedure
 each. Four Markdown templates and five stdlib Python scripts do the mechanical parts. It installs into
 a repository's `.github/` folder, or once for your user account under `~/.copilot/` so it follows
 you into every repo without changing any of them. Nothing in it is specific to one organization.
@@ -20,9 +20,9 @@ flowchart LR
     S --> SO{{"sign-off"}}
     SO -->|"decisions → ADRs"| I["3 · Implement<br/><i>one phase; Phase 0 changes nothing</i>"]
     I --> T["4 · Tests<br/><i>incl. refusals · mutation check</i>"]
-    T --> G["5 · Gates<br/><i>run-local-gates</i>"]
-    G --> D["6 · Docs<br/><i>docs-pointer-check</i>"]
-    D --> P["7 · PR<br/><i>evidence · never self-merged</i>"]
+    T --> D["5 · Docs<br/><i>docs-pointer-check</i>"]
+    D --> G["6 · Gates<br/><i>fresh base · run-local-gates</i>"]
+    G --> P["7 · PR<br/><i>evidence · never self-merged</i>"]
     P -.->|"next phase"| I
     I -.->|"stuck twice"| F["fresh-eyes<br/>investigation"]
     F -.->|"ranked leads"| I
@@ -34,15 +34,24 @@ of options with the recommendation first and marked, and it records each answer 
 refusals are written into the agent file as a table. "Skip the spec" gets the minimum spec, about
 ten minutes. "Just push, CI will tell us" gets the local gates. "Merge it" gets a no: a person
 merges, only on green. One narrow exemption is written down too. A change with no behaviour change
-(a typo, a comment, formatting) may skip research, spec and tests, but never gates, docs or the PR.
+(a typo, a comment, formatting) may skip research, spec and tests, but never docs, gates or the PR.
+
+Each expensive check runs once per phase. Docs comes before Gates, so the full build and test suite
+runs once, last, on the exact tree that is pushed, docs included. The phase's tests run once, in
+Stage 4. Implement exits once they're written and compiling, and the mutation check proves its
+restore with `git diff --quiet` instead of re-running them. The base is fetched at the two freshness
+checkpoints and when a new phase branch is cut, and nowhere else: the PR stage reuses the fetch the
+gates just made. See [run each check once per phase](docs/run-once-per-phase.md).
 
 ### Seeing the plan
 
 On starting, and on entering each stage, the agent writes the plan before doing the stage's work.
 The plan is the stage map (done, current, still to come) plus the current stage's concrete steps,
-each worded so you can tell what "done" means. Exactly one step is in progress at a time. A step is
-ticked the moment it's done. When the plan changes, the list changes in the same turn and the reply
-says what changed and why. A stage isn't exited while any of its steps is open, unless the step was
+each worded so you can tell what "done" means. Exactly one step is in progress at a time, and the
+header line of every reply names it. The list itself is updated when a stage is entered and when
+the plan changes, not each time a step finishes: finished steps are ticked at the next update. That
+saves a todo call, and a model round trip, per step ([plan update cadence](docs/plan-update-cadence.md)).
+When the plan changes, the list changes in the same turn and the reply says what changed and why. A stage isn't exited while any of its steps is open, unless the step was
 dropped with a reason you've seen.
 
 Where you see it depends on the Copilot surface, because only some of them render the `todo` tool:
@@ -59,7 +68,7 @@ The checklist looks like this, directly under the header line:
 ```markdown
 Stage 3 · Implement — Phase 1, step 2 of 4: wire `retryLimit` into the retry loop
 
-✓ 0 Orient · ✓ 1 Research · ✓ 2 Spec · **▶ 3 Implement** · 4 Tests · 5 Gates · 6 Docs · 7 PR
+✓ 0 Orient · ✓ 1 Research · ✓ 2 Spec · **▶ 3 Implement** · 4 Tests · 5 Docs · 6 Gates · 7 PR
 
 - [x] Add `retryLimit` to the config loader, default 3; a test reads it back
 - [ ] ▶ Wire `retryLimit` into the retry loop in `RetryingClient.send`

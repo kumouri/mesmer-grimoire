@@ -15,9 +15,13 @@ procedure keeps each phase small and keeps its deviations visible.
   to implement yet.
 - You know which phase you're building, and every earlier phase has merged (in `rebase` style:
   is complete on the branch).
-- You're on a branch for **this phase only**, cut from the freshly fetched integration branch
-  (`git fetch` first, then branch from `origin/<base>`). If `branchModel.style` is `rebase`, you're
-  instead on the one long-lived branch, and this phase is the next commit series on it (below).
+- You're on a branch for **this phase only**. If this phase needs a **new** branch (every phase
+  after the first, once the previous phase's PR has merged), cut it from the freshly fetched
+  integration branch: `git fetch` first, then branch from `origin/<base>`. If you're on the branch
+  Stage 0 just cut or rebased, it already sits on a base fetched and confirmed minutes ago, so
+  check that it's the branch you expect and don't fetch again. If `branchModel.style` is `rebase`,
+  you're instead on the one long-lived branch, and this phase is the next commit series on it
+  (below).
 - The base was confirmed fresh when the branch was created or rebased (Stage 0). **Don't re-run
   the freshness gate to start a phase** — it runs twice per change, at Stage 0 and again before
   the push ([pre-push-gates](../pre-push-gates/SKILL.md)), which is where a base that moved while
@@ -56,8 +60,12 @@ procedure keeps each phase small and keeps its deviations visible.
 
 ## Done when
 
-The phase's tests exist and pass locally, every deviation is written down, and nothing outside the
-phase changed. Next: [pre-push-gates](../pre-push-gates/SKILL.md).
+Every test the plan names for this phase is written and compiles (build the tests without running
+them: `mvn test-compile`, `gradle testClasses`, `tsc --noEmit`, `cargo test --no-run`,
+`pytest --collect-only`), every deviation is written down, and nothing outside the phase changed.
+Running a test while you debug is fine, but don't run the phase's tests again as this stage's exit
+check: [test-plan](../test-plan/SKILL.md)'s verify step (Stage 4) runs them once, and that run is
+the one that counts. Next: that verify step.
 
 ## If the spec runs out, or work was interrupted
 
