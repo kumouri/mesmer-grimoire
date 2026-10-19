@@ -35,10 +35,15 @@ behaviour that exists only when the parts are joined. Tag anything you can't aut
 
 ## After implementing — verify
 
-1. **Every planned test exists and passes.** If you dropped or changed one, record why in the
-   spec's *As built* list.
-2. **Mutation check the key test.** Revert or break the one line that matters, run the test,
-   confirm it fails, then restore the line. If the test still passes, it proves nothing: fix the
+1. **Every planned test exists and passes, in one run.** Run the phase's tests once. If any fails,
+   fix it and run them again; the run that counts is the green one, on the tree you go on to
+   mutation-check. If you dropped or changed a test, record why in the spec's *As built* list.
+2. **Mutation check the key test.** Stage the file that holds the line that matters
+   (`git add <file>`), so the index holds the version that just passed. Revert or break that line,
+   run the key test alone, and confirm it fails. Then restore the file from the index
+   (`git restore <file>`) and prove the restore with `git diff --quiet -- <file>`: exit 0 means the
+   file is byte for byte the one that passed, so there's nothing to re-run. A non-zero exit means
+   it isn't; restore it until it is. If the mutated test still passes, it proves nothing: fix the
    test, not the code. Record the check in one line in the PR ("reverting `retry.py:52` fails
    `test_backoff_doubles_until_cap`").
 3. **Flaky means failing.** A test that passes on retry isn't passing. Fix it, or quarantine it

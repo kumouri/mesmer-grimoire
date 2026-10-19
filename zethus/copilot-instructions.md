@@ -56,7 +56,8 @@ or ask. Never guess one.
 
 - Tests prove the change *and* its refusals and failure paths, not only the happy path.
 - Before every push, run every gate CI would run, on the working tree:
-  `python .github/zethus/scripts/run-local-gates.py`. Fix anything red before pushing.
+  `python .github/zethus/scripts/run-local-gates.py`. Run it last, after the docs are updated, so
+  one green run covers what you push. Fix anything red before pushing.
 - **A skipped gate is not a passed gate.** Never claim a check passed if you didn't run it; write
   "not run" and say why.
 

@@ -11,6 +11,10 @@ would have saved, and it tells the reviewer the author didn't check.
 
 ## Procedure
 
+Run this stage last, after [docs-sync-check](../docs-sync-check/SKILL.md) and immediately before
+the push, so one full run covers everything you push, docs and spec edits included. If you edit
+anything after it goes green, run it again.
+
 0. **Check the base is fresh:** `python .github/zethus/scripts/base-freshness.py`.
    Gates run on a stale base check a tree that won't be the one that merges, and the PR describes
    a diff against a base that has moved. Exit 1 (STALE) means stop: rebase onto `origin/<base>`

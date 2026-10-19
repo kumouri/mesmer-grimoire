@@ -711,11 +711,78 @@ class KitContract(unittest.TestCase):
         for rule in ("Stage 0", "--merge-base-only", "don't re-run it"):
             self.assertIn(rule, instructions)
 
+    def test_docs_comes_before_gates_so_the_full_suite_runs_once(self):
+        """Docs edits the tree, so a Gates stage before it meant a second full suite before the push.
+
+        Ceryce's ruling, 2026-10-19 (``zethus/docs/run-once-per-phase.md``): Docs is Stage 5 and
+        Gates Stage 6, immediately before the PR, and every stage map and cross-reference agrees.
+        """
+        agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+        table = agent.split("## The stages", 1)[1].split("\n\n", 2)[1]
+        rows = [[c.strip() for c in line.strip("|").split("|")][:2]
+                for line in table.splitlines()[2:]]
+        self.assertEqual(rows, [["0", "Orient"], ["1", "Research"], ["2", "Spec"],
+                                ["3", "Implement"], ["4", "Tests"], ["5", "Docs"],
+                                ["6", "Gates"], ["7", "PR"]])
+        self.assertIn("../skills/docs-sync-check/SKILL.md) | Every doc", agent)
+        stage_map = "4 Tests · 5 Docs · 6 Gates · 7 PR"
+        for doc in ("agents/zethus.agent.md", "README.md"):
+            text = (KIT / doc).read_text(encoding="utf-8")
+            self.assertIn(stage_map, text, doc)
+            self.assertNotIn("5 Gates", text, doc)
+        self.assertIn("**Stage 6 · Gates**, immediately before the push", agent)
+        self.assertIn("Stages 1–5 and 7 don't run it", agent)
+        readme = (KIT / "README.md").read_text(encoding="utf-8")
+        self.assertLess(readme.index('"5 · Docs'), readme.index('"6 · Gates'))
+        self.assertIn("after [docs-sync-check]",
+                      (KIT / "skills/pre-push-gates/SKILL.md").read_text(encoding="utf-8"))
+        self.assertIn("Next: [pre-push-gates]",
+                      (KIT / "skills/docs-sync-check/SKILL.md").read_text(encoding="utf-8"))
+
+    def test_the_phase_tests_run_once_before_the_gates(self):
+        """Stage 3 exits on written-and-compiling; Stage 4 runs the tests once.
+
+        The mutation check proves its restore with ``git diff --quiet`` rather than a re-run.
+        Ceryce's ruling, 2026-10-19 (``zethus/docs/run-once-per-phase.md``).
+        """
+        agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+        self.assertIn("written and compiling", agent)
+        self.assertIn("passes in one run", agent)
+        implement = (KIT / "skills/implement-phase/SKILL.md").read_text(encoding="utf-8")
+        done = implement.split("## Done when", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("compiles", done)
+        self.assertNotIn("exist and pass", done)
+        test_plan = (KIT / "skills/test-plan/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("Every planned test exists and passes, in one run", test_plan)
+        self.assertIn("git diff --quiet -- <file>", test_plan)
+        self.assertIn("confirm it fails", test_plan, "the mutation check itself stays")
+
+    def test_only_a_new_phase_branch_and_the_checkpoints_fetch(self):
+        """The PR stage reuses the pre-push fetch; the first phase reuses Stage 0's.
+
+        Ceryce's ruling, 2026-10-19 (``zethus/docs/run-once-per-phase.md``).
+        """
+        pr = (KIT / "skills/zethus-pr-description/SKILL.md").read_text(encoding="utf-8")
+        self.assertNotIn("Fetch first", pr)
+        self.assertIn("Reuse the fetch and the merge-base", pr)
+        implement = (KIT / "skills/implement-phase/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("If this phase needs a **new** branch", implement)
+        self.assertIn("don't fetch again", implement)
+
     def test_the_visible_plan_is_a_rule_with_a_fallback_and_an_exit_condition(self):
+        """The plan stays visible, updated per stage rather than per step.
+
+        Ceryce's ruling, 2026-10-19 (``zethus/docs/plan-update-cadence.md``), relaxed the original
+        "mark it done the moment it's done": the list is updated at stage entry and when the plan
+        changes, and the header line names the current step in between.
+        """
         agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
         self.assertIn('"todo"', frontmatter(KIT / "agents/zethus.agent.md")["tools"])
+        self.assertNotIn("Mark it done the moment it's done", agent)
         for rule in ("## Keep the plan visible",
                      "Exactly one step is in progress at a time",
+                     "Update the list at stage entry and when the plan changes, not at every step",
+                     "the header line on every reply names it",
                      "When the plan changes, change the list in the same turn",
                      "A stage isn't exited with open steps",
                      "You have no todo-list tool",
@@ -726,7 +793,9 @@ class KitContract(unittest.TestCase):
             self.assertIn(rule, agent)
         config = json.loads((KIT / "zethus.config.example.json").read_text(encoding="utf-8"))
         self.assertEqual(config["plan"]["checklist"], "auto")
-        self.assertIn("plan.checklist", (KIT / "README.md").read_text(encoding="utf-8"))
+        readme = (KIT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("plan.checklist", readme)
+        self.assertNotIn("ticked the moment it's done", readme)
 
     def test_commits_are_signed_before_the_trailer_block_alongside_the_trailer(self):
         agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")

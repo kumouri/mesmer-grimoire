@@ -48,7 +48,7 @@ Ceryce, Telegram, 2026-09-27 01:10 CT, from the todo that motivated both extensi
 
 | # | Fact | Where | How verified |
 |---|---|---|---|
-| F1 | Zethus's agent runs every change through a fixed seven-stage table (Orient, Research, Spec, Implement, Tests, Gates, Docs, PR), each with a named skill and an exit condition | `agents/zethus.agent.md:14-25` | read the stage table |
+| F1 | Zethus's agent runs every change through a fixed seven-stage table (Orient, Research, Spec, Implement, Tests, Docs, Gates, PR), each with a named skill and an exit condition | `agents/zethus.agent.md:14-25` | read the stage table |
 | F2 | A skill is a plain `SKILL.md` with only `name` and `description` frontmatter — no schema for a skill's own inputs or outputs beyond what its prose says | `skills/research-existing-code/SKILL.md:1-4` (representative of all ten) | read the frontmatter of all ten skill files |
 | F3 | `research-existing-code` already requires every claim cited to `file:line`, every negative claim backed by the search that proved it, and an explicit "what this did not cover" section | `skills/research-existing-code/SKILL.md:12-44` | read the procedure |
 | F4 | Config already has a documented resolution order (`.github/zethus.config.json` → `$ZETHUS_CONFIG` → `.copilot/zethus.config.json` → `.claude/amphion.config.json` → `~/.copilot/zethus/config.json` → discovery) and shares key names with Amphion | `README.md:229-282` | read the config table |
@@ -206,8 +206,8 @@ missing fixture id), that gap is the spec for the second `.agent.md`.
 | 3 · Implement | `implement-phase`'s Phase 0 rule, its classification table for unplanned work | Phase 0 is redefined, for this work only, as "golden masters exist for every constitution row" |
 | 4 · Tests | `test-plan`'s mutation check | Golden-master fixtures generated from the legacy system, not authored |
 | — | — | **Overseer gate:** every constitution row has a fixture, before Tests reports done |
-| 5 · Gates | `run-local-gates.py`, `gates.steps` | A `characterization-suite` gate step, same mechanism, new command |
-| 6 · Docs | `docs-sync-check`, `docSync.map` | The constitution is a doc under the map: code changing without the constitution updating is exactly what `--sync-base` already flags (F5) |
+| 5 · Docs | `docs-sync-check`, `docSync.map` | The constitution is a doc under the map: code changing without the constitution updating is exactly what `--sync-base` already flags (F5) |
+| 6 · Gates | `run-local-gates.py`, `gates.steps` | A `characterization-suite` gate step, same mechanism, new command |
 | 7 · PR | `zethus-pr-description`'s evidence sections | Evidence adds: rule-ledger coverage, constitution diff, golden-master pass table |
 
 ### What's new vs. reused

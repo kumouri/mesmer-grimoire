@@ -9,6 +9,7 @@
 | Enforced where | [`../agents/zethus.agent.md`](../agents/zethus.agent.md) ("Check the base at two points"), [`../copilot-instructions.md`](../copilot-instructions.md), [`../skills/pre-push-gates/SKILL.md`](../skills/pre-push-gates/SKILL.md) step 0, and `--merge-base-only` in [`../scripts/base-freshness.py`](../scripts/base-freshness.py) |
 | Supersedes | the original cadence: `base-freshness.py` at the start of every stage, plus separately inside several skills |
 | Superseded by | — |
+| Amended | 2026-10-19: Docs moved before Gates, so the stages between the checkpoints are now 1–5 and 7 ([run each check once per phase](run-once-per-phase.md)). The two checkpoints are unchanged. |
 
 This repo keeps no `docs/adr/` of its own (`zethus/scripts/new-adr.py` writes ADRs into a
 *consuming* project), so the kit's own decisions are recorded here, in ADR shape.
@@ -54,8 +55,8 @@ moves costs nothing yet: the next checkpoint catches it before any of it is publ
 
 ## Consequences
 
-- **Easier:** a change runs end to end with two freshness checks instead of seven-plus; stages 1–4
-  and 6–7 never interrupt for a rebase.
+- **Easier:** a change runs end to end with two freshness checks instead of seven-plus; stages 1–5
+  and 7 never interrupt for a rebase.
 - **Harder:** a base that moves while a phase is being built is now found at the gates. The rebase
   then happens with the work already written. This is the deliberate trade: it is one rebase, at a
   point where the branch has to be touched anyway, instead of a possible stop at every stage.

@@ -17,14 +17,14 @@ Work out the integration branch. Don't assume `main`:
 2. otherwise `develop`, if it exists;
 3. otherwise the default branch (`git remote show origin`, the *HEAD branch* line).
 
-Fetch first, then read `git log --oneline origin/<base>..HEAD` and `git diff origin/<base>...HEAD`.
-The three-dot diff is against the merge-base, so it describes *your* changes, not everything that
-landed on the base since you branched. Never diff against a local `<base>`; it is only as fresh as
-your last pull.
+Read `git log --oneline origin/<base>..HEAD` and `git diff origin/<base>...HEAD`. The three-dot
+diff is against the merge-base, so it describes *your* changes, not everything that landed on the
+base since you branched. Never diff against a local `<base>`; it is only as fresh as your last pull.
 
-**Reuse the merge-base [pre-push-gates](../pre-push-gates/SKILL.md) just printed** — it ran the
-freshness check immediately before this stage, so the base is already confirmed current and there
-is nothing here to re-gate. If you don't have it to hand, ask for it alone:
+**Reuse the fetch and the merge-base [pre-push-gates](../pre-push-gates/SKILL.md) just made.** Its
+freshness check fetched and confirmed the base immediately before this stage, so `origin/<base>` is
+already current; don't fetch again, and there is nothing here to re-gate. If you don't have that
+merge-base to hand (a resumed session, say), ask for it alone:
 
 ```bash
 python .github/zethus/scripts/base-freshness.py --merge-base-only

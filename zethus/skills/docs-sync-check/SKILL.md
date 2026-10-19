@@ -1,6 +1,6 @@
 ---
 name: docs-sync-check
-description: Before a PR, find the documentation that describes the code this change touched and confirm each is still true — updating it in place in the same change — and check every Markdown pointer still resolves. Uses docs-pointer-check with the docSync map. Use before opening a PR, after renaming or moving files, or when asked whether the docs are up to date.
+description: Before the pre-push gates and the PR, find the documentation that describes the code this change touched and confirm each is still true — updating it in place in the same change — and check every Markdown pointer still resolves. Uses docs-pointer-check with the docSync map. Use before opening a PR, after renaming or moving files, or when asked whether the docs are up to date.
 ---
 
 # Docs sync check
@@ -35,6 +35,9 @@ change**, without being asked. Change only the docs that describe code this diff
    [implement-phase](../implement-phase/SKILL.md)).
 5. **Report** under the PR's *Docs updated* heading: each doc, and whether it was updated or
    confirmed. "No doc describes this code" is a valid answer once you've done step 2.
+
+Next: [pre-push-gates](../pre-push-gates/SKILL.md). This stage runs before the gates, not after
+them, so the one full gate run covers these edits too and doesn't have to be repeated.
 
 ## Rules
 

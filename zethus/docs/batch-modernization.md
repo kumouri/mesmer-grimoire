@@ -195,7 +195,7 @@ Batch-specific instantiation:
 | 1 · Research | `recover-business-rules` runs the matching `batch-type/*` and `dialect/oracle-plsql` readers together over one job's Java/`ksh`/PL-SQL/SQL/config sources |
 | 2 · Spec | Per-procedure disposition (keep/wrap/port) is decided here and recorded as an ADR each |
 | 3 · Implement | Phase 0 = golden masters against the *current* Oracle schema and job, for every constitution row, before any Spring Batch code is written |
-| 5 · Gates | New `gates.steps` entry: run the characterization suite against the fixture database as part of `run-local-gates.py` |
+| 6 · Gates | New `gates.steps` entry: run the characterization suite against the fixture database as part of `run-local-gates.py` |
 
 ### What's new vs. reused
 
