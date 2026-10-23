@@ -7,6 +7,7 @@ One sentence: what this PR does.
 The problem, in two or three lines. Link the spec and the ticket.
 
 - **Spec:** path or link, and the phase this PR implements
+- **Stacked on:** the earlier phase's PR this one targets and merges after, or "—"
 - **Decisions:** ADR ids this PR relies on or creates
 
 ## Changes

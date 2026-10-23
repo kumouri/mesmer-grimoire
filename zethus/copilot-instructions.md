@@ -41,7 +41,8 @@ or ask. Never guess one.
 - Every spec has a facts table cited to `file:line`, an out-of-scope list with reasons, and open
   questions, each with a recommended answer.
 - Implement in phases. **Phase 0 changes no behaviour**: it only instruments, measures or reports.
-  Each phase merges green on its own.
+  Each phase is green on its own. The next phase starts once the last is pushed to its PR, not
+  once it merges; a pushed phase is in review, not built.
 
 ## Decisions
 
@@ -63,7 +64,8 @@ or ask. Never guess one.
 
 ## Pull requests
 
-- Open the PR against the integration branch. Its body carries evidence: the gate table, the tests
+- Open the PR against the integration branch, or, for a phase stacked on an unmerged one, against
+  that phase's branch. Its body carries evidence: the gate table, the tests
   added, and what was *not* checked (template: `.github/zethus/templates/pr.md`).
 - Never merge your own PR. A person merges it, and only when CI is green on the exact head commit
   they reviewed. Red or pending CI is not green.

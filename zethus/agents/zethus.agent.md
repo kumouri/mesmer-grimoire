@@ -22,7 +22,7 @@ The skills linked below hold the procedure for each stage. Use them; don't impro
 | 4 | Tests | [test-plan](../skills/test-plan/SKILL.md) | Every test the plan names for this phase passes in one run, refusal and failure paths included; the key test fails when the change is reverted, and `git diff --quiet` proves the revert was restored |
 | 5 | Docs | [docs-sync-check](../skills/docs-sync-check/SKILL.md) | Every doc describing the changed code is updated or confirmed; no broken pointers |
 | 6 | Gates | [pre-push-gates](../skills/pre-push-gates/SKILL.md) | `base-freshness` reports FRESH, and `run-local-gates` exits 0 on the tree you will push, docs included, or every gate that didn't run is named |
-| 7 | PR | [zethus-pr-description](../skills/zethus-pr-description/SKILL.md) | Branch pushed, PR opened against the integration branch, **not merged** |
+| 7 | PR | [zethus-pr-description](../skills/zethus-pr-description/SKILL.md) | Branch pushed, PR opened against the integration branch (a stacked phase: the previous phase's branch), **not merged** |
 
 Docs comes before Gates so that the full build and test suite runs once, last, on the exact tree
 that is pushed. Anything edited after the gates go green sends you back to stage 6.
@@ -32,8 +32,10 @@ For stage 0, fetch the remote and find the integration branch: `branchModel.base
 branch from `origin/<that branch>`. If you're already on a branch, check that it isn't behind that
 ref, and rebase first if it is. Then read the config and the repo's instructions files.
 
-After the PR opens, go back to stage 3 for the next phase, on a new branch. Each phase is its own PR
-unless the spec says otherwise.
+After the PR opens, go back to stage 3 for the next phase, on a new branch stacked on this one.
+Don't wait for the PR to merge: a phase that is committed, green on the gates and pushed is enough
+to start the next ([why](../docs/phase-advance-on-push.md)). Each phase is its own PR unless the
+spec says otherwise.
 
 ## Check the base at two points, not at every stage
 
@@ -82,7 +84,13 @@ this is two checkpoints rather than seven.
 
 - **`branch-per-change`** (default): what the stage table and stage 0 above describe. A new
   branch per change, cut from the freshly fetched integration branch; each phase on its own branch
-  and PR.
+  and PR. Phases are **stacked**: phase N+1 branches from phase N's pushed branch, and its PR
+  targets phase N's branch, so it shows that phase alone. The next phase starts once the previous
+  one is pushed, not merged. A person merges the stack bottom-up whenever their process allows;
+  GitHub retargets the next PR to `<base>` when the merged branch is deleted. If `<base>` moves,
+  rebase the whole stack from its top with `git rebase --update-refs origin/<base>` and push each
+  branch with `--force-with-lease`. See [the decision](../docs/phase-advance-on-push.md) for the
+  squash-merge case.
 - **`rebase`**: one long-lived branch, kept rebased onto `origin/<base>`. It changes three things:
   - **Stage 0** checks out that branch instead of cutting a new one. If `base-freshness` says it
     is stale, the person rebases it (`git rebase origin/<base>`) before any other work.
@@ -93,9 +101,11 @@ this is two checkpoints rather than seven.
     change, so research cites code on the base at the merge-base commit, not at `HEAD`.
   - **Phases are commit series on the same branch, not branches.** Phase 0 first; each phase is
     one contiguous series of commits whose subjects name the phase, and a phase starts only once
-    the one before it is complete. After the PR opens, go back to stage 3 on the same branch and
-    update that PR. A push after a rebase uses `--force-with-lease`, and the PR body says it was
-    rebased (see [zethus-pr-description](../skills/zethus-pr-description/SKILL.md)).
+    the one before it is committed, green on the gates, and pushed to the PR. After the PR opens,
+    go back to stage 3 on the same branch and push the next phase to that PR. This suits a team
+    that reviews and merges one PR per feature. A push after a rebase uses `--force-with-lease`,
+    and the PR body says it was rebased (see
+    [zethus-pr-description](../skills/zethus-pr-description/SKILL.md)).
 
 **Stuck branch.** If an approach fails twice, or a failure doesn't make sense, stop and use
 [fresh-eyes-investigation](../skills/fresh-eyes-investigation/SKILL.md). If your environment can

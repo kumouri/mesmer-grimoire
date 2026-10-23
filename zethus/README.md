@@ -43,6 +43,11 @@ restore with `git diff --quiet` instead of re-running them. The base is fetched 
 checkpoints and when a new phase branch is cut, and nowhere else: the PR stage reuses the fetch the
 gates just made. See [run each check once per phase](docs/run-once-per-phase.md).
 
+The next phase starts once the previous one is pushed to its PR, not once it merges. Merging is
+the team's call, on the team's schedule, so a process that merges only when a whole feature is done
+doesn't block the work. A pushed phase is marked *in review* in the spec, never *built*. See
+[the next phase starts on push](docs/phase-advance-on-push.md).
+
 ### Seeing the plan
 
 On starting, and on entering each stage, the agent writes the plan before doing the stage's work.
@@ -119,7 +124,7 @@ plan, this is a rule in the agent file rather than a script check: the kit has n
 | [`skills/write-spec-full`](skills/write-spec-full/SKILL.md) | `.github/skills/` | Verbatim ask, measured problem, facts, assumptions checked, options, phases, rollback, out of scope, open questions, then stop for sign-off. |
 | [`skills/write-adr`](skills/write-adr/SKILL.md) | `.github/skills/` | One imperative decision sentence, options, consequences, *enforced where*, *revisit when*. Pastes cleanly into a wiki or ticket. |
 | [`skills/fresh-eyes-investigation`](skills/fresh-eyes-investigation/SKILL.md) | `.github/skills/` | Artifact plus one line of intent in; ranked leads out, each established or conjecture. Never a diagnosis; an empty list is valid. |
-| [`skills/implement-phase`](skills/implement-phase/SKILL.md) | `.github/skills/` | One phase per branch (or per commit series, in `rebase` style), Phase 0 first. Stay inside the phase; classify anything unplanned; keep an *As built* list. |
+| [`skills/implement-phase`](skills/implement-phase/SKILL.md) | `.github/skills/` | One phase per branch, stacked on the previous phase's (or per commit series, in `rebase` style), Phase 0 first; the next phase starts once this one is pushed, not merged. Stay inside the phase; classify anything unplanned; keep an *As built* list. |
 | [`skills/test-plan`](skills/test-plan/SKILL.md) | `.github/skills/` | Per-phase tests covering the change, the failure path, the refusal, and what must not change, plus a mutation check. |
 | [`skills/pre-push-gates`](skills/pre-push-gates/SKILL.md) | `.github/skills/` | Every CI gate run locally, on the working tree, before a push. A skip is not a pass. |
 | [`skills/zethus-pr-description`](skills/zethus-pr-description/SKILL.md) | `.github/skills/` | An evidence-first PR body diffed against the real integration branch, including *What was not checked*. |
@@ -347,7 +352,7 @@ The keys are the same in every location.
 | Key | Used by | Meaning |
 |---|---|---|
 | `branchModel.base` | agent, `zethus-pr-description`, `docs-sync-check`, `base-freshness` | The integration branch. Default: `develop` if it exists, else the default branch. |
-| `branchModel.style` | agent, `implement-phase`, `zethus-pr-description`, `base-freshness` | `"branch-per-change"` (default): a new branch per change, cut from the freshly fetched base, one branch and PR per phase. `"rebase"`: one long-lived branch kept rebased onto the base; phases are commit series on it, every diff is taken against the merge-base with `origin/<base>`, and the PR body says when the branch was rebased. See [Branch models](#branch-models). |
+| `branchModel.style` | agent, `implement-phase`, `zethus-pr-description`, `base-freshness` | `"branch-per-change"` (default): a new branch per change, cut from the freshly fetched base, one branch and PR per phase, each phase stacked on the previous one's pushed branch. `"rebase"`: one long-lived branch kept rebased onto the base; phases are commit series on it, every diff is taken against the merge-base with `origin/<base>`, and the PR body says when the branch was rebased. See [Branch models](#branch-models). |
 | `branchModel.maxBehind` | `base-freshness`, agent, `pre-push-gates` | How many commits the branch may be behind `origin/<base>` before a freshness checkpoint (Stage 0, and the pre-push gates) refuses to continue. Default `0`: any commit behind means rebase first. |
 | `gates.steps[]` | `run-local-gates` | Ordered `{name, command, exitCode?}`. `command` is a string or an argv list; there's no shell. |
 | `gates.lint` / `.build` / `.test` / `.mandatedChecks[]` | `run-local-gates` | Amphion's gate keys, read when `gates.steps` is absent. A mandated check with only a prose `expect` shows as **MANUAL** (not checked). |
@@ -366,9 +371,15 @@ Zethus assumes nothing about how long a branch lives. It insists only that the b
 | | `branch-per-change` (default) | `rebase` |
 |---|---|---|
 | Branches | A new one per change, cut from `origin/<base>` | One long-lived branch, rebased onto `origin/<base>` every few days |
-| Phases | One branch and one PR each | One commit series each, on the same branch, Phase 0 first |
-| Diff base | `origin/<base>...HEAD` | The same: the merge-base with the freshly fetched `origin/<base>`, never a local ref |
-| After a rebase | — | Push with `--force-with-lease`; the PR body names the new base |
+| Phases | One branch and one PR each, Phase 0 first; each branch stacked on the previous phase's, its PR targeting that branch | One commit series each, on the same branch, Phase 0 first, pushed to the same PR |
+| Next phase starts | Once the previous phase is committed, green on the gates and pushed. Its PR need not be merged | The same |
+| Diff base | `origin/<base>...HEAD`; for a stacked phase, `origin/<previous-phase>...HEAD` | The merge-base with the freshly fetched `origin/<base>`, never a local ref |
+| Merging | A person merges the stack bottom-up, when their process allows; GitHub retargets the next PR to `<base>` | A person merges the one PR, when the feature is done |
+| After a rebase | Rebase the stack from its top with `git rebase --update-refs origin/<base>`; push each branch with `--force-with-lease` | Push with `--force-with-lease`; the PR body names the new base |
+
+Neither style waits for a merge to start the next phase. See
+[the next phase starts on push](docs/phase-advance-on-push.md) for why, and for a stack whose lower
+PR was squash-merged.
 
 In both, the agent runs `base-freshness.py` at **exactly two** points per change:
 

@@ -18,7 +18,8 @@ anything after it goes green, run it again.
 0. **Check the base is fresh:** `python .github/zethus/scripts/base-freshness.py`.
    Gates run on a stale base check a tree that won't be the one that merges, and the PR describes
    a diff against a base that has moved. Exit 1 (STALE) means stop: rebase onto `origin/<base>`
-   first, then come back here. Exit 3 means the fetch failed and freshness is unknown; say so, and
+   first, then come back here. On a stack of phase branches, rebase the whole stack from its top
+   (`git rebase --update-refs origin/<base>`) and push each branch with `--force-with-lease`. Exit 3 means the fetch failed and freshness is unknown; say so, and
    don't treat the base as fresh.
 
    **This is one of the change's two freshness checkpoints** — the other is Stage 0, when the

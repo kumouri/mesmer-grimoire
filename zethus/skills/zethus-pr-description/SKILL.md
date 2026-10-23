@@ -21,6 +21,11 @@ Read `git log --oneline origin/<base>..HEAD` and `git diff origin/<base>...HEAD`
 diff is against the merge-base, so it describes *your* changes, not everything that landed on the
 base since you branched. Never diff against a local `<base>`; it is only as fresh as your last pull.
 
+**A stacked phase.** If this phase's branch is stacked on an earlier phase whose PR hasn't merged
+(see [implement-phase](../implement-phase/SKILL.md)), the PR targets that phase's branch, so
+describe `origin/<previous-phase>...HEAD` instead: this phase alone. Freshness is still measured
+against `origin/<base>`.
+
 **Reuse the fetch and the merge-base [pre-push-gates](../pre-push-gates/SKILL.md) just made.** Its
 freshness check fetched and confirmed the base immediately before this stage, so `origin/<base>` is
 already current; don't fetch again, and there is nothing here to re-gate. If you don't have that
@@ -71,9 +76,11 @@ Delete any other heading that is empty.
 
 ## Step 3: open it — don't merge it
 
-Push the branch and open the PR against the integration branch. **Don't merge it, even if you
-can.** A person merges, and only when CI is green on the exact head commit they reviewed. If you
-push again after review, say so in a comment: the approval covered the earlier commit.
+Push the branch and open the PR against the integration branch, or, for a stacked phase, against
+the previous phase's branch; name that PR under *Stacked on*, since this one merges after it. **Don't merge it, even if you can.** A person merges, and only when CI is green on the exact
+head commit they reviewed. If you push again after review, say so in a comment: the approval
+covered the earlier commit. The push is what lets the next phase start; the merge is the team's to
+schedule.
 
 ## Anti-patterns
 
