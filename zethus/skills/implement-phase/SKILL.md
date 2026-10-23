@@ -13,15 +13,18 @@ procedure keeps each phase small and keeps its deviations visible.
 
 - The spec's status is `SIGNED-OFF` or `PARTIAL(…)`. If it is still `DRAFT`, stop: there is nothing
   to implement yet.
-- You know which phase you're building, and every earlier phase has merged (in `rebase` style:
-  is complete on the branch).
+- You know which phase you're building, and every earlier phase is **committed, green on the
+  local gates, and pushed to its PR**. Its PR does not have to be merged: merging is a person's
+  call, made whenever the team's process allows ([why](../../docs/phase-advance-on-push.md)).
 - You're on a branch for **this phase only**. If this phase needs a **new** branch (every phase
-  after the first, once the previous phase's PR has merged), cut it from the freshly fetched
-  integration branch: `git fetch` first, then branch from `origin/<base>`. If you're on the branch
-  Stage 0 just cut or rebased, it already sits on a base fetched and confirmed minutes ago, so
-  check that it's the branch you expect and don't fetch again. If `branchModel.style` is `rebase`,
-  you're instead on the one long-lived branch, and this phase is the next commit series on it
-  (below).
+  after the first), stack it on the previous phase's branch as pushed:
+  `git switch -c <this-phase> <previous-phase>`, and open its PR against that branch, so the PR
+  shows this phase alone. If the previous phase's PR has already merged, cut it from the freshly
+  fetched integration branch instead: `git fetch` first, then branch from `origin/<base>`. If
+  you're on the branch Stage 0 just cut or rebased, it already sits on a base fetched and confirmed
+  minutes ago, so check that it's the branch you expect and don't fetch again. If
+  `branchModel.style` is `rebase`, you're instead on the one long-lived branch, and this phase is
+  the next commit series on it, pushed to the same PR (below).
 - The base was confirmed fresh when the branch was created or rebased (Stage 0). **Don't re-run
   the freshness gate to start a phase** — it runs twice per change, at Stage 0 and again before
   the push ([pre-push-gates](../pre-push-gates/SKILL.md)), which is where a base that moved while
@@ -53,10 +56,12 @@ procedure keeps each phase small and keeps its deviations visible.
    shows the exact shape. In `rebase` style the phase is a contiguous commit series on the
    long-lived branch, not a branch: name the phase in each
    subject (`feat(retry): phase 1 — …`), don't interleave commits from two phases, and start the
-   next phase only once this one is complete.
-6. **Update the spec** in the same branch. Mark the phase built (or partly built), and add an
-   **As built** list with every deviation and its reason. Set the status to `PARTIAL(phases 0–N)`.
-   Leave `BUILT` for when the last phase merges.
+   next phase only once this one is committed, green on the gates, and pushed to the PR.
+6. **Update the spec** in the same branch. Mark the phase `in review (PR #n)`, and any earlier
+   phase whose PR has merged since `merged (PR #n)`; add an **As built** list with every deviation
+   and its reason. The status names both halves, leaving out an empty one:
+   `PARTIAL(merged: phases 0–1; in review: phase 2)`. A pushed phase is in review, not built:
+   leave `BUILT` for when the last phase's PR merges.
 
 ## Done when
 

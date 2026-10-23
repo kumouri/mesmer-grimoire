@@ -48,8 +48,8 @@ of these, so a minimum spec can be promoted later by adding sections.
 
 - Record each answered question as an ADR with [write-adr](../write-adr/SKILL.md). In the spec,
   edit the question in place to `DECIDED (date, ADR id)`. Never delete it.
-- Set the status to `SIGNED-OFF`. It becomes `PARTIAL(what is built)` as phases merge, and `BUILT`
-  once the last one merges.
+- Set the status to `SIGNED-OFF`. It becomes `PARTIAL(merged: …; in review: …)` as phases are
+  pushed and merged, and `BUILT` once the last one merges. A pushed phase is in review, not built.
 
 ## Anti-patterns
 

@@ -2,9 +2,10 @@
 
 **Status:** {{status}} · **Owner:** {{owner}} · **Date:** {{date}} · **Related:** tickets, ADRs, prior specs
 
-> Status is one of `DRAFT` → `SIGNED-OFF` → `PARTIAL(what is built)` → `BUILT`, or `MEMO` for a
-> write-up that proposes nothing to build. A spec reads `DRAFT` or `SIGNED-OFF` until the PR that
-> builds it merges. Delete this note.
+> Status is one of `DRAFT` → `SIGNED-OFF` → `PARTIAL(merged: …; in review: …)` → `BUILT`, or
+> `MEMO` for a write-up that proposes nothing to build. A phase pushed to an open PR is
+> `in review`, not merged; the spec is `BUILT` only once its last phase's PR merges. Delete this
+> note.
 
 ## The ask
 
@@ -74,16 +75,16 @@ The residual risk after this ships, stated rather than implied.
 ## Phases
 
 Smallest useful step first. **Phase 0 changes no behaviour**: it records, measures, logs or
-reports, so it is safe to ship alone, and its data sizes the phases after it. Each phase merges
-green on its own.
+reports, so it is safe to ship alone, and its data sizes the phases after it. Each phase is green
+on its own, and the next starts once it is pushed to its PR, not once it merges.
 
 | Phase | What | Behaviour change | Gated on | Verified by |
 |---|---|---|---|---|
 | 0 | Instrument / report only | **None** | Sign-off of this spec | … |
 | 1 | … | … | Phase 0 data (default window: one week) or a named decision | … |
 
-When a phase ships, mark it built here and add an **As built** list: every deviation from this
-spec, each with its reason.
+When a phase is pushed, mark it `in review (PR #n)` here, and `merged (PR #n)` once its PR merges.
+Add an **As built** list: every deviation from this spec, each with its reason.
 
 ## Test plan
 

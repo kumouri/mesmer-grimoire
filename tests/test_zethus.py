@@ -769,6 +769,52 @@ class KitContract(unittest.TestCase):
         self.assertIn("If this phase needs a **new** branch", implement)
         self.assertIn("don't fetch again", implement)
 
+    def test_the_next_phase_starts_on_push_not_on_merge(self):
+        """A pushed phase unblocks the next one; a pushed phase is in review, never built.
+
+        Ceryce's ruling, 2026-10-22 (``zethus/docs/phase-advance-on-push.md``): on a team that
+        merges only when a whole feature is done, waiting for each phase's PR to merge blocks all
+        work. Phases stack on the previous phase's pushed branch instead.
+        """
+        implement = (KIT / "skills/implement-phase/SKILL.md").read_text(encoding="utf-8")
+        pre = implement.split("## Preconditions", 1)[1].split("\n## ", 1)[0]
+        self.assertNotIn("has merged (in", pre, "the merge gate is gone")
+        self.assertNotIn("once the previous phase's PR has merged), cut it", pre)
+        self.assertIn("pushed to its PR**. Its PR does not have to be merged", pre)
+        self.assertIn("git switch -c <this-phase> <previous-phase>", pre)
+        self.assertIn("in review (PR #n)", implement)
+        self.assertNotIn("Leave `BUILT` for when the last phase merges.", implement)
+
+        agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+        model = agent.split("## Branch model", 1)[1].split("\n**Stuck branch.**", 1)[0]
+        for rule in ("Phases are **stacked**", "pushed, not merged", "--update-refs",
+                     "pushed to the PR"):
+            self.assertIn(rule, model)
+        self.assertIn("Don't wait for the PR to merge", agent)
+        self.assertNotIn("starts only once\n    the one before it is complete", agent)
+
+        instructions = (KIT / "copilot-instructions.md").read_text(encoding="utf-8")
+        self.assertNotIn("Each phase merges green on its own", instructions)
+        self.assertIn("pushed to its PR, not\n  once it merges", instructions)
+        self.assertIn("Never merge your own PR", instructions, "the merge rule itself stays")
+
+        # Status words: in review is its own state; BUILT still waits for the last merge.
+        for doc in ("instructions/docs.instructions.md", "templates/spec-full.md",
+                    "skills/write-spec-full/SKILL.md"):
+            text = (KIT / doc).read_text(encoding="utf-8")
+            self.assertIn("PARTIAL(merged: …; in review: …)", text, doc)
+            self.assertNotIn("PARTIAL(what is built)", text, doc)
+        self.assertNotIn("Each phase merges\ngreen on its own",
+                         (KIT / "templates/spec-full.md").read_text(encoding="utf-8"))
+
+        pr = (KIT / "skills/zethus-pr-description/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("origin/<previous-phase>...HEAD", pr)
+        self.assertIn("**Don't merge it, even if you can.**", pr)
+        self.assertIn("- **Stacked on:**", (KIT / "templates/pr.md").read_text(encoding="utf-8"))
+        readme = (KIT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("| Next phase starts |", readme)
+        self.assertIn("docs/phase-advance-on-push.md", readme)
+
     def test_the_visible_plan_is_a_rule_with_a_fallback_and_an_exit_condition(self):
         """The plan stays visible, updated per stage rather than per step.
 
