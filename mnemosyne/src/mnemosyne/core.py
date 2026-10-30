@@ -392,12 +392,17 @@ def next_id(cfg: Config, lessons, prefix=None) -> str:
 
 
 def git(repo: Path, *args, check=False, env=None):
+    """Run git in `repo`; return (returncode, stdout, stderr), stripped.
+
+    stdin is always DEVNULL. Under the MCP server our own stdin is the JSON-RPC channel, and a git
+    child that inherits it holds that channel so, on Windows, the tool's reply never arrives."""
     run_env = None
     if env:
         run_env = dict(os.environ)
         run_env.update(env)
     try:
-        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=run_env)
+        r = subprocess.run(["git", "-C", str(repo), *args], stdin=subprocess.DEVNULL,
+                           capture_output=True, text=True, env=run_env)
     except FileNotFoundError:
         return 127, "", "git not found"
     if check and r.returncode != 0:
