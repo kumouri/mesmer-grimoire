@@ -4,7 +4,9 @@ Wraps mnemosyne's own zero-dependency self-test into the repo unittest suite, pl
 bundled configs load, the public API round-trips on a temp repo, a save that dies mid-write leaves
 the old store intact, concurrent writer processes lose no update and a dead lock holder never
 wedges the store, `promote` stages (and with push, pushes) the same review PR from every surface,
-and the plugin no longer registers the dead SessionEnd nudge.
+and the plugin no longer registers the dead SessionEnd nudge. The review loop itself (ids, merges,
+offline recall, scrubbing) is in test_mnemosyne_review_flow.py; the MCP stdio round trip is in
+test_mnemosyne_mcp_stdio.py.
 """
 from __future__ import annotations
 
@@ -299,15 +301,19 @@ class PromoteParity(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def test_promote_returns_the_staging_steps(self):
+    def test_promote_commits_the_branch_and_returns_the_push_step(self):
         res = self.mn.promote(self.ids[0], repo=self.repo)
         pr = res["pr"]
+        branch = f"reflexion/{self.ids[0]}"
         self.assertTrue(pr["is_git"])
         self.assertFalse(pr["pushed"])
-        self.assertEqual(pr["branch"], f"reflexion/{self.ids[0]}")
-        self.assertEqual(len(pr["commands"]), 4)
-        self.assertIn(f"checkout -b reflexion/{self.ids[0]}", pr["commands"][0])
-        self.assertNotIn("local.jsonl", pr["commands"][1], "local.jsonl is gitignored; don't stage it")
+        self.assertEqual(pr["branch"], branch)
+        self.assertEqual(len(pr["commands"]), 1)
+        self.assertIn(f"push -u origin {branch}", pr["commands"][0])
+        files = subprocess.run(["git", "-C", str(self.repo), "show", "--name-only", "--format=", branch],
+                               capture_output=True, text=True, check=True).stdout.split()
+        self.assertEqual(sorted(files), ["memory/LESSONS.md", "memory/lessons.jsonl"],
+                         "local.jsonl is gitignored; the review commit must not carry it")
 
     def test_push_creates_branch_commits_and_pushes(self):
         res = self.mn.promote(self.ids[0], push=True, repo=self.repo)
@@ -369,7 +375,7 @@ class PromoteParity(unittest.TestCase):
         self.assertTrue(res["same_repo"])
         self.assertEqual([r["id"] for r in res["results"]], self.ids)
         for r in res["results"]:
-            self.assertEqual(len(r["pr"]["commands"]), 4)
+            self.assertEqual(len(r["pr"]["commands"]), 1)
             self.assertFalse(r["pr"]["pushed"])
 
 

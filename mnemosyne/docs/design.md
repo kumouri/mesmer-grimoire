@@ -87,16 +87,40 @@ specialized memory libraries). Files in git are the right default, with a clean 
 
 **Two tiers, then N.** A captured lesson lands in the **local** tier (`memory/local.jsonl`,
 gitignored) instantly — zero friction. It shapes only *your* work until you **promote** it:
-`mnemosyne promote` moves it to the **shared** tier (`memory/lessons.jsonl`, committed) on a branch
-and stages a PR. A reviewer approves before it becomes team-wide, so one bad lesson can't silently
+`mnemosyne promote` proposes it for the **shared** tier (`memory/lessons.jsonl`, committed) through
+a review PR. A reviewer approves before it becomes team-wide, so one bad lesson can't silently
 poison everyone — the cost of a wrong shared lesson is high (it steers every future run), so it
 gets a human gate. Agent proposes, human disposes.
 
+**Merging the review PR is the approval.** There is no separate approve step. The lesson on the
+review branch already carries `review.state: approved`; it takes effect when the PR merges into the
+default branch. Until then the local original is **kept**, marked `proposed` with
+`source.exported_to`, so it keeps steering your work and keeps its id. The next `sync` sees the
+merged copy on the default branch and in the working tree, and retires the local original (status
+`retired`, reason recorded, record kept).
+
 Staging lives in the engine (`core.stage_review_pr`), not in any one surface, so the CLI, the MCP
-`promote` tool and `mn.promote()` behave identically: each returns the git steps that stage the
-review PR (branch, add, commit, push), and with `push` set runs them, stopping at the first failing
-step. Only the committed files are staged; `local.jsonl` is gitignored by design. Nothing in the
-engine opens or merges the PR.
+`promote` tool and `mn.promote()` behave identically. It never touches a working tree: it builds
+the review branch with git plumbing from the default branch (`origin/HEAD`, else `HEAD`) plus
+exactly the promoted lesson, with `LESSONS.md` rendered to match. So nothing else that happens to
+be uncommitted rides along, you stay on your branch, and a store's cached clone stays on its
+default branch, where `sync` can see the merge. It returns the step left to run by hand (push, open
+the PR); with `push` set it pushes too. Nothing in the engine opens or merges the PR. A memory repo
+outside git has no review to wait for, so there `promote` moves the lesson straight into the shared
+tier as `proposed`.
+
+**Ids are never reused.** A new id is allocated above every id in the local tier, the working
+tree's shared tier and the shared tier as committed on `HEAD`, the remote default branches and
+every local or remote `reflexion/*` review branch. If a promoted lesson's id turns out to be taken
+on a committed branch anyway (a teammate's lesson you hadn't fetched), the shared copy gets a fresh
+id and records `source.exported_from`. When ids do collide, the reviewed shared record wins in
+every view, and `validate` reports the collision rather than letting the local lesson vanish.
+
+**Nothing leaves the local tier unscrubbed.** `promote`, `export` and `capture --shared` pass every
+outgoing lesson through `core.scrub_lesson`. The author is `$MNEMOSYNE_AUTHOR`, else `unknown`,
+never the OS login. Absolute anchor paths become repo-relative or are dropped, and home-directory,
+drive, UNC and WSL paths in free text become `<path>`. A clean scrub is not clearance to publish;
+the review PR stays the gate.
 
 **Broader tiers (federation).** Beyond its own local+shared tiers, a repo can federate with
 additional **stores** — separate mnemosyne memory repos declared in `config.stores`, each a broader
@@ -104,12 +128,16 @@ shared tier (e.g. `team`, `enterprise`). A store is addressed by a git **url** (
 into a cache — `$MNEMOSYNE_CACHE`, else `~/.mnemosyne/stores` — and `sync` pulls it), or a **path**
 to an existing repo. Each store carries a distinct id **prefix** (e.g. `T`/`E`), which is what lets
 federated lessons share one id space without ever colliding. `recall` reads the union of primary +
-all reachable stores (best-effort: an unreachable store is skipped with a note, never a failure —
-recall never touches the network). `promote --to <tier>` (or `export`) copies chosen local lessons
-*up* to a store under a new store-prefixed id marked `proposed`, opening the PR in *that* store's
-repo. The local original is kept and marked (so recall's near-dup collapse hides the double) until
-the upstream PR merges — the next `sync` then retires it, leaving the store copy authoritative.
-Usage tracking always writes to the primary gitignored sidecar; stores are read-only for usage.
+every store **already on disk**. It never touches the network: it never clones or pulls, and a store
+that isn't fetched yet, or can't be read, is skipped with a note, never a failure. `sync` is the
+network path: it clones missing stores and pulls the rest. (`export`, being a write, may also clone
+the one store it writes to.) `promote --to <tier>` (or `export`) commits chosen local lessons *up*
+to a store, scrubbed, under new store-prefixed ids on one review branch in *that* store's repo.
+The local originals are kept and marked until the store's PR merges; the next `sync` then retires
+them, leaving the store copies authoritative. A store that isn't a git repo has no PR to merge, so
+`export` writes into it as `proposed` and `sync` retires an original only once its copy reads
+`approved`. Usage tracking always writes to the primary gitignored sidecar; stores are read-only for
+usage.
 
 **Source of truth = the JSONL.** `memory/lessons.jsonl` is authoritative; `memory/LESSONS.md` is a
 **generated** human view, regenerated on every write and committed so PR diffs are readable.
@@ -185,7 +213,7 @@ Every command prints a quotable line the surfaces relay verbatim:
 - **recall** → `RECALL: N reflexion lesson(s) applied … (L-…, L-…). Source: …` — the user sees what
   prior knowledge is steering the work and can veto any of it.
 - **capture / reflect** → `SAVED: L-00NN captured to LOCAL reflexion memory — "…"` + the promote hint.
-- **promote** → `PROMOTED: L-00NN … staged for team review …`.
+- **promote** → `PROMOTED: L-00NN committed alone on review branch reflexion/L-00NN …`.
 
 Memory is never applied behind the user's back, and never shared unreviewed.
 
