@@ -1,7 +1,13 @@
 # Lessons capture and harness convergence: verification and spec (2026-10-29)
 
 **Status:** DRAFT. This is a verification report and a spec, nothing more: no feature is built.
-The [open questions](#7-open-questions-for-ceryce) need rulings before Phase 1 starts.
+**All eight questions are ruled** (2026-10-29). Seven went as recommended: Zethus and Amphion
+stay two kits on a shared core (Q1); auto-store never stores the six excluded classes (Q2) and
+never writes beyond the local tier (Q7); a standard is three occurrences across two or more specs
+or tickets within 180 days (Q4, Q5); merging a review PR approves its lesson (Q6); and the engine
+bugs are fixed first, as Phase 0 (Q8). Q3, the federation target, needed none of its options:
+Mnemosyne's existing N-tier federation already answers it. No question blocks any phase, and
+Phase 0 can start. See [Rulings](#rulings-2026-10-29).
 
 **The ask** (Ceryce, Telegram, 2026-10-29 21:33 CT, verbatim):
 
@@ -42,9 +48,10 @@ still stand. Nothing here reopens them.
   Both append *candidates* to a local spool. A rule table then sorts each candidate into **store
   automatically** (local tier only), **ask**, or **ask to promote a recurring answer into a
   standard**.
-- **Phase 1 is small** ([§5](#5-phases)): fix the three blockers, add the candidate spool, and
-  auto-store the two most obvious signals in Zethus (recorded ADRs, and a gate that went red then
-  green), with an end-of-turn triage hook on Claude Code.
+- **The engine is fixed first** ([§5](#5-phases), Q8 ruled): Phase 0 fixes B1–B6 and runs the
+  candidate spool in shadow mode. **Phase 1 is then small:** auto-store the two most obvious
+  signals in Zethus (recorded ADRs, and a gate that went red then green), with an end-of-turn
+  triage hook on Claude Code.
 
 ---
 
@@ -171,7 +178,8 @@ or API call. The schema enum and `sync`'s retire-on-merge both depend on `approv
 selftest gets there by writing the JSONL directly (`mnemosyne/src/mnemosyne/cli.py:691`). So in
 real use an exported lesson's local original never retires, unless a reviewer hand-edits the store,
 which the design doc forbids. Recall ignores review state entirely, so `proposed` and `approved`
-rank the same.
+rank the same. The fix is decided: merging the review PR is the approval
+([Q6](#q6-how-a-proposed-lesson-becomes-approved), [§4.8](#48-engine-changes-this-needs)).
 
 #### B5. Recall clones URL stores on the hot path
 
@@ -290,16 +298,19 @@ skip stages, while Amphion is six optional skills that compose and "don't depend
 Zethus already shares Amphion's config vocabulary and points to Amphion's exception handlers
 ([`zethus/README.md`](../zethus/README.md#how-it-relates-to-amphion)).
 
-**The options** (asked as [Q1](#q1-fuse-zethus-and-amphion)):
+**Decided: both kits stay, on a shared core** ([Q1](#q1-fuse-zethus-and-amphion), ruled
+2026-10-29). One source tree holds what both need: the memory hooks and their registration, the
+`memory` config schema, the shared skills (`flag-or-fix`, `resume-interrupted-phase`, one
+`pr-description`), and the installer stage 1 already planned. Zethus remains the enforcing agent and
+Amphion the à-la-carte skill set; each installs the core it needs, and installing both installs it
+once. The packaging is Phase 4 ([§5](#5-phases)); nothing before it waits on it.
 
-1. **Keep both on a shared core.** One source tree for what both need: the memory hooks, the config
-   schema, the shared skills (`flag-or-fix`, `resume-interrupted-phase`, one `pr-description`),
-   and the installer stage 1 already planned. Zethus remains the enforcing agent and Amphion the
-   à-la-carte skill set.
-2. **Fuse into one kit.** One name, one install. The Zethus agent becomes the enforcer, Amphion's
-   skills become its exception handlers, and "enforcement off" mode stands in for Amphion's
-   composable use.
-3. **Keep them separate.** Wire Mnemosyne into each independently.
+The options that were not chosen:
+
+- **Fuse into one kit.** One name, one install. The Zethus agent would become the enforcer,
+  Amphion's skills its exception handlers, and an "enforcement off" mode would stand in for
+  Amphion's composable use.
+- **Keep them separate.** Wire Mnemosyne into each independently.
 
 ---
 
@@ -318,7 +329,7 @@ has recurred across distinct contexts (§4.4).
 | **Lesson** (`mistake`/`process`, episodic) | Feedback changed what the agent should do next time | A restatement of the task, or anything the repo's own docs already say |
 | **Decision** (`decision`/`architecture`) | A choice between real options was made by a person, or recorded as an ADR | A choice the spec already made |
 | **Convention** (`convention`) | The user stated or corrected a house rule ("we page at 50", "never squash") | A one-off preference scoped to this task |
-| **Standard** (`convention` + procedural + recurrence) | The same answer was given in ≥ N distinct contexts (Q4) | The same answer in the same context twice |
+| **Standard** (`convention` + procedural + recurrence) | The same answer was given three times across at least two distinct contexts within 180 days (Q4, Q5) | The same answer in the same context, however often |
 
 ### 4.2 How the agent identifies one in-session
 
@@ -354,15 +365,26 @@ Every candidate goes through one rule table, in this order. The first matching r
 | Order | Rule | Outcome |
 | --- | --- | --- |
 | 1 | Scrub finds a secret or credential shape (§4.6) | **drop**, never stored anywhere; say so |
-| 2 | Category would be `security`, or it would supersede an existing lesson | **ask** |
+| 2 | Category would be `security`; it is a judgement about a person (a colleague, a reviewer); it would supersede an existing lesson; or its text would have to quote tool output, web or issue text, or the transcript | **ask** |
 | 3 | The candidate matches an existing lesson (dedup threshold) | **reinforce** it and record the context; then check rule 6 |
 | 4 | Signal default is *auto* (S1, S2 with a fix line, S4) and the session's auto budget isn't spent | **store automatically**, local tier |
 | 5 | Anything else | **ask** |
-| 6 | After a reinforce: the lesson has recurred in ≥ N distinct contexts (Q4) and isn't yet a standard | **ask to promote into a standard** |
+| 6 | After a reinforce: the lesson has occurred three times across at least two distinct contexts within 180 days (§4.4) and isn't yet a standard | **ask to promote into a standard** |
+
+Rules 1 and 2 hold five of the six classes [Q2](#q2-what-may-auto-store-never-store-multi-select)
+ruled auto-store must never store. The sixth, anything beyond the local tier, is the first bullet
+below. All six are fixed, not config keys. The engine refuses the four it can check mechanically on
+any capture marked `captured_by: hook:*`: a secret shape, the `security` category, a supersede, and
+a tier other than local (§4.8). The triage skill judges the other two, a judgement about a person
+and quoted text, because no pattern can. A refused candidate stays in the spool for the next ask,
+except a secret, which is dropped.
 
 **Store automatically** always:
 
-- lands in the **local** tier only (gitignored, per developer), never shared (Q7);
+- lands in the **local** tier only (gitignored, per developer), never shared: anything beyond local
+  always asks, and auto-store never opens a PR (Q2 and Q7, ruled);
+- stores only text the agent wrote: a distilled lesson, never pasted tool output, web or issue text,
+  or transcript excerpts (Q2, ruled; §4.6 *Untrusted text*);
 - is announced with the engine's `SAVED:` line in the same reply;
 - is marked `source.captured_by: hook:<signal>` so auto-captures can be listed, reviewed and pruned
   as a group;
@@ -393,15 +415,21 @@ one came from. So twenty reinforcements in one spec look the same as three acros
 
 - Every reinforce appends a **context fingerprint** to the lesson:
   `{ctx: <hash>, stage, date, signal}`.
-- The hash is a salted hash of the repo's identity plus the spec or ticket id. A shared tier can
-  then count distinct contexts **without learning repo or ticket names** (§4.6).
-- *Distinct contexts* means distinct hashes inside a rolling window. The default window is the
-  existing `prune_max_age_days` (180).
+- **A context is a spec or ticket** ([Q5](#q5-what-counts-as-a-distinct-context), ruled): two
+  pieces of work in the same repo are different contexts, and one long ticket counts once however
+  many sessions it spans. Where there is no spec or ticket id, the branch stands in.
+- The hash is a salted hash of the repo's identity plus the spec or ticket id (else the branch). A
+  shared tier can then count distinct contexts **without learning repo or ticket names** (§4.6).
+- *Distinct contexts* means distinct hashes inside a rolling window of 180 days, the existing
+  `prune_max_age_days`.
+- **A lesson becomes a standard candidate at three occurrences across at least two distinct
+  contexts** within that window ([Q4](#q4-recurrence-threshold-for-a-standard), ruled).
 - For decisions (S7), the match is on the *question class* plus the *chosen option*. Each ADR
   records both, so the same answer across three ADRs in three specs is a standard candidate even
   where the wording differs.
 
-Thresholds are a config key with a default chosen at [Q4](#q4-recurrence-threshold-for-a-standard).
+The thresholds are config keys (`memory.standard`, §4.7) whose defaults are the Q4 ruling. What
+counts as a context is not configurable.
 
 ### 4.5 Where each outcome lands
 
@@ -415,23 +443,25 @@ store's repo.
 | Auto | **local** (`local.jsonl`) | `capture` / `reflect` | none (announced, undoable) |
 | Ask → yes | **local** | `capture` / `reflect` | the answer |
 | Promote to the project | **shared** (`memory/lessons.jsonl` in the primary repo) | `promote` → PR | PR review |
-| Standard, or an explicit share | a **store** (e.g. `personal`, `team`, `enterprise`) | `promote --to <tier>` → PR in the store repo, **after scrub** | PR review in the store |
+| Standard, or an explicit share | a **store** (any declared in `config.stores`, e.g. `team`, `enterprise`) | `promote --to <tier>` → PR in the store repo, **after scrub** | PR review in the store |
 
 **Sharing defined in Mnemosyne's terms:** a lesson is *shared* when it sits in a committed file of
 any repo other than the developer's own gitignored local tier. Sharing therefore always means a
-`promote` or `export`, always produces a PR, and always runs the scrub. Which store the agent
-offers by default is [Q3](#q3-federation-target). **Nothing from Ceryce's work may ever land in
-this repository**: its `mnemosyne/memory/` is a public demo store.
+`promote` or `export`, always produces a PR, and always runs the scrub. Where it can go is
+[Q3](#q3-federation-target), ruled: the tiers Mnemosyne's federation already defines, which are
+local, then the repo's shared tier, then any number of stores in `config.stores`, each its own
+git repo with a distinct id prefix. The spec adds no default store of its own. **Nothing from
+Ceryce's work may ever land in this repository**: its `mnemosyne/memory/` is a public demo store.
 
 ### 4.6 Privacy and scrub rules
 
 The repo is public, and stores may be shared with an organisation. The engine runs the scrub on
-every write to a committed tier: `promote`, `export`, and `capture --shared`. It is not left to the
-agent.
+every write to a committed tier: `promote`, `export`, and `capture --shared`. The secrets rule runs
+on every write, the local tier included. None of it is left to the agent.
 
 | Rule | What it catches | Action |
 | --- | --- | --- |
-| **Secrets** | Key and token shapes: cloud access keys, `ghp_`/`gho_`/`github_pat_`, `sk-`, `xox?-`, PEM blocks, JWTs, `password=`/`token=` assignments | **Hard block at every tier, local included.** Auto-store drops the candidate (rule 1) |
+| **Secrets** | Key and token shapes: cloud access keys, `ghp_`/`gho_`/`github_pat_`, `sk-`, `xox?-`, PEM blocks, JWTs, `password=`/`token=` assignments | **Hard block at every tier, local included** (Q2, ruled). Auto-store drops the candidate (rule 1) |
 | **Machine identifiers** | The identifier guard's shapes: home-directory paths, drive paths, WSL mounts, non-allowlisted emails, repo URLs under foreign orgs ([`scripts/check_identifiers.py`](../scripts/check_identifiers.py)) | Block; show the match; offer the placeholder |
 | **Author** | The `$USER`/`$USERNAME` fallback (B6) | Never fall back to the login. Require `MNEMOSYNE_AUTHOR` or a configured handle, else write `unknown` |
 | **Anchors** | Absolute paths, or paths outside the repo | Rewrite to repo-relative; drop what can't be |
@@ -460,8 +490,10 @@ does nothing otherwise, which keeps Zethus's stdlib-only, fail-open rule:
 | `run-local-gates.py` | 6 | Writes candidate S2 when a gate that failed earlier in the phase now passes |
 
 **Channel 2: lifecycle hooks** for signals no script sees: the user's words, tool failures, and
-end-of-turn triage. One hook script (the existing bridge, grown new modes) is registered once per
-host, never twice (stage 1 §3.1 rule):
+end-of-turn triage. One hook script (the existing bridge, grown new modes) lives in the shared core
+([Q1](#q1-fuse-zethus-and-amphion), ruled), so Zethus and Amphion ship the same script rather than
+a copy each. It is registered once per host, never twice, even with both kits installed (stage 1
+§3.1 rule):
 
 | Mode | Claude Code | Copilot CLI / VS Code | Copilot cloud agent | Codex | Cursor |
 | --- | --- | --- | --- | --- | --- |
@@ -471,7 +503,7 @@ host, never twice (stage 1 §3.1 rule):
 | `stop`: triage checkpoint | `Stop`: block once with "N candidates pending, triage them" (guarded by `stop_hook_active`) | `agentStop`: can it block? **unverified**; fallback is the next `session-start` | same | `Stop`: **unverified** | `stop`: **unverified** |
 | `pre-compact`: flush the spool | `PreCompact` | `preCompact` | auto-compaction only | `PreCompact` | `preCompact` |
 
-Registration lives in one neutral file: Claude-format `hooks.json` in the plugin. It is read
+Registration lives in one neutral file: Claude-format `hooks.json` in the shared core's plugin. It is read
 as-is by Claude Code, Copilot CLI and VS Code (from `.claude/settings.json` in repo installs), and
 by Cursor if opted in. A Copilot-format copy under `.github/hooks/*.json` covers the cloud agent,
 installed **only** when the repo doesn't already carry the Claude file, so the CLI never fires
@@ -494,8 +526,8 @@ is a pointer to the skill, not the procedure, so the agent file grows by one lin
 **Amphion** has no scripts, so it gets channel 2 only. Its config gains the same `memory` block,
 and its watched paths come from its existing keys (`frictionLog.markdown.path`, `ledger.path`).
 
-**Config** (`memory`, the same keys in `zethus.config.json` and `amphion.config.json`; every key
-optional):
+**Config** (`memory`, one schema in the shared core, read from `zethus.config.json` and
+`amphion.config.json` alike; every key optional. Q2's exclusions are not keys here, by design):
 
 ```json
 "memory": {
@@ -503,10 +535,14 @@ optional):
   "repo": "",
   "autoStore": { "signals": ["adr", "gate-red-green", "explicit-remember"], "perSession": 5 },
   "watch": ["docs/adr/", "docs/specs/", "docs/friction-log.md"],
-  "standard": { "minContexts": 3, "windowDays": 180 },
-  "offerTier": "personal"
+  "standard": { "minOccurrences": 3, "minContexts": 2, "windowDays": 180 },
+  "offerTier": ""
 }
 ```
+
+`offerTier` names the tier the agent suggests first when it asks to share: `shared`, or a store
+declared in `config.stores`. Empty, the default, means it suggests none and offers every tier the
+repo's federation reaches ([Q3](#q3-federation-target), ruled).
 
 ### 4.8 Engine changes this needs
 
@@ -517,9 +553,10 @@ All of these are inside Mnemosyne and stay stdlib-only.
 | `stdin=subprocess.DEVNULL` in `core.git`, plus a CI test that calls an MCP tool on Windows and Linux | B1 | S |
 | Ids that can't collide across branches (date- or hash-keyed, as `new-adr.py` already does), and `promote` keeps the local copy until merge, as `export` does | B2 | S–M |
 | `promote` stages only its own lesson's lines, or refuses on a dirty store | B3 | S |
-| An approval path (shape per [Q6](#q6-how-a-proposed-lesson-becomes-approved)) | B4 | S |
+| Merged means approved ([Q6](#q6-how-a-proposed-lesson-becomes-approved), ruled): `promote` and `export` write `review.state: approved` into the review PR's commit, so merging the PR is the approval; the local original stays `proposed` until `sync` sees the id on the store's default branch and retires it | B4 | S |
 | Recall never clones; only `sync` and `stores` do | B5 | S |
-| The scrub (§4.6) on every committed-tier write; the author fallback removed | B6 | M |
+| The scrub (§4.6) on every committed-tier write, and its secrets rule on every write, local included; the author fallback removed | B6, Q2 | M |
+| `capture` / `reflect` refuse a `captured_by: hook:*` lesson that is `security`, supersedes another, or targets a tier other than local | Q2 | S |
 | Candidate spool `candidates.local.jsonl` beside the local tier (gitignored) with `candidate add/list/triage/dismiss` | §4.2 | M |
 | Context fingerprints on reinforce, and the `standard` marker | §4.4 | S–M |
 | `retire <id> --reason` and `doctor` | §4.3, §4.7 | S |
@@ -533,7 +570,8 @@ All of these are inside Mnemosyne and stay stdlib-only.
 - **Vector recall.** The lexical scorer is fine for procedural rules, and the design doc already
   names the upgrade path.
 - **Gemini CLI and Antigravity hook adapters**, until a user needs them.
-- **The fuse itself.** Phase 1 works under any answer to Q1.
+- **Building the shared core.** Q1 chose it, and it is Phase 4; Phases 0–3 don't wait on it.
+  Fusing the kits is not planned at all.
 
 ---
 
@@ -543,14 +581,17 @@ Sizes follow stage 1: S is under half a day, M is half a day to two days, L is t
 
 | Phase | What | Behaviour change | Exit, verified by | Size |
 | --- | --- | --- | --- | --- |
-| **0** | Engine fixes B1–B5, with tests that fail before each fix. Candidate spool and hooks in **shadow mode**: they record candidates and log decisions, but store nothing and ask nothing. Verify the unverified hook cells in §4.7 on real installs | Bug fixes only; capture is observe-only | An MCP tool-call test green on Windows and Linux; an id-collision test; one week of spool data showing the count and precision of each signal | M |
-| **1** | Auto-store for S1 (ADR) and S2 (gate red → green) through Zethus's scripts. `session-start` recall digest. Claude Code `stop` triage of pending candidates through the `lessons-triage` skill. Local tier only. Scrub (B6) | Yes: auto-store to local, one triage checkpoint | A Zethus run that records an ADR and fixes a red gate ends with two `SAVED:` lines and an empty spool; `retire` undoes either; no write outside `local.jsonl` | M |
+| **0** | Engine fixes B1–B6 before any capture (Q8, ruled), with tests that fail before each fix. B4 is fixed as merged-means-approved (Q6); B6 is the scrub (§4.6) and the author fallback. Candidate spool and hooks in **shadow mode**: they record candidates and log decisions, but store nothing and ask nothing. Verify the unverified hook cells in §4.7 on real installs | Bug fixes only; capture is observe-only | An MCP tool-call test green on Windows and Linux; an id-collision test; a merged review PR retires its local original with no hand edit; an export carrying a home-directory path or a login as author is blocked; one week of spool data showing the count and precision of each signal | M–L |
+| **1** | Auto-store for S1 (ADR) and S2 (gate red → green) through Zethus's scripts. `session-start` recall digest. Claude Code `stop` triage of pending candidates through the `lessons-triage` skill. Local tier only (Q7). The Q2 exclusions hold from here: an S1 or S2 candidate in an excluded class is asked at the same triage, never saved | Yes: auto-store to local, one triage checkpoint | A Zethus run that records an ADR and fixes a red gate ends with two `SAVED:` lines and an empty spool; `retire` undoes either; no write outside `local.jsonl`; a `security` ADR is asked, not saved, and the engine refuses it as a hook capture | M |
 | 2 | Ask outcomes (S4–S6, S8–S12), batched; Copilot `sessionStart` and `.github/hooks/*.json`; Amphion watched paths | Yes | Triage on Copilot CLI and VS Code; no double-fire with both files present | M |
-| 3 | Context fingerprints, standards (S7), promotion to shared or store, and config-default proposals | Yes | Three ADRs with the same answer in three specs produce exactly one "promote to standard?" question | M |
-| 4 | Whatever Q1 decides: shared core or fuse, inside the stage 1 installer | Packaging | Stage 1 §3.4 CI additions green | L |
+| 3 | Context fingerprints (a context is a spec or ticket, Q5), standards (S7), promotion to shared or store, and config-default proposals. Promotion targets the tiers Mnemosyne's federation already has: the shared tier or any store in `config.stores` (Q3, ruled) | Yes | Three ADRs with the same answer across two specs produce exactly one "promote to standard?" question; three in one spec produce none (Q4) | M |
+| 4 | The shared core (Q1, ruled), inside the stage 1 installer: one source tree for the memory hook script and its `hooks.json`, the `memory` config schema, and the shared skills. Zethus and Amphion each install from it and keep their own names, READMEs and install paths | Packaging | Stage 1 §3.4 CI additions green; installing both kits registers each hook once; `tests/test_zethus.py` green | M, on top of the stage 1 installer |
 
-Phase 0 deliberately ships no capture: the signal table in §4.2 is a hypothesis about precision,
-and a week of shadow data is cheaper than tuning auto-store against real lessons.
+Phase 0 deliberately ships no capture. Building capture on an engine that loses lessons on merge
+(B2) would bank data straight into the bug, which is why Q8 ruled the fixes first. And the signal
+table in §4.2 is a hypothesis about precision: a week of shadow data is cheaper than tuning
+auto-store against real lessons. Phase 0 is M–L rather than M because the scrub (B6, M) moved into
+it from Phase 1.
 
 ---
 
@@ -576,15 +617,72 @@ has no `*.sh` files.
 
 ## 7. Open questions for Ceryce
 
-Each lists the recommended option first. Costs use the sizes in §5.
+Each lists the recommended option first. Costs use the sizes in §5. **All eight are ruled. Q1, Q2
+and Q4–Q8 went as recommended; Q3 is settled by Mnemosyne's existing federation, not by any of its
+options.**
+
+### Rulings (2026-10-29)
+
+Ceryce answered Q1, Q2 and Q4–Q8 by Telegram picker. Each tap is quoted verbatim, with the option
+description the picker showed beside it. She answered Q3 in chat instead, quoted verbatim below.
+
+- **Q1**, at 22:03 CT: **"Shared core"**: "One core both kits use (wiring written once), Zethus
+  keeps enforcing process, Amphion stays optional skills. Cost: medium, on top of the planned
+  installer."
+- **Q2** (multi-select), at 22:04 CT, all six tapped:
+  - **"Secrets, at any tier"**: "Keys, tokens, credentials, anywhere."
+  - **"Raw tool or web text"**: "Only the agent's distilled lesson, never pasted output."
+  - **"Anything beyond local"**: "Auto-store writes the local tier only; sharing always asks."
+  - **"Security lessons"**: "Always asked, never auto."
+  - **"Judgements about people"**: "Never auto-stored."
+  - **"Replacing an existing lesson"**: "A superseding lesson always asks."
+- **Q4**, at 22:05 CT: **"3 times across 2+ contexts within 180 days"**: "Recurs enough to be a
+  pattern, across situations. Cost: slower to notice."
+- **Q5**, at 22:06 CT: **"A different spec or ticket"**: "Same repo can still be different work.
+  Cost: a long ticket can't count twice."
+- **Q6**, at 22:06 CT: **"Merging its review PR is the approval"**: "Uses the PR you already
+  review; fixes the 'nothing approves a lesson' bug. Cost: none new."
+- **Q7**, at 22:06 CT: **"Local only"**: "Anything leaving your machine always asks. Cost: you
+  approve every share."
+- **Q8**, at 22:06 CT: **"Bugs first, as Phase 0"**: "MCP hang on Windows, reused lesson ids,
+  swept-in promotions, no approve path, recall cloning offline, unscrubbed exports. Cost: capture
+  waits a PR."
+- **Q3**, at 22:05 CT, in chat (the picker was settled by this reply, not a tap): "Mnemosyne
+  should already use an N-tier federated design with github repos as the stores, so this should
+  already be answered." She is right. The [design doc](../mnemosyne/docs/design.md#architecture)
+  ("Two tiers, then N" and "Broader tiers (federation)") already defines the tiers: local, then
+  the repo's shared tier, then any number of federated stores declared in `config.stores`, each
+  its own git (GitHub) repo with a distinct id prefix, with a promotion opened as a PR in that
+  store's repo. None of the three options the spec invented is needed.
+
+Two picker texts differ from the options below, and the spec follows the picker in both cases:
+
+- **Q8's picker listed six bugs, B1–B6.** Option 1 below says B1–B5. "Unscrubbed exports" is B6,
+  so Phase 0 now fixes B1–B6, and the scrub moved there from Phase 1.
+- **Q5's picker label omitted option 1's "else a distinct branch" fallback.** The spec keeps it,
+  for work that has no spec or ticket id. It does not change her tap: the branch stands in only
+  where there is no spec or ticket.
+
+| Question | Status |
+| --- | --- |
+| Q1 | **Ruled: option 1** ("Shared core"). Reflected in [§3.3](#33-what-this-implies-for-zethus-and-amphion), [§4.7](#47-how-zethus-and-amphion-call-it-first-class), [§4.9](#49-out-of-scope) and Phase 4 |
+| Q2 (multi-select) | **Ruled: all six options** (1–6). Reflected in [§4.3](#43-the-three-outcomes), [§4.6](#46-privacy-and-scrub-rules), [§4.8](#48-engine-changes-this-needs) and Phase 1 |
+| Q3 | **Ruled: none of the options**; settled by Mnemosyne's existing N-tier federation. Reflected in the status line, [§4.5](#45-where-each-outcome-lands), the `memory.offerTier` config and Phase 3 |
+| Q4 | **Ruled: option 1** ("3 times across 2+ contexts within 180 days"). Reflected in [§4.1](#41-what-is-worth-remembering), [§4.3](#43-the-three-outcomes), [§4.4](#44-recurrence-the-same-answer-in-different-situations), the `memory.standard` config and Phase 3 |
+| Q5 | **Ruled: option 1** ("A different spec or ticket"). Reflected in [§4.4](#44-recurrence-the-same-answer-in-different-situations) and Phase 3 |
+| Q6 | **Ruled: option 1** ("Merging its review PR is the approval"). Reflected in [B4](#b4-nothing-in-the-engine-approves-a-proposed-lesson), [§4.8](#48-engine-changes-this-needs) and Phase 0 |
+| Q7 | **Ruled: option 1** ("Local only"). Reflected in [§4.3](#43-the-three-outcomes) and Phase 1 |
+| Q8 | **Ruled: option 1** ("Bugs first, as Phase 0"), as B1–B6. Reflected in the summary and Phases 0 and 1 |
 
 ### Q1. Fuse Zethus and Amphion?
 
-1. **Keep both on a shared core *(recommended)*.** Convergence removed the *format* reason for two
-   kits but not the *philosophy* one: an enforcer and a set of optional skills serve different
-   users. A shared core gives one copy of the memory hooks, config schema and shared skills, and it
-   is the shape the stage 1 installer already plans. Cost: M on top of the stage 1 installer; two
-   READMEs and two names to keep.
+**Ruled 2026-10-29, 22:03 CT: option 1** ("Shared core").
+
+1. **Keep both on a shared core *(recommended; ruled)*.** Convergence removed the *format* reason
+   for two kits but not the *philosophy* one: an enforcer and a set of optional skills serve
+   different users. A shared core gives one copy of the memory hooks, config schema and shared
+   skills, and it is the shape the stage 1 installer already plans. Cost: M on top of the stage 1
+   installer; two READMEs and two names to keep.
 2. **Fuse into one kit.** One name, one install, one story for the portfolio. Cost: L. It breaks
    both kits' documented install paths and `tests/test_zethus.py`'s layout, needs a naming
    decision, and turns Amphion's "any one is useful alone" into a mode of an enforcer.
@@ -593,44 +691,60 @@ Each lists the recommended option first. Costs use the sizes in §5.
 
 ### Q2. What may auto-store never store? (multi-select)
 
-1. **Secrets or credential shapes, at any tier *(recommended)*.** Cost: none; the scrub already
-   needs the matcher.
-2. **Raw tool output, web or issue text, or transcript excerpts *(recommended)*.** Lessons are
-   written by the agent or the user, never pasted. Cost: some auto-captures become questions.
-3. **Anything beyond the local tier *(recommended)*.** Cost: none now; sharing stays a PR.
-4. **`security`-category lessons *(recommended)*.** Always asked. Cost: a few more questions.
-5. **Judgements about people**, such as colleagues or reviewers *(recommended)*. Cost: none.
-6. **Anything that would supersede an existing lesson.** Cost: one more question when the user
-   corrects a recalled lesson. Recommended as well; listed separately because it slows S12.
+**Ruled 2026-10-29, 22:04 CT: all six options** (1–6). None was left untapped.
+
+1. **Secrets or credential shapes, at any tier *(recommended; ruled)*.** Cost: none; the scrub
+   already needs the matcher.
+2. **Raw tool output, web or issue text, or transcript excerpts *(recommended; ruled)*.** Lessons
+   are written by the agent or the user, never pasted. Cost: some auto-captures become questions.
+3. **Anything beyond the local tier *(recommended; ruled)*.** Cost: none now; sharing stays a PR.
+4. **`security`-category lessons *(recommended; ruled)*.** Always asked. Cost: a few more
+   questions.
+5. **Judgements about people**, such as colleagues or reviewers *(recommended; ruled)*. Cost: none.
+6. **Anything that would supersede an existing lesson *(ruled)*.** Cost: one more question when the
+   user corrects a recalled lesson. Recommended as well; listed separately because it slows S12.
 
 ### Q3. Federation target
 
-1. **A private personal memory repo as the default store, plus each project's own shared tier
+**Ruled 2026-10-29, 22:05 CT, in chat: none of the options.** Mnemosyne's existing N-tier
+federation already answers it: local, then the repo's shared tier, then any number of stores in
+`config.stores`, each its own git repo; see [Rulings](#rulings-2026-10-29). The options are kept
+for the record, struck as not needed.
+
+1. ~~**A private personal memory repo as the default store, plus each project's own shared tier
    *(recommended)*.** Cross-repo standards live in the personal store, and project facts stay with
-   the project. Cost: one private repo, and `stores` configured once per machine.
-2. **One private memory repo as the primary for everything, with no project tiers.** Cost: the
-   simplest setup, but project conventions leave the project, and teammates never see them.
-3. **An organisation `enterprise` store for work repos, alongside option 1.** Cost: per-org setup,
-   and needs `scope: "external"` scrubbing from day one.
+   the project. Cost: one private repo, and `stores` configured once per machine.~~ *Not needed.*
+2. ~~**One private memory repo as the primary for everything, with no project tiers.** Cost: the
+   simplest setup, but project conventions leave the project, and teammates never see them.~~
+   *Not needed.*
+3. ~~**An organisation `enterprise` store for work repos, alongside option 1.** Cost: per-org setup,
+   and needs `scope: "external"` scrubbing from day one.~~ *Not needed.*
 
 ### Q4. Recurrence threshold for a standard
 
-1. **Three occurrences across at least two distinct contexts within 180 days *(recommended)*.**
-   Cost: a standard takes a few weeks to surface.
+**Ruled 2026-10-29, 22:05 CT: option 1** ("3 times across 2+ contexts within 180 days").
+
+1. **Three occurrences across at least two distinct contexts within 180 days *(recommended;
+   ruled)*.** Cost: a standard takes a few weeks to surface.
 2. **Two occurrences across two contexts.** Cost: faster, but more false standards to decline.
 3. **Five occurrences across three contexts.** Cost: few false positives, but rarely fires on a
    personal workload.
 
 ### Q5. What counts as a distinct context?
 
-1. **A distinct spec or ticket, else a distinct branch *(recommended)*.** Cost: needs the spec id at
-   capture time, which Zethus has.
+**Ruled 2026-10-29, 22:06 CT: option 1** ("A different spec or ticket"). The picker label left out
+the branch fallback; see [Rulings](#rulings-2026-10-29).
+
+1. **A distinct spec or ticket, else a distinct branch *(recommended; ruled)*.** Cost: needs the
+   spec id at capture time, which Zethus has.
 2. **A distinct repository.** Cost: a single-repo standard can never surface.
 3. **A distinct session.** Cost: one long task spread over sessions counts many times.
 
 ### Q6. How a proposed lesson becomes approved
 
-1. **Merged means approved *(recommended)*.** The review PR's commit carries `approved`, so merging
+**Ruled 2026-10-29, 22:06 CT: option 1** ("Merging its review PR is the approval").
+
+1. **Merged means approved *(recommended; ruled)*.** The review PR's commit carries `approved`, so merging
    *is* the approval, and `sync` retires local originals when the id reaches the store's default
    branch. Cost: S; no separate "proposed but merged" state.
 2. **A `mnemosyne approve <id>` command** the reviewer runs on the PR branch. Cost: S, plus a
@@ -640,15 +754,21 @@ Each lists the recommended option first. Costs use the sizes in §5.
 
 ### Q7. Auto-store's ceiling
 
-1. **Local tier only *(recommended)*.** Cost: anything shared needs one promote.
+**Ruled 2026-10-29, 22:06 CT: option 1** ("Local only"). This agrees with Q2 option 3 ("Anything
+beyond local"), ruled a few minutes earlier.
+
+1. **Local tier only *(recommended; ruled)*.** Cost: anything shared needs one promote.
 2. **Auto-promote high-confidence lessons as a PR.** Cost: PR noise, and an unattended path into a
    shared tier.
 
 ### Q8. Engine fixes first, or alongside?
 
-1. **Fix B1–B5 first, as Phase 0 *(recommended)*.** Building capture on an engine that loses
-   lessons on merge (B2) would bank data straight into the bug. Cost: about a day before visible
-   capture.
+**Ruled 2026-10-29, 22:06 CT: option 1** ("Bugs first, as Phase 0"). The picker listed all six bugs,
+so Phase 0 fixes B1–B6, not B1–B5 as written below; see [Rulings](#rulings-2026-10-29).
+
+1. **Fix B1–B5 first, as Phase 0 *(recommended; ruled, as B1–B6)*.** Building capture on an engine
+   that loses lessons on merge (B2) would bank data straight into the bug. Cost: about a day before
+   visible capture.
 2. **Fix them alongside Phase 1.** Cost: faster to a demo, but Phase 1's results can't be trusted
    until B2 lands.
 
