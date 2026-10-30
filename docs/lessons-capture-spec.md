@@ -1,13 +1,13 @@
 # Lessons capture and harness convergence: verification and spec (2026-10-29)
 
 **Status:** DRAFT. This is a verification report and a spec, nothing more: no feature is built.
-**Seven of the eight questions are ruled** (2026-10-29), every one as recommended: Zethus and
-Amphion stay two kits on a shared core (Q1); auto-store never stores the six excluded classes (Q2)
-and never writes beyond the local tier (Q7); a standard is three occurrences across two or more
-specs or tickets within 180 days (Q4, Q5); merging a review PR approves its lesson (Q6); and the
-engine bugs are fixed first, as Phase 0 (Q8). Phase 0 can start. **Q3, the federation target, is
-still open.** Nothing before Phase 3 shares a lesson, so it blocks only Phase 3. See
-[Rulings](#rulings-2026-10-29).
+**All eight questions are ruled** (2026-10-29). Seven went as recommended: Zethus and Amphion
+stay two kits on a shared core (Q1); auto-store never stores the six excluded classes (Q2) and
+never writes beyond the local tier (Q7); a standard is three occurrences across two or more specs
+or tickets within 180 days (Q4, Q5); merging a review PR approves its lesson (Q6); and the engine
+bugs are fixed first, as Phase 0 (Q8). Q3, the federation target, needed none of its options:
+Mnemosyne's existing N-tier federation already answers it. No question blocks any phase, and
+Phase 0 can start. See [Rulings](#rulings-2026-10-29).
 
 **The ask** (Ceryce, Telegram, 2026-10-29 21:33 CT, verbatim):
 
@@ -443,13 +443,15 @@ store's repo.
 | Auto | **local** (`local.jsonl`) | `capture` / `reflect` | none (announced, undoable) |
 | Ask → yes | **local** | `capture` / `reflect` | the answer |
 | Promote to the project | **shared** (`memory/lessons.jsonl` in the primary repo) | `promote` → PR | PR review |
-| Standard, or an explicit share | a **store** (e.g. `personal`, `team`, `enterprise`) | `promote --to <tier>` → PR in the store repo, **after scrub** | PR review in the store |
+| Standard, or an explicit share | a **store** (any declared in `config.stores`, e.g. `team`, `enterprise`) | `promote --to <tier>` → PR in the store repo, **after scrub** | PR review in the store |
 
 **Sharing defined in Mnemosyne's terms:** a lesson is *shared* when it sits in a committed file of
 any repo other than the developer's own gitignored local tier. Sharing therefore always means a
-`promote` or `export`, always produces a PR, and always runs the scrub. Which store the agent
-offers by default is [Q3](#q3-federation-target). **Nothing from Ceryce's work may ever land in
-this repository**: its `mnemosyne/memory/` is a public demo store.
+`promote` or `export`, always produces a PR, and always runs the scrub. Where it can go is
+[Q3](#q3-federation-target), ruled: the tiers Mnemosyne's federation already defines, which are
+local, then the repo's shared tier, then any number of stores in `config.stores`, each its own
+git repo with a distinct id prefix. The spec adds no default store of its own. **Nothing from
+Ceryce's work may ever land in this repository**: its `mnemosyne/memory/` is a public demo store.
 
 ### 4.6 Privacy and scrub rules
 
@@ -534,9 +536,13 @@ and its watched paths come from its existing keys (`frictionLog.markdown.path`, 
   "autoStore": { "signals": ["adr", "gate-red-green", "explicit-remember"], "perSession": 5 },
   "watch": ["docs/adr/", "docs/specs/", "docs/friction-log.md"],
   "standard": { "minOccurrences": 3, "minContexts": 2, "windowDays": 180 },
-  "offerTier": "personal"
+  "offerTier": ""
 }
 ```
+
+`offerTier` names the tier the agent suggests first when it asks to share: `shared`, or a store
+declared in `config.stores`. Empty, the default, means it suggests none and offers every tier the
+repo's federation reaches ([Q3](#q3-federation-target), ruled).
 
 ### 4.8 Engine changes this needs
 
@@ -578,7 +584,7 @@ Sizes follow stage 1: S is under half a day, M is half a day to two days, L is t
 | **0** | Engine fixes B1–B6 before any capture (Q8, ruled), with tests that fail before each fix. B4 is fixed as merged-means-approved (Q6); B6 is the scrub (§4.6) and the author fallback. Candidate spool and hooks in **shadow mode**: they record candidates and log decisions, but store nothing and ask nothing. Verify the unverified hook cells in §4.7 on real installs | Bug fixes only; capture is observe-only | An MCP tool-call test green on Windows and Linux; an id-collision test; a merged review PR retires its local original with no hand edit; an export carrying a home-directory path or a login as author is blocked; one week of spool data showing the count and precision of each signal | M–L |
 | **1** | Auto-store for S1 (ADR) and S2 (gate red → green) through Zethus's scripts. `session-start` recall digest. Claude Code `stop` triage of pending candidates through the `lessons-triage` skill. Local tier only (Q7). The Q2 exclusions hold from here: an S1 or S2 candidate in an excluded class is asked at the same triage, never saved | Yes: auto-store to local, one triage checkpoint | A Zethus run that records an ADR and fixes a red gate ends with two `SAVED:` lines and an empty spool; `retire` undoes either; no write outside `local.jsonl`; a `security` ADR is asked, not saved, and the engine refuses it as a hook capture | M |
 | 2 | Ask outcomes (S4–S6, S8–S12), batched; Copilot `sessionStart` and `.github/hooks/*.json`; Amphion watched paths | Yes | Triage on Copilot CLI and VS Code; no double-fire with both files present | M |
-| 3 | Context fingerprints (a context is a spec or ticket, Q5), standards (S7), promotion to shared or store, and config-default proposals. The default store depends on Q3, which is open | Yes | Three ADRs with the same answer across two specs produce exactly one "promote to standard?" question; three in one spec produce none (Q4) | M |
+| 3 | Context fingerprints (a context is a spec or ticket, Q5), standards (S7), promotion to shared or store, and config-default proposals. Promotion targets the tiers Mnemosyne's federation already has: the shared tier or any store in `config.stores` (Q3, ruled) | Yes | Three ADRs with the same answer across two specs produce exactly one "promote to standard?" question; three in one spec produce none (Q4) | M |
 | 4 | The shared core (Q1, ruled), inside the stage 1 installer: one source tree for the memory hook script and its `hooks.json`, the `memory` config schema, and the shared skills. Zethus and Amphion each install from it and keep their own names, READMEs and install paths | Packaging | Stage 1 §3.4 CI additions green; installing both kits registers each hook once; `tests/test_zethus.py` green | M, on top of the stage 1 installer |
 
 Phase 0 deliberately ships no capture. Building capture on an engine that loses lessons on merge
@@ -611,13 +617,14 @@ has no `*.sh` files.
 
 ## 7. Open questions for Ceryce
 
-Each lists the recommended option first. Costs use the sizes in §5. **Q1, Q2 and Q4–Q8 are ruled,
-every one as recommended; Q3 is open.**
+Each lists the recommended option first. Costs use the sizes in §5. **All eight are ruled. Q1, Q2
+and Q4–Q8 went as recommended; Q3 is settled by Mnemosyne's existing federation, not by any of its
+options.**
 
 ### Rulings (2026-10-29)
 
-Ceryce answered by Telegram picker. Each tap is quoted verbatim, with the option description the
-picker showed beside it.
+Ceryce answered Q1, Q2 and Q4–Q8 by Telegram picker. Each tap is quoted verbatim, with the option
+description the picker showed beside it. She answered Q3 in chat instead, quoted verbatim below.
 
 - **Q1**, at 22:03 CT: **"Shared core"**: "One core both kits use (wiring written once), Zethus
   keeps enforcing process, Amphion stays optional skills. Cost: medium, on top of the planned
@@ -640,7 +647,13 @@ picker showed beside it.
 - **Q8**, at 22:06 CT: **"Bugs first, as Phase 0"**: "MCP hang on Windows, reused lesson ids,
   swept-in promotions, no approve path, recall cloning offline, unscrubbed exports. Cost: capture
   waits a PR."
-- **Q3** has not been answered.
+- **Q3**, at 22:05 CT, in chat (the picker was settled by this reply, not a tap): "Mnemosyne
+  should already use an N-tier federated design with github repos as the stores, so this should
+  already be answered." She is right. The [design doc](../mnemosyne/docs/design.md#architecture)
+  ("Two tiers, then N" and "Broader tiers (federation)") already defines the tiers: local, then
+  the repo's shared tier, then any number of federated stores declared in `config.stores`, each
+  its own git (GitHub) repo with a distinct id prefix, with a promotion opened as a PR in that
+  store's repo. None of the three options the spec invented is needed.
 
 Two picker texts differ from the options below, and the spec follows the picker in both cases:
 
@@ -654,7 +667,7 @@ Two picker texts differ from the options below, and the spec follows the picker 
 | --- | --- |
 | Q1 | **Ruled: option 1** ("Shared core"). Reflected in [§3.3](#33-what-this-implies-for-zethus-and-amphion), [§4.7](#47-how-zethus-and-amphion-call-it-first-class), [§4.9](#49-out-of-scope) and Phase 4 |
 | Q2 (multi-select) | **Ruled: all six options** (1–6). Reflected in [§4.3](#43-the-three-outcomes), [§4.6](#46-privacy-and-scrub-rules), [§4.8](#48-engine-changes-this-needs) and Phase 1 |
-| Q3 | **Open** |
+| Q3 | **Ruled: none of the options**; settled by Mnemosyne's existing N-tier federation. Reflected in the status line, [§4.5](#45-where-each-outcome-lands), the `memory.offerTier` config and Phase 3 |
 | Q4 | **Ruled: option 1** ("3 times across 2+ contexts within 180 days"). Reflected in [§4.1](#41-what-is-worth-remembering), [§4.3](#43-the-three-outcomes), [§4.4](#44-recurrence-the-same-answer-in-different-situations), the `memory.standard` config and Phase 3 |
 | Q5 | **Ruled: option 1** ("A different spec or ticket"). Reflected in [§4.4](#44-recurrence-the-same-answer-in-different-situations) and Phase 3 |
 | Q6 | **Ruled: option 1** ("Merging its review PR is the approval"). Reflected in [B4](#b4-nothing-in-the-engine-approves-a-proposed-lesson), [§4.8](#48-engine-changes-this-needs) and Phase 0 |
@@ -693,13 +706,19 @@ Two picker texts differ from the options below, and the spec follows the picker 
 
 ### Q3. Federation target
 
-1. **A private personal memory repo as the default store, plus each project's own shared tier
+**Ruled 2026-10-29, 22:05 CT, in chat: none of the options.** Mnemosyne's existing N-tier
+federation already answers it: local, then the repo's shared tier, then any number of stores in
+`config.stores`, each its own git repo; see [Rulings](#rulings-2026-10-29). The options are kept
+for the record, struck as not needed.
+
+1. ~~**A private personal memory repo as the default store, plus each project's own shared tier
    *(recommended)*.** Cross-repo standards live in the personal store, and project facts stay with
-   the project. Cost: one private repo, and `stores` configured once per machine.
-2. **One private memory repo as the primary for everything, with no project tiers.** Cost: the
-   simplest setup, but project conventions leave the project, and teammates never see them.
-3. **An organisation `enterprise` store for work repos, alongside option 1.** Cost: per-org setup,
-   and needs `scope: "external"` scrubbing from day one.
+   the project. Cost: one private repo, and `stores` configured once per machine.~~ *Not needed.*
+2. ~~**One private memory repo as the primary for everything, with no project tiers.** Cost: the
+   simplest setup, but project conventions leave the project, and teammates never see them.~~
+   *Not needed.*
+3. ~~**An organisation `enterprise` store for work repos, alongside option 1.** Cost: per-org setup,
+   and needs `scope: "external"` scrubbing from day one.~~ *Not needed.*
 
 ### Q4. Recurrence threshold for a standard
 
