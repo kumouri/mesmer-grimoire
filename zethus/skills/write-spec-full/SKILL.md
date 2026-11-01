@@ -50,6 +50,9 @@ of these, so a minimum spec can be promoted later by adding sections.
   edit the question in place to `DECIDED (date, ADR id)`. Never delete it.
 - Set the status to `SIGNED-OFF`. It becomes `PARTIAL(merged: …; in review: …)` as phases are
   pushed and merged, and `BUILT` once the last one merges. A pushed phase is in review, not built.
+- **Next:** in the same turn, start Phase 0 with [implement-phase](../implement-phase/SKILL.md).
+  Write its steps, then begin the first one. These records, and any check you run over them
+  (`docs-pointer-check`, `git diff --check`), finish the spec stage. They are not a place to stop.
 
 ## Anti-patterns
 

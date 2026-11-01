@@ -45,6 +45,9 @@ anything after it goes green, run it again.
 
 4. **Paste the table into the PR's *Evidence* section,** unedited.
 
+Next, in the same turn once the verdict lets you push: commit, push, and open the PR with
+[zethus-pr-description](../zethus-pr-description/SKILL.md).
+
 ## Rules
 
 - **Never report a gate as passed if you didn't run it.** Write "not run", with the reason.
