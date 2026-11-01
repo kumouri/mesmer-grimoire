@@ -438,6 +438,41 @@ def is_git_repo(repo: Path) -> bool:
     return git(repo, "rev-parse", "--is-inside-work-tree")[0] == 0
 
 
+def has_remote(repo: Path) -> bool:
+    """True if `repo`'s git config declares a remote. Reads the config file rather than running
+    git, so a hook can ask it for free; a linked worktree's config is in its common dir. A remote
+    defined only through an `[include]` or the global config is not seen."""
+    here = Path(repo).resolve()
+    gd = None
+    for d in (here, *here.parents):
+        dot = d / ".git"
+        if dot.is_dir():
+            gd = dot
+        elif dot.is_file():
+            m = re.match(r"gitdir:\s*(.+)", dot.read_text(encoding="utf-8", errors="replace").strip())
+            gd = (d / m.group(1)) if m else None
+        else:
+            continue
+        break
+    if gd is None:
+        return False
+    common = gd / "commondir"
+    if common.is_file():
+        gd = gd / common.read_text(encoding="utf-8", errors="replace").strip()
+    try:
+        text = (gd / "config").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return re.search(r'^\s*\[remote\s+"', text, re.M) is not None
+
+
+def sync_has_work(cfg: Config, repo: Path) -> bool:
+    """Whether `sync` could fetch anything: the repo has a remote, or the config declares a store.
+    The session-start hook asks this first, because sync spawns about ten git children (roughly
+    300 ms on Windows) even when a local-only memory repo has nothing to pull."""
+    return has_remote(repo) or bool(getattr(cfg, "stores", None))
+
+
 def default_ref(repo: Path, branch=None):
     """The ref holding the repo's merged shared tier: origin's `branch` if given, else origin/HEAD,
     else HEAD (unless HEAD is a review branch). None outside git or before the first commit."""

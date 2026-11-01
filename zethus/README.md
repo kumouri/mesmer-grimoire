@@ -149,7 +149,7 @@ plan, this is a rule in the agent file rather than a script check: the kit has n
 | [`scripts/new-spec.py`](scripts/new-spec.py) | `.github/zethus/scripts/` | `new-spec.py full\|minimum "Title"` creates `docs/specs/<slug>.md` as `DRAFT`. |
 | [`scripts/docs-pointer-check.py`](scripts/docs-pointer-check.py) | `.github/zethus/scripts/` | Fails on relative Markdown links that don't resolve, including case mismatches that only break on Linux. With `--sync-base`, it also lists docs whose described code changed (report-only). |
 | [`zethus.config.example.json`](zethus.config.example.json) | `.github/zethus.config.json` | Project facts: integration branch, gate commands, spec and ADR dirs, the doc-to-code map, the AI co-author trailer and commit signature. |
-| [`install.py`](install.py) | — | Copies all of the above into place: into a repo (`--target`) or for your user account (`--user`, with `--uninstall`). Never clobbers a file it didn't write, and writes nothing if there are conflicts. |
+| [`install.py`](install.py) | — | Copies all of the above into place: into a repo (`--target`) or for your user account (`--user`, with `--uninstall`). Never clobbers a file it didn't write, and writes nothing if there are conflicts. `--with-mnemosyne` also sets up [Mnemosyne](#add-mnemosyne-in-the-same-step). |
 
 The scripts are Python 3.10+ standard library only. There are no PowerShell twins: Python runs
 natively on Windows, and a second implementation would be a second thing to drift.
@@ -351,6 +351,35 @@ wrapper, else `mvn -B verify`, which resolves to `mvn.cmd`. To mirror a CI that 
 ```json
 { "gates": { "steps": [ { "name": "maven verify", "command": "mvn -B verify" } ] } }
 ```
+
+### Add Mnemosyne in the same step
+
+[Mnemosyne](../mnemosyne/README.md) is the reflexion memory whose hooks record lessons-capture
+candidates while Zethus works. `--with-mnemosyne` installs it after the kit, in either mode:
+
+```bash
+python mesmer-grimoire/zethus/install.py --user --with-mnemosyne --dry-run
+python mesmer-grimoire/zethus/install.py --user --with-mnemosyne
+python mesmer-grimoire/zethus/install.py --target path/to/your-repo --with-mnemosyne
+python mesmer-grimoire/zethus/install.py --user --with-mnemosyne --mnemosyne-repo ~/notes/memory
+python mesmer-grimoire/zethus/install.py --user --uninstall --with-mnemosyne
+```
+
+It doesn't repeat any of Mnemosyne's setup. It calls Mnemosyne's own installer,
+[`mnemosyne/install.py`](../mnemosyne/install.py), and passes on `--target`, `--dry-run`,
+`--uninstall` and `--mnemosyne-repo` (as `--repo`). That installer sets up:
+
+- the `mnemosyne-reflexion` package;
+- a local git memory repo at `~/repos/mnemosyne-local`, with no remote;
+- `MNEMOSYNE_REPO`, set persistently;
+- the Claude Code plugin;
+- with `--target`, the repo's Copilot hook files, `.github/hooks/mnemosyne.json` and its bridge
+  script, which you commit along with the kit.
+
+The [Mnemosyne README](../mnemosyne/README.md#install) has the details. Mnemosyne runs only after
+the kit installs cleanly, and the run's exit code is the worse of the two. `--force` isn't passed
+on, so an existing `MNEMOSYNE_REPO` pointing somewhere else stops the Mnemosyne step until you
+run its installer yourself with `--force`.
 
 ### Configuration
 

@@ -28,6 +28,53 @@ plugin**, and an **MCP server** — all over the same engine.
 
 ## Install
 
+### One step: the installer
+
+From a clone, one command sets up everything the hooks need:
+
+```bash
+git clone https://github.com/kumouri/mesmer-grimoire.git
+python mesmer-grimoire/mnemosyne/install.py --dry-run     # see the plan
+python mesmer-grimoire/mnemosyne/install.py
+```
+
+It does five things:
+
+1. **Package.** It pip-installs the package for the Python the hooks run, which is `python` on
+   PATH unless you pass `--python`.
+2. **Memory repo.** It creates `~/repos/mnemosyne-local` with `mnemosyne init`, `git init` and a
+   first commit, and no remote. `--repo PATH` picks another folder. If `MNEMOSYNE_REPO` already
+   names a memory repo, that repo is used. An existing memory repo is never written to.
+3. **`MNEMOSYNE_REPO`.** It sets the variable persistently, so hooks find the repo with no manual
+   step. On Windows it goes in the user environment, which new terminals and apps see. Elsewhere
+   it goes in a managed block in your shell's rc file.
+4. **Claude Code plugin.** It copies `plugin/` into a local marketplace under `~/.mnemosyne/` and
+   installs it with the `claude` CLI. A `mnemosyne` plugin you already installed from another
+   marketplace is left alone, so the hooks don't fire twice.
+5. **Copilot hooks.** With `--target REPO`, it also writes `.github/hooks/mnemosyne.json` and a
+   copy of the bridge into that repo, for you to commit. The Copilot CLI runs that file; VS Code
+   and the cloud agent read it too, but that is unverified (spec §4.7). The step is skipped if the
+   repo's `.claude/settings.json` already runs the bridge, because the Copilot CLI would then fire
+   it twice.
+
+Re-running it is safe: finished steps print `same` or `keep`, and the package is refreshed from
+the clone. It checks everything before writing anything. A folder that isn't a memory repo is
+refused, and so is an existing `MNEMOSYNE_REPO` pointing somewhere else; `--force` repoints the
+variable. `--uninstall` reverses it all, using the record in `~/.mnemosyne/install-manifest.json`,
+and never removes the memory repo. The script's docstring has the full contract.
+
+Zethus users can run this as part of the Zethus install:
+`python mesmer-grimoire/zethus/install.py --user --with-mnemosyne` (see
+[Zethus's README](../zethus/README.md#add-mnemosyne-in-the-same-step)).
+
+**A git memory repo has one known cost, now mostly removed.** A memory repo that is a git repo
+made the session-start hook spend about 300 ms on Windows in `sync`'s git calls, even with no
+remote to pull from. The hook now skips `sync` when there's nothing to fetch (no remote and no
+configured store). Run `mnemosyne sync` yourself after merging a review branch locally. The
+timings are in the [spec's §4.7.1](../docs/lessons-capture-spec.md#471-hook-cells-checked-on-real-installs-2026-11-01).
+
+### By hand
+
 Pick whichever surface fits — they all drive the same git-backed store.
 
 Mnemosyne is **not published on PyPI yet**, so `pip install mnemosyne-reflexion` will not find it.
@@ -55,8 +102,10 @@ mn.recall("migrating the ledger POST endpoint", stage="plan")
 ```
 
 **2. Claude Code plugin** — a skill + hooks (auto-recall on each prompt, sync on session start,
-and lessons capture in shadow mode, below) + `/recall`, `/reflect`, `/promote` commands. Install
-the `mnemosyne` plugin from this repo, then set `MNEMOSYNE_REPO` to your memory repo. (The plugin's
+and lessons capture in shadow mode, below) + `/recall`, `/reflect`, `/promote` commands. The repo
+has no marketplace of its own, so the installer above is the supported way in: it builds a local
+one and runs `claude plugin install mnemosyne@mesmer-grimoire-local`. By hand, put `plugin/` in a
+marketplace, install it from there, then set `MNEMOSYNE_REPO` to your memory repo. (The plugin's
 hooks import the `mnemosyne` package and its commands run the `mnemosyne` CLI, so install it as
 above first.)
 
@@ -156,6 +205,7 @@ Environment: `MNEMOSYNE_REPO` (primary repo), `MNEMOSYNE_CONFIG` (config path), 
 
 ```
 mnemosyne/
+├── install.py                     # one-step installer: package, memory repo, MNEMOSYNE_REPO, hooks
 ├── pyproject.toml                 # package metadata (console script + [mcp] extra; not on PyPI yet)
 ├── src/mnemosyne/
 │   ├── core.py                    # the engine (axis-driven scorer, hygiene, git, export/sync)
@@ -215,7 +265,7 @@ candidate was worth keeping, before any of it is automated.
 | `PostToolUse`, `PostToolUseFailure` | `post-tool` | S6 a shell command that failed and then passed; S8 the `fresh-eyes-investigation` skill; S9–S11 a write to a watched path |
 | `Stop` | `stop` | logs whether it *would* block for triage; never blocks |
 | `PreCompact` | `pre-compact` | logs the spool state |
-| `SessionStart` | `session-start` | logs the pending count (and syncs, as before) |
+| `SessionStart` | `session-start` | logs the pending count (and syncs, as before, when the memory repo has a remote or a store to pull) |
 
 - **Where it goes:** `memory/.capture/` in the memory repo. The directory ignores itself, so the
   spool is never committed. `candidates.jsonl` holds candidates and labels; `decisions.jsonl` holds
@@ -246,7 +296,7 @@ candidate was worth keeping, before any of it is automated.
 
 ```bash
 PYTHONPATH=src python -m mnemosyne selftest     # zero-dep test suite
-python -m unittest tests.test_mnemosyne tests.test_mnemosyne_review_flow tests.test_mnemosyne_mcp_stdio tests.test_mnemosyne_capture
+python -m unittest tests.test_mnemosyne tests.test_mnemosyne_review_flow tests.test_mnemosyne_mcp_stdio tests.test_mnemosyne_capture tests.test_mnemosyne_install
 ```
 
 The engine has no runtime dependencies; only the MCP server needs the `mcp` package (installed via

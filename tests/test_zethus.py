@@ -1119,6 +1119,86 @@ class UserInstaller(FakeHome):
         self.assertEqual(ctx.exception.code, 2)
 
 
+class WithMnemosyne(FakeHome):
+    """``--with-mnemosyne`` hands off to mnemosyne/install.py; without it nothing is delegated.
+    That installer's own behaviour is covered in tests/test_mnemosyne_install.py."""
+
+    def setUp(self):
+        super().setUp()
+        self.calls: list[list[str]] = []
+        for patcher in (mock.patch.object(install_mod, "PLATFORM", "linux"),
+                        mock.patch.object(install_mod, "run_mnemosyne", self.fake_mnemosyne)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.exit = 0
+
+    def fake_mnemosyne(self, argv):
+        self.calls.append(argv)
+        return self.exit
+
+    def test_without_the_flag_nothing_is_delegated(self):
+        target = self.home / "repo"
+        target.mkdir()
+        for argv in (["--user", "--dry-run"], ["--user"], ["--user", "--uninstall"],
+                     ["--target", str(target)]):
+            run(install_mod, *argv)
+        self.assertEqual(self.calls, [])
+
+    def test_user_mode_passes_the_repo_and_dry_run(self):
+        code, out = run(install_mod, "--user", "--with-mnemosyne", "--mnemosyne-repo", "~/mem", "--dry-run")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.calls, [["--repo", "~/mem", "--dry-run"]])
+
+    def test_repo_mode_passes_the_target(self):
+        target = self.home / "repo"
+        target.mkdir()
+        code, out = run(install_mod, "--target", str(target), "--with-mnemosyne")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.calls, [["--target", str(target)]])
+
+    def test_uninstall_runs_both_even_when_zethus_has_nothing_to_remove(self):
+        code, _ = run(install_mod, "--user", "--uninstall", "--with-mnemosyne")
+        self.assertEqual(code, 1)                   # no Zethus manifest; the worse code wins
+        self.assertEqual(self.calls, [["--uninstall"]])
+
+    def test_a_refused_zethus_install_stops_before_mnemosyne(self):
+        target = self.home / "repo"
+        (target / ".github" / "agents").mkdir(parents=True)
+        (target / ".github" / "agents" / "zethus.agent.md").write_text("mine", encoding="utf-8")
+        code, _ = run(install_mod, "--target", str(target), "--with-mnemosyne")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.calls, [])
+
+    def test_a_failed_mnemosyne_step_fails_the_run(self):
+        self.exit = 1
+        self.assertEqual(run(install_mod, "--user", "--with-mnemosyne")[0], 1)
+
+    def test_mnemosyne_repo_needs_the_flag(self):
+        with self.assertRaises(SystemExit) as ctx, redirect_stderr(io.StringIO()):
+            install_mod.main(["--user", "--mnemosyne-repo", "x"])
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_the_real_handoff_runs_mnemosynes_installer(self):
+        """End to end through the real run_mnemosyne, with pip and claude faked on its side."""
+        from tests.test_mnemosyne_install import FakeHost
+        from tests.test_mnemosyne_install import mi as mnemosyne_install
+        host = FakeHost()
+        with mock.patch.object(install_mod, "run_mnemosyne", WithMnemosyne.real_run_mnemosyne), \
+                mock.patch.dict(os.environ, {"SHELL": "/bin/bash"}), \
+                mock.patch.object(mnemosyne_install, "PLATFORM", "linux"), \
+                mock.patch.object(mnemosyne_install, "run", host.run), \
+                mock.patch.object(mnemosyne_install, "which", host.which):
+            os.environ.pop("MNEMOSYNE_REPO", None)
+            code, out = run(install_mod, "--user", "--with-mnemosyne", "--dry-run")
+        self.assertEqual(code, 0, out)
+        self.assertIn("mnemosyne: install.py --dry-run", out)
+        self.assertIn("create    ~/repos/mnemosyne-local", out)
+        self.assertEqual(out.count("dry run: nothing written"), 2)
+        self.assertEqual(list(self.home.iterdir()), [])
+
+    real_run_mnemosyne = staticmethod(install_mod.run_mnemosyne)
+
+
 class ConfigResolution(FakeHome):
     def setUp(self):
         super().setUp()
