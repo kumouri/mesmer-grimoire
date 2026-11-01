@@ -385,7 +385,9 @@ class SessionEndNudgeRemoved(unittest.TestCase):
     def test_hooks_json_has_no_session_end(self):
         hooks = json.loads((PLUGIN_HOOKS / "hooks.json").read_text(encoding="utf-8"))["hooks"]
         self.assertNotIn("SessionEnd", hooks)
-        self.assertEqual(set(hooks), {"SessionStart", "UserPromptSubmit"})
+        # The capture modes are covered in test_mnemosyne_capture.py.
+        self.assertEqual(set(hooks), {"SessionStart", "UserPromptSubmit", "PostToolUse",
+                                      "PostToolUseFailure", "Stop", "PreCompact"})
 
     def test_stale_session_end_mode_is_a_silent_no_op(self):
         # Give the hook everything the old nudge needed (an importable engine and a memory repo),

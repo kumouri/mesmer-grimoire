@@ -1,6 +1,13 @@
 # Lessons capture and harness convergence: verification and spec (2026-10-29)
 
-**Status:** DRAFT. This is a verification report and a spec, nothing more: no feature is built.
+**Status:** Phase 0 is built, but its exit criteria are not all met yet. The engine fixes B1–B6 merged
+on 2026-10-30 (PR #46). The candidate spool and the capture hooks now run in **shadow mode**: they
+record candidates and log decisions, but store nothing and ask nothing
+([§4.7](#47-how-zethus-and-amphion-call-it-first-class), [§4.8](#48-engine-changes-this-needs)).
+The §4.7 hook cells for Claude Code, Copilot CLI and Codex were checked on real installs on
+2026-11-01 ([§4.7.1](#471-hook-cells-checked-on-real-installs-2026-11-01)). Still open in Phase 0:
+a week of shadow data, and the cells that couldn't be checked from that host (VS Code, the Copilot
+cloud agent and Cursor). Phase 1 has not started.
 **All eight questions are ruled** (2026-10-29). Seven went as recommended: Zethus and Amphion
 stay two kits on a shared core (Q1); auto-store never stores the six excluded classes (Q2) and
 never writes beyond the local tier (Q7); a standard is three occurrences across two or more specs
@@ -38,9 +45,11 @@ still stand. Nothing here reopens them.
   ([§2](#2-the-integration-as-it-stands)).
 - **The harnesses really have converged, but not on everything this needs.** `SKILL.md` skills,
   `AGENTS.md`, MCP and the Claude-format plugin and hook files now work across most hosts. Memory
-  has **no** standard anywhere, and hooks are only partly shared. In particular, GitHub Copilot
-  **drops the output of `userPromptSubmitted` hooks**, so per-prompt recall injection, the way the
-  Mnemosyne plugin works today, cannot work there ([§3](#3-harness-convergence)).
+  has **no** standard anywhere, and hooks are only partly shared. GitHub's docs say Copilot
+  **drops the output of `userPromptSubmitted` hooks**. On a real Copilot CLI install that holds
+  only for plain stdout: JSON `additionalContext` was injected and `modifiedPrompt` replaced the
+  prompt ([§4.7.1](#471-hook-cells-checked-on-real-installs-2026-11-01)). So the Mnemosyne plugin's
+  plain-text recall reaches the model on Claude Code but not on Copilot ([§3](#3-harness-convergence)).
 - **The spec ([§4](#4-spec-capturing-errors-lessons-decisions-and-standards)) captures through two
   deterministic channels and leaves judgement to the agent at fixed checkpoints.** Zethus's own
   scripts are one channel: their output reaches the agent on every host and every surface,
@@ -88,7 +97,7 @@ touched. Absolute scratch paths in the output below are shortened to `<scratch>`
 | `wizard` (interactive) | **Untested** by hand; the selftest drives it with scripted input | — |
 | MCP server on Linux or macOS | **Untested** | CI only imports it; no CI step calls a tool |
 | Plugin install through a marketplace | **Untested; cannot be done.** The repo has no `marketplace.json` (stage 1 §2.1) | — |
-| Hooks under Copilot, Codex or Cursor | **Untested** | — |
+| Hooks under Copilot, Codex or Cursor | **Untested** on 2026-10-29. Copilot CLI and Codex were checked on 2026-11-01; Cursor still can't be | [§4.7.1](#471-hook-cells-checked-on-real-installs-2026-11-01) |
 
 ### 1.3 Output: what works
 
@@ -235,7 +244,7 @@ sizes, "from memory").
 | Amphion | [`amphion/plugin/skills/resume-interrupted-phase/SKILL.md`](../amphion/plugin/skills/resume-interrupted-phase/SKILL.md) | none | A crashed delegate is a process candidate |
 | Amphion | [`amphion/amphion.config.example.json`](../amphion/amphion.config.example.json) | none | The same `memory` block, shared key names |
 | Amphion | [`amphion/plugin/.claude-plugin/plugin.json`](../amphion/plugin/.claude-plugin/plugin.json) | none, and no hooks | — |
-| Mnemosyne | [`mnemosyne/plugin/hooks/hooks.json`](../mnemosyne/plugin/hooks/hooks.json) | `SessionStart` (sync) and `UserPromptSubmit` (recall) | No capture hook exists anywhere |
+| Mnemosyne | [`mnemosyne/plugin/hooks/hooks.json`](../mnemosyne/plugin/hooks/hooks.json) | `SessionStart` (sync) and `UserPromptSubmit` (recall). Phase 0 has since added `PostToolUse`, `PostToolUseFailure`, `Stop` and `PreCompact`, all capturing in shadow mode | The capture hooks (§4.7) |
 
 Two facts shape the design. **Amphion has no runtime**, so the only deterministic seams there are
 hooks. **Zethus already has stdlib scripts at exactly the moments that matter**, and their output
@@ -258,9 +267,9 @@ Cursor; this table updates it and adds Gemini and Antigravity.
 | `AGENTS.md` | only when no `CLAUDE.md`, unless a setting loads both [S1] | yes [S3] | yes, nested [S4] | Antigravity yes; Gemini CLI via `context.fileName` [S5] | yes, nested [S8] |
 | Custom agents | `.claude/agents/*.md` | `.agent.md`; **reads `.claude/agents`** [S3] | TOML `.codex/agents` [S4] | own Markdown [S5] | **reads `.claude/agents`, `.codex/agents`** [S8] |
 | Hooks, native | `settings.json` / plugin `hooks.json` [S1] | `.github/hooks/*.json` [S2] | `hooks.json` / `config.toml` [S4] | own `settings.json` events / `.agents/hooks.json` [S5] | `.cursor/hooks.json` [S9] |
-| Reads Claude-format hooks | — | **CLI and VS Code: yes** (`.claude/settings*.json`); **cloud agent: no** [S2], [S6] | no [S4] | no [S5] | opt-in mapping, 8 events [S9] |
-| Session-start context injection | yes | **yes**: `additionalContext` on `sessionStart` [S2] | yes, Claude-shaped [S4] | unverified | yes, `additional_context` [S9] |
-| **Per-prompt context injection** | yes (`UserPromptSubmit`) | **no**: "config-file `userPromptSubmitted` hooks have their output dropped" [S2]; VS Code: "command-hook output is ignored" [S6] | yes [S4] | unverified | no documented output [S9] |
+| Reads Claude-format hooks | — | **CLI and VS Code: yes** (`.claude/settings*.json`); **cloud agent: no** [S2], [S6]. On a real CLI it **depends on the runtime**: 1.0.88 runs them, 1.0.106 loads them but never runs them ([§4.7.1](#471-hook-cells-checked-on-real-installs-2026-11-01)) | no [S4] | no [S5] | mapping of 8 events; the docs re-read on 2026-11-01 say it is **on by default** [S9] |
+| Session-start context injection | yes | **yes**: `additionalContext` on `sessionStart` [S2]; confirmed on a real CLI | yes, Claude-shaped [S4]; confirmed on a real install | unverified | yes, `additional_context` [S9] |
+| **Per-prompt context injection** | yes (`UserPromptSubmit`) | docs: **no**, "config-file `userPromptSubmitted` hooks have their output dropped" [S2]; VS Code: "command-hook output is ignored" [S6]. **On a real CLI, JSON `additionalContext` was injected**; plain stdout was dropped ([§4.7.1](#471-hook-cells-checked-on-real-installs-2026-11-01)) | yes [S4]; confirmed on a real install | unverified | no documented output [S9] |
 | MCP | yes | yes | yes | yes | yes (config files differ per host) |
 | Plugin format | `.claude-plugin/` | **loads Claude plugins** (CLI, VS Code) [S3], [S6] | root `plugin.json`, accepts Claude manifests [S4] | Antigravity imports Claude plugins; Gemini extensions [S5] | the `.cursor-plugin` manifest / Agent Plugins [S8] |
 | Memory | auto memory, local Markdown | Copilot Memory, server-side | memories, off by default | `save_memory` into `GEMINI.md` | unverified |
@@ -495,19 +504,32 @@ end-of-turn triage. One hook script (the existing bridge, grown new modes) lives
 a copy each. It is registered once per host, never twice, even with both kits installed (stage 1
 §3.1 rule):
 
-| Mode | Claude Code | Copilot CLI / VS Code | Copilot cloud agent | Codex | Cursor |
-| --- | --- | --- | --- | --- | --- |
-| `session-start`: recall digest + pending count | `SessionStart` stdout | `sessionStart` `additionalContext` | same, via `.github/hooks/*.json` | `SessionStart` `additionalContext` | `sessionStart` `additional_context` |
-| `prompt`: S4/S5 detection, and recall where output is honoured | `UserPromptSubmit` (injects) | `userPromptSubmitted`, **side effect only**: output dropped | same | `UserPromptSubmit` (injects) | `beforeSubmitPrompt`, side effect only |
-| `post-tool`: S6, S8–S11 | `PostToolUse` | `postToolUse` | `postToolUse` | `PostToolUse` | `postToolUse` |
-| `stop`: triage checkpoint | `Stop`: block once with "N candidates pending, triage them" (guarded by `stop_hook_active`) | `agentStop`: can it block? **unverified**; fallback is the next `session-start` | same | `Stop`: **unverified** | `stop`: **unverified** |
-| `pre-compact`: flush the spool | `PreCompact` | `preCompact` | auto-compaction only | `PreCompact` | `preCompact` |
+Each cell says what the mode uses on that host, then whether it was **checked** on a real install
+(evidence E1–E5 in [§4.7.1](#471-hook-cells-checked-on-real-installs-2026-11-01)) or is
+**unverified**, and why. The Copilot column is split, because only the CLI could be driven from
+this host.
+
+| Mode | Claude Code | Copilot CLI | VS Code (Copilot) | Copilot cloud agent | Codex | Cursor |
+| --- | --- | --- | --- | --- | --- | --- |
+| `session-start`: recall digest + pending count | `SessionStart` stdout. **Checked** (E1): plain stdout reached the model | `sessionStart` `additionalContext`. **Checked** (E2): JSON `additionalContext` reached the model; plain stdout did not | `sessionStart` `additionalContext`. **Unverified**: VS Code's agent can't be driven non-interactively | same, via `.github/hooks/*.json`. **Unverified**: needs a GitHub-hosted run | `SessionStart` `additionalContext`. **Checked** (E3): JSON and plain stdout both reached the model; it re-fires after each compaction | `sessionStart` `additional_context`. **Unverified**: `cursor-agent` isn't logged in (E4) |
+| `prompt`: S4/S5 detection, and recall where output is honoured | `UserPromptSubmit`, injects. **Checked** (E1, E5) | `userPromptSubmitted`. **Contradicts the docs** (E2): JSON `additionalContext` was injected and `modifiedPrompt` replaced the prompt; only plain stdout is dropped | `userPromptSubmitted`, side effect only per [S6]. **Unverified**, as above | same as the CLI. **Unverified**, as above | `UserPromptSubmit`, injects. **Checked** (E3): plain stdout and `additionalContext` | `beforeSubmitPrompt`. **Unverified** (E4); its docs list `continue`/`user_message` outputs but no context injection |
+| `post-tool`: S6, S8–S11 | `PostToolUse` + `PostToolUseFailure`. **Checked** (E1, E5): a failing command fires only `PostToolUseFailure` | `postToolUse`. **Checked** (E2, E5): fires for failures too; the exit code is only in the result text | `postToolUse`. **Unverified**, as above | `postToolUse`. **Unverified**, as above | `PostToolUse`. **Checked** (E3), but it carries **no failure indicator**, so S6 can't be seen, and `apply_patch` has no path field | `postToolUse`. **Unverified** (E4) |
+| `stop`: triage checkpoint | `Stop`: block once with "N candidates pending, triage them" (guarded by `stop_hook_active`). **Checked** (E1): blocks, and `stop_hook_active` is true on the re-fire | `agentStop`. **Checked, it can block** (E2): `{"decision":"block","reason":…}` forces another turn, with `stop_hook_active` on the re-fire | `agentStop`. **Unverified**, as above | `agentStop`. **Unverified**, as above; fallback is the next `session-start` | `Stop`. **Checked, it can block** (E3) with the JSON decision; on Windows the exit-2 form is lost | `stop`. **Unverified** (E4); its docs say it can't block, but a `followup_message` is submitted as the next user message |
+| `pre-compact`: flush the spool | `PreCompact`. **Checked** (E1), with a manual `/compact` | `preCompact`. **Checked** (E2), with a manual `/compact`; auto unverified | `preCompact`. **Unverified**, as above | auto-compaction only. **Unverified**, as above | `PreCompact`. **Checked** (E3), with forced auto-compaction | `preCompact`. **Unverified** (E4) |
+
+In Phase 0 every mode runs in **shadow mode** on every host: the bridge records candidates and logs
+one decision per invocation, `stop` logs "would block" instead of blocking, and no capture mode
+prints anything. So the output-shape cells above decide Phase 1 and 2 behaviour, not Phase 0's.
 
 Registration lives in one neutral file: Claude-format `hooks.json` in the shared core's plugin. It is read
 as-is by Claude Code, Copilot CLI and VS Code (from `.claude/settings.json` in repo installs), and
 by Cursor if opted in. A Copilot-format copy under `.github/hooks/*.json` covers the cloud agent,
 installed **only** when the repo doesn't already carry the Claude file, so the CLI never fires
 twice. Codex gets its own `hooks.json`. Gemini and Antigravity are out of scope until asked.
+**The real CLI breaks the first assumption** (E2): the default Copilot CLI runtime (1.0.106) loads
+`.claude/settings.json` hooks but never runs them, and the bundled 1.0.88 runs them *and* any
+`.github/hooks` copy, so the same event fires twice. Phase 2 has to choose registration per CLI
+runtime, not per surface.
 
 **Hook rules, from the Morpheus retrospective:**
 
@@ -544,6 +566,119 @@ and its watched paths come from its existing keys (`frictionLog.markdown.path`, 
 declared in `config.stores`. Empty, the default, means it suggests none and offers every tier the
 repo's federation reaches ([Q3](#q3-federation-target), ruled).
 
+#### 4.7.1 Hook cells checked on real installs (2026-11-01)
+
+Everything here ran on Windows 10 with Python 3.14, in scratch projects outside any repo, and no
+user-global hook file was edited. Two hosts wrote global files of their own, and both were reverted
+afterwards:
+
+- Codex added a project-trust entry to its `config.toml`.
+- Copilot created a `settings.json` during an `--experimental` run.
+
+Each run used a cheap model (Claude Haiku on Claude Code and Copilot, `gpt-5.6-luna` at low effort
+on Codex).
+
+There were two kinds of run:
+
+- **Probe runs (E1–E3):** a probe hook that logged each event's stdin and could print or block on
+  cue.
+- **Bridge runs (E5):** the real `mnemosyne_hook.py`.
+
+Context injection was tested with an unguessable codeword printed by the hook. The model was then
+asked to repeat any codeword in its context.
+
+**E1. Claude Code 2.1.309**, run with `claude -p --setting-sources project,local --settings <file>`,
+so the user's own hooks didn't load.
+
+- **`SessionStart`:** plain stdout reached the model. It fires with `source` `startup`, `resume` and
+  `compact`.
+- **`UserPromptSubmit`:** stdout reached the model. The prompt is in `prompt`.
+- **Tool hooks:**
+  - A successful Bash call fires `PostToolUse`. Its `tool_response` has `stdout`, `stderr` and
+    `interrupted`, but no exit code.
+  - A failing call (exit 3) fires **only** `PostToolUseFailure`, with `error: "Exit code 3\n…"`.
+  - Write and Edit put the path in `tool_input.file_path`. A Skill call puts the skill's name in
+    `tool_input.skill`.
+- **`Stop`:** `{"decision":"block","reason":…}` made the model continue. The reason arrived as
+  "Stop hook feedback". The re-fired event had `stop_hook_active: true`.
+- **`PreCompact`:** fired on `claude -p "/compact" --resume <id>` with `trigger: "manual"`.
+- **Environment:** Claude Code sets `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT` and `CLAUDE_PROJECT_DIR`
+  for hooks.
+- **Errors and timeouts:** a hook's nonzero exit or timeout shows up only in the debug log and the
+  `stream-json` hook events. The run carries on.
+
+**E2. Copilot CLI**, reporting `copilot --version` 1.0.89-3. By default it runs a newer cached
+runtime, **1.0.106-2**; with `--no-auto-update` it runs the bundled **1.0.88**. Hooks went in
+`.github/hooks/*.json`.
+
+- **Trust gate:** in `-p` mode, repo hooks load only when the folder is trusted or
+  `COPILOT_ALLOW_ALL=true`. `--allow-all-tools` alone loaded none.
+- **`sessionStart`:** JSON `additionalContext` reached the model on both runtimes. Plain stdout did
+  not.
+- **`userPromptSubmitted`:** the prompt is in `prompt`. JSON `additionalContext` was injected (as a
+  system reminder), and `modifiedPrompt` **replaced the prompt the model saw**, on both runtimes.
+  Plain stdout was dropped. This **contradicts** the docs' "output dropped" [S2].
+- **`postToolUse`:**
+  - It fires for a failing command too, with `toolResult.resultType` still `"success"`. The only
+    failure signal is the trailer `<shellId: N completed with exit code 128>` in
+    `toolResult.textResultForLlm`. `postToolUseFailure` never fired.
+  - `toolArgs` is an object. The file path is `toolArgs.path`. Tool names were `powershell`,
+    `create` and `edit`.
+- **`agentStop` can block:** `{"decision":"block","reason":…}` delivered the reason as a queued
+  user message, and the model acted on it. The re-fired event had `stop_hook_active: true`.
+- **`preCompact`:** fired on a manual `/compact` after `--resume`, with `trigger: "manual"`. Auto
+  compaction was not tested.
+- **Claude-format hooks depend on the runtime:**
+  - On **1.0.88**, `.claude/settings.json` hooks ran with snake_case stdin and Claude tool names
+    (`powershell` became `Bash`). With a `.github/hooks` copy as well, the same event fired twice.
+  - On **1.0.106**, the `.claude/settings.json` hooks were counted at load but never ran. PascalCase
+    event names inside `.github/hooks/*.json` did run, with snake_case stdin.
+- **Environment:** Copilot sets `COPILOT_CLI` and also `CLAUDE_PROJECT_DIR`. So
+  `CLAUDE_PROJECT_DIR` doesn't identify Claude Code.
+
+**E3. Codex CLI 0.159.2**, run with `codex exec --dangerously-bypass-hook-trust --ephemeral` and a
+project `.codex/hooks.json`. Its Windows sandbox made every shell call fail to start, so these runs
+used full access in the scratch project.
+
+- **`SessionStart` and `UserPromptSubmit`:** both plain stdout and JSON `additionalContext`
+  reached the model. `SessionStart` fires again (`source: "compact"`) after every compaction.
+- **`PostToolUse`:**
+  - Shell commands arrive as `tool_name: "Bash"` with `tool_input.command`. `tool_response` is only
+    the output text: no exit code and no failure flag.
+  - `apply_patch` has no path field. The path is only in the patch's `*** Update File:` lines.
+  - A failed `apply_patch` fired no `PostToolUse` at all.
+- **`Stop` can block:** the JSON decision forced another model pass, and `stop_hook_active` was
+  true on the re-fire. Exit code 2 also blocks, but only if the command ends `; exit
+  $LASTEXITCODE`. Codex runs every hook as `pwsh -NoProfile -Command "<command>"`, and pwsh turns a
+  native exit 2 into 1. Without that ending, a blocking exit is silently ignored.
+- **`PreCompact`:** fired on auto compaction, forced with `-c model_auto_compact_token_limit=3000`.
+- **Environment:** Codex adds no variable of its own and passes its parent's environment through.
+  Host detection must therefore come from the event's shape (`turn_id`), not from the environment.
+
+**E4. Cursor:** nothing could be run. `cursor-agent` (2026.06.24) reports `Not logged in`, and
+logging in needs an interactive browser flow. Its docs, re-read on 2026-11-01, say:
+
+- `stop` cannot block, but a non-empty `followup_message` is submitted as the next user message,
+  with `loop_count` and `loop_limit` as the guard;
+- `beforeSubmitPrompt` can block a prompt (`continue`, `user_message`) but not add context;
+- `preCompact` is observational;
+- Claude-format hooks are loaded **by default** ("Include Third-Party Plugins…" is on).
+
+All of this is docs only, still unverified.
+
+**E5. The real bridge, end to end, on Claude Code 2.1.309 and Copilot CLI 1.0.106-2.**
+
+- **Setup:** each host got the bridge registered for every mode, a scratch project on branch
+  `feat/e2e-demo`, and a scratch memory repo. The prompt said "from now on", ran a failing
+  `git rev-parse --verify no-such-ref`, then a passing `git rev-parse HEAD`, then created a spec
+  file, demo.md, in the project's docs/specs.
+- **Result:** both hosts recorded the same three candidates (S4, S6 with `failed_exit` 128, and
+  S9–S11 for the spec file). Both logged `would-block` at stop, printed nothing, and wrote no
+  `local.jsonl`.
+- **Timing:** hook bodies took 1–38 ms. A whole invocation took 143–164 ms median on this machine:
+  about 58 ms is interpreter start-up and about 90 ms importing the package, both standard-library
+  cost. That is inside the 200 ms bound, but with little headroom.
+
 ### 4.8 Engine changes this needs
 
 All of these are inside Mnemosyne and stay stdlib-only.
@@ -557,10 +692,10 @@ All of these are inside Mnemosyne and stay stdlib-only.
 | Recall never clones; only `sync` and `stores` do | B5 | S |
 | The scrub (§4.6) on every committed-tier write, and its secrets rule on every write, local included; the author fallback removed | B6, Q2 | M |
 | `capture` / `reflect` refuse a `captured_by: hook:*` lesson that is `security`, supersedes another, or targets a tier other than local | Q2 | S |
-| Candidate spool `candidates.local.jsonl` beside the local tier (gitignored) with `candidate add/list/triage/dismiss` | §4.2 | M |
+| Candidate spool beside the local tier (gitignored) with `candidate add/list/triage/dismiss`. **Built in Phase 0, shadow mode:** it lives in a `.capture` directory under the memory repo's `memory/`. That directory ignores itself, so a memory repo whose `.gitignore` predates it can't commit it. It has `candidate add/list/label/stats`; `label` records whether a candidate was worth a lesson, which is the precision data Phase 0 needs. `triage` and `dismiss` come with Phase 1 | §4.2 | M |
 | Context fingerprints on reinforce, and the `standard` marker | §4.4 | S–M |
-| `retire <id> --reason` and `doctor` | §4.3, §4.7 | S |
-| The bridge grows `post-tool`, `stop` and `pre-compact` modes, plus per-host output shapes | §4.7 | M |
+| `retire <id> --reason` and `doctor`. **`doctor` built in Phase 0**: it shows the last N hook decisions, counts and the slowest hook body. `retire` comes with Phase 1 | §4.3, §4.7 | S |
+| The bridge grows `post-tool`, `stop` and `pre-compact` modes, plus per-host output shapes. **The modes are built in Phase 0, shadow only**: they read every host's field names (§4.7.1) but print nothing. The output shapes come with Phase 1 and 2 | §4.7 | M |
 
 ### 4.9 Out of scope
 
@@ -581,7 +716,7 @@ Sizes follow stage 1: S is under half a day, M is half a day to two days, L is t
 
 | Phase | What | Behaviour change | Exit, verified by | Size |
 | --- | --- | --- | --- | --- |
-| **0** | Engine fixes B1–B6 before any capture (Q8, ruled), with tests that fail before each fix. B4 is fixed as merged-means-approved (Q6); B6 is the scrub (§4.6) and the author fallback. Candidate spool and hooks in **shadow mode**: they record candidates and log decisions, but store nothing and ask nothing. Verify the unverified hook cells in §4.7 on real installs | Bug fixes only; capture is observe-only | An MCP tool-call test green on Windows and Linux; an id-collision test; a merged review PR retires its local original with no hand edit; an export carrying a home-directory path or a login as author is blocked; one week of spool data showing the count and precision of each signal | M–L |
+| **0** | Engine fixes B1–B6 before any capture (Q8, ruled), with tests that fail before each fix. B4 is fixed as merged-means-approved (Q6); B6 is the scrub (§4.6) and the author fallback. Candidate spool and hooks in **shadow mode**: they record candidates and log decisions, but store nothing and ask nothing. Verify the unverified hook cells in §4.7 on real installs. **Built:** B1–B6 (PR #46); the spool, `doctor` and the bridge's capture modes, which detect S4–S6, S8 and S9–S11 (`tests/test_mnemosyne_capture.py`); hook cells checked on Claude Code, Copilot CLI and Codex (§4.7.1). **Open:** the week of data; VS Code, the cloud agent and Cursor | Bug fixes only; capture is observe-only | An MCP tool-call test green on Windows and Linux; an id-collision test; a merged review PR retires its local original with no hand edit; an export carrying a home-directory path or a login as author is blocked; one week of spool data showing the count and precision of each signal (`mnemosyne candidate stats`, after labelling with `candidate label`) | M–L |
 | **1** | Auto-store for S1 (ADR) and S2 (gate red → green) through Zethus's scripts. `session-start` recall digest. Claude Code `stop` triage of pending candidates through the `lessons-triage` skill. Local tier only (Q7). The Q2 exclusions hold from here: an S1 or S2 candidate in an excluded class is asked at the same triage, never saved | Yes: auto-store to local, one triage checkpoint | A Zethus run that records an ADR and fixes a red gate ends with two `SAVED:` lines and an empty spool; `retire` undoes either; no write outside `local.jsonl`; a `security` ADR is asked, not saved, and the engine refuses it as a hook capture | M |
 | 2 | Ask outcomes (S4–S6, S8–S12), batched; Copilot `sessionStart` and `.github/hooks/*.json`; Amphion watched paths | Yes | Triage on Copilot CLI and VS Code; no double-fire with both files present | M |
 | 3 | Context fingerprints (a context is a spec or ticket, Q5), standards (S7), promotion to shared or store, and config-default proposals. Promotion targets the tiers Mnemosyne's federation already has: the shared tier or any store in `config.stores` (Q3, ruled) | Yes | Three ADRs with the same answer across two specs produce exactly one "promote to standard?" question; three in one spec produce none (Q4) | M |
