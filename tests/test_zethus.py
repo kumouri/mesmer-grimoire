@@ -863,6 +863,61 @@ class KitContract(unittest.TestCase):
                     "skills/zethus-pr-description/SKILL.md", "templates/pr.md"):
             self.assertIn("commits.signature", (KIT / doc).read_text(encoding="utf-8"), doc)
 
+    def test_every_stage_hands_off_and_no_turn_ends_silently(self):
+        """A passing check is not a stop; a turn ends only at a listed stop, and says why.
+
+        Ceryce's report, 2026-11-01 (``zethus/docs/never-stop-silently.md``): after the post-sign-off
+        doc checks the agent never started Phase 0 and never said it had stopped. *On sign-off* was
+        the one stage-ending section with no next action.
+        """
+        stage_skills = ("research-existing-code", "write-spec-minimum", "write-spec-full",
+                        "implement-phase", "test-plan", "docs-sync-check", "pre-push-gates",
+                        "zethus-pr-description")
+        for name in stage_skills:
+            text = (KIT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+            self.assertRegex(text, r"(?m)^## Next$|Next[,:]", f"{name}: names its next action")
+        for name in ("write-spec-minimum", "write-spec-full"):
+            text = (KIT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+            after = text.split("n sign-off", 1)[1]
+            self.assertIn("start Phase 0 with [implement-phase]", after, name)
+            self.assertIn("They are not a place to stop", after, name)
+
+        agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+        section = agent.split("## Hand off to the next stage, and never stop silently", 1)[1]
+        section = section.split("\n## ", 1)[0]
+        for rule in ("A check that passes is not a place to stop", "**in the same turn**",
+                     "**After sign-off**", "You end a turn only at one of these points",
+                     "Stopped at:", "Next:", "Why:"):
+            self.assertIn(rule, section)
+        self.assertIn("**End a turn only at a listed stop, and say so.**", agent)
+        instructions = (KIT / "copilot-instructions.md").read_text(encoding="utf-8")
+        self.assertIn("## Keep moving, and never stop silently", instructions)
+        self.assertIn("A check that passes is not a stopping point", instructions)
+        self.assertIn("docs/never-stop-silently.md", (KIT / "README.md").read_text(encoding="utf-8"))
+
+    def test_the_persons_questions_come_first(self):
+        """A question mid-task becomes the task, answered fully before any offer to resume.
+
+        Ceryce's report, 2026-11-01 (``zethus/docs/questions-come-first.md``): asked what had
+        happened, the agent looked for the least-effort answer so it could get back to the task.
+        """
+        agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+        self.assertLess(agent.index("## The person's questions come first"),
+                        agent.index("## Keep the plan visible"), "sits with the process rules")
+        section = agent.split("## The person's questions come first", 1)[1].split("\n## ", 1)[0]
+        for rule in ("**that question becomes\nthe current task.**", "same weight as the stages",
+                     "your own behaviour", "**Answer fully, with real effort.**",
+                     "Investigate if the answer needs it", "never to an answer",
+                     "**Don't minimise.**", "**Then offer to resume, and wait.**"):
+            self.assertIn(rule, section)
+        instructions = (KIT / "copilot-instructions.md").read_text(encoding="utf-8")
+        self.assertLess(instructions.index("## Questions come first"),
+                        instructions.index("## Start from a fresh base"))
+        for rule in ("**that question is the current\n  task.**", "your own behaviour",
+                     "Don't shrink the answer", "offer to resume"):
+            self.assertIn(rule, instructions)
+        self.assertIn("docs/questions-come-first.md", (KIT / "README.md").read_text(encoding="utf-8"))
+
     def test_kit_markdown_has_no_broken_pointers(self):
         code, out = run(pointer_mod, "--repo", str(REPO), "zethus")
         self.assertEqual(code, 0, out)

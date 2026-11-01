@@ -49,6 +49,8 @@ behaviour that exists only when the parts are joined. Tag anything you can't aut
 3. **Flaky means failing.** A test that passes on retry isn't passing. Fix it, or quarantine it
    with a tracked issue that names it, and say so in the PR.
 
+Next, in the same turn: [docs-sync-check](../docs-sync-check/SKILL.md).
+
 ## Anti-patterns
 
 - **Asserting only that code ran** ("no exception"), not what it produced.

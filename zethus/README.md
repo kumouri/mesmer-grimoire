@@ -36,6 +36,17 @@ ten minutes. "Just push, CI will tell us" gets the local gates. "Merge it" gets 
 merges, only on green. One narrow exemption is written down too. A change with no behaviour change
 (a typo, a comment, formatting) may skip research, spec and tests, but never docs, gates or the PR.
 
+It doesn't stop between stages. When one stage's exit condition is met, it starts the next in the
+same turn, and every stage's skill names that next action. That includes the step after sign-off,
+where recording the ADRs and checking those doc edits finish Stage 2 and Phase 0 starts. It ends a
+turn only at a listed stop: sign-off or a decision requested, a stale base, a failure it couldn't
+resolve, a refusal, a question answered, or the change done. Each time, it ends with where it
+stopped, what's next and why ([never stop silently](docs/never-stop-silently.md)).
+
+Your questions come first. Ask something mid-task, above all about the agent's own behaviour, and
+answering it becomes the current task: answered fully, investigated if needed, before the agent
+offers to resume ([questions come first](docs/questions-come-first.md)).
+
 Each expensive check runs once per phase. Docs comes before Gates, so the full build and test suite
 runs once, last, on the exact tree that is pushed, docs included. The phase's tests run once, in
 Stage 4. Implement exits once they're written and compiling, and the mutation check proves its
@@ -427,7 +438,9 @@ in its replies wherever `todo` isn't available (see [Seeing the plan](#seeing-th
 ([hooks configuration][gh-hooks], checked October 2026). This kit doesn't install one yet, so the
 agent enforces the process through its instructions, its stage gates and its refusal table. The scripts give each stage an objective exit condition: an exit code
 is harder to talk around than a sentence. Merging is protected by your platform's branch
-protection, not by this kit.
+protection, not by this kit. A hook can't hold the turn-level rules either: a
+`userPromptSubmitted` hook's output is dropped, and whether `agentStop` can hold a turn open is
+unverified ([never stop silently](docs/never-stop-silently.md#why-no-hook)).
 
 ## Modernization extensions
 

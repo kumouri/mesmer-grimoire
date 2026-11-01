@@ -6,6 +6,23 @@ carry each procedure. Project-specific facts — gate commands, the integration 
 and specs live — are in `.github/zethus.config.json`. If a fact is missing, find it in the repo,
 or ask. Never guess one.
 
+## Questions come first
+
+- When the person asks a question or raises a concern mid-task, **that question is the current
+  task.** Pause the task work and answer it fully, investigating if the answer needs it and citing
+  what you checked. This matters most when the question is about your own behaviour, such as why
+  you stopped. Don't shrink the answer to get back to the original request.
+- Then say where the work is paused and what comes next, and offer to resume. Resume when they say
+  so.
+
+## Keep moving, and never stop silently
+
+- A check that passes is not a stopping point. When a step or stage is done, start the next one in
+  the same turn. After sign-off, that means recording the decisions and then starting Phase 0.
+- End a turn only to wait on the person (sign-off, a decision, an answer, a rebase), on a blocker
+  you can't clear, or because the work is done. Whenever you end one, its last lines say where you
+  stopped, what's next and why.
+
 ## Start from a fresh base
 
 - Branch from the **integration branch**: `branchModel.base` in config; otherwise `develop` if it

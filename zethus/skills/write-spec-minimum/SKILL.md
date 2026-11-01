@@ -38,6 +38,10 @@ true:
 On sign-off, record the decision with [write-adr](../write-adr/SKILL.md), if there was one, and
 set the status to `SIGNED-OFF`.
 
+**Next:** in the same turn, start Phase 0 with [implement-phase](../implement-phase/SKILL.md).
+Write its steps, then begin the first one. These records, and any check you run over them
+(`docs-pointer-check`, `git diff --check`), finish the spec stage. They are not a place to stop.
+
 ## When it grows
 
 If the minimum spec starts to need a second open question, a second PR, or a measurement, promote
