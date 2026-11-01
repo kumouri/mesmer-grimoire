@@ -1147,7 +1147,21 @@ class WithMnemosyne(FakeHome):
     def test_user_mode_passes_the_repo_and_dry_run(self):
         code, out = run(install_mod, "--user", "--with-mnemosyne", "--mnemosyne-repo", "~/mem", "--dry-run")
         self.assertEqual(code, 0, out)
-        self.assertEqual(self.calls, [["--repo", "~/mem", "--dry-run"]])
+        self.assertEqual(self.calls, [["--user", "--repo", "~/mem", "--dry-run"]])
+
+    def test_user_mode_passes_the_copilot_hooks_folder(self):
+        code, out = run(install_mod, "--user", "--with-mnemosyne",
+                        "--mnemosyne-copilot-hooks-dir", "~/my-hooks")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.calls, [["--user", "--copilot-hooks-dir", "~/my-hooks"]])
+
+    def test_the_copilot_hooks_folder_needs_with_mnemosyne_and_an_install(self):
+        for argv in (["--user", "--mnemosyne-copilot-hooks-dir", "x"],
+                     ["--user", "--uninstall", "--with-mnemosyne", "--mnemosyne-copilot-hooks-dir", "x"]):
+            with self.subTest(argv=argv), self.assertRaises(SystemExit) as ctx, \
+                    redirect_stderr(io.StringIO()):
+                install_mod.main(argv)
+            self.assertEqual(ctx.exception.code, 2)
 
     def test_repo_mode_passes_the_target(self):
         target = self.home / "repo"
@@ -1159,7 +1173,7 @@ class WithMnemosyne(FakeHome):
     def test_uninstall_runs_both_even_when_zethus_has_nothing_to_remove(self):
         code, _ = run(install_mod, "--user", "--uninstall", "--with-mnemosyne")
         self.assertEqual(code, 1)                   # no Zethus manifest; the worse code wins
-        self.assertEqual(self.calls, [["--uninstall"]])
+        self.assertEqual(self.calls, [["--user", "--uninstall"]])
 
     def test_a_refused_zethus_install_stops_before_mnemosyne(self):
         target = self.home / "repo"
@@ -1191,8 +1205,10 @@ class WithMnemosyne(FakeHome):
             os.environ.pop("MNEMOSYNE_REPO", None)
             code, out = run(install_mod, "--user", "--with-mnemosyne", "--dry-run")
         self.assertEqual(code, 0, out)
-        self.assertIn("mnemosyne: install.py --dry-run", out)
+        self.assertIn("mnemosyne: install.py --user --dry-run", out)
         self.assertIn("create    ~/repos/mnemosyne-local", out)
+        self.assertIn("create    ~/.copilot/hooks/mnemosyne.json", out)
+        self.assertIn("create    ~/.copilot/hooks/mnemosyne_hook.py", out)
         self.assertEqual(out.count("dry run: nothing written"), 2)
         self.assertEqual(list(self.home.iterdir()), [])
 

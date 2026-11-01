@@ -6,6 +6,8 @@ and the hooks, in one step.
     python mnemosyne/install.py --dry-run               # show the plan only
     python mnemosyne/install.py --repo ~/notes/memory   # another memory repo
     python mnemosyne/install.py --target path/to/repo   # + Copilot hook files in that repo
+    python mnemosyne/install.py --user                  # + Copilot hook files in ~/.copilot/hooks
+    python mnemosyne/install.py --copilot-hooks-dir DIR # + the same, in a folder of your choosing
     python mnemosyne/install.py --uninstall             # undo it; the memory repo is never removed
 
 It is a script beside the package rather than a ``mnemosyne install`` subcommand because its first
@@ -32,14 +34,21 @@ whatever is already in place:
    ``claude plugin install mnemosyne@mesmer-grimoire-local``. Where ``claude`` isn't on PATH it
    prints those two commands instead. It leaves a ``mnemosyne@...`` plugin from any other
    marketplace alone, so the hooks never fire twice.
-5. **Copilot hooks (``--target`` only).** ``.github/hooks/mnemosyne.json`` (Copilot's format,
-   generated from ``plugin/hooks/hooks.json``) and a copy of the bridge,
+5. **Copilot hooks in a repo (``--target`` only).** ``.github/hooks/mnemosyne.json`` (Copilot's
+   format, generated from ``plugin/hooks/hooks.json``) and a copy of the bridge,
    ``.github/hooks/mnemosyne_hook.py``. Both are meant to be committed: the commands are
    repo-relative and fail open where Mnemosyne isn't installed. The Copilot CLI ran this format in
    the lessons-capture spec's §4.7.1 (E2); VS Code and the cloud agent read the same file but are
    unverified. They are skipped when the repo's ``.claude/settings.json`` already registers the
-   bridge, because the Copilot CLI would then fire twice. No user-level Copilot hook file is
-   written, because no user location has been verified.
+   bridge, because the Copilot CLI would then fire twice.
+6. **Copilot hooks for your account (``--user`` or ``--copilot-hooks-dir`` only).** The same two
+   files in ``~/.copilot/hooks``, or in the folder ``--copilot-hooks-dir`` names instead (which
+   implies ``--user``). The IntelliJ Copilot plugin reads ``~/.copilot/hooks``; no other host has
+   been checked (spec §4.7), and no host has run this file yet. This file fires in every repo, so
+   its commands name the script by absolute path where the repo's are relative, and it is written
+   for one machine: never commit it. ``--python`` sets the interpreter it calls, and otherwise it
+   calls ``python3`` / ``python`` as the repo's does. A repo that also has its own copy doesn't
+   double-fire, because the engine claims each event once (``mnemosyne.candidates``).
 
 **Safety.** Everything is checked before anything is written, so a refused install writes nothing:
 
@@ -47,13 +56,17 @@ whatever is already in place:
 - ``MNEMOSYNE_REPO`` already set to another folder, and not by this installer, is a conflict;
   ``--force`` repoints it (the old folder is not touched);
 - a ``--target`` hook file that differs from the kit's is a conflict; ``--force`` overwrites it;
-- a file in the plugin copy that you edited is a conflict; ``--force`` overwrites it.
+- a file in the plugin copy or the Copilot user hooks that you edited is a conflict; ``--force``
+  overwrites it;
+- a file in a Copilot user-hooks folder that this installer didn't write is never overwritten, even
+  with ``--force``; one already identical to the kit's is left in place and stays yours.
 
 Everything installed is recorded in ``~/.mnemosyne/install-manifest.json``. ``--uninstall``
-reverses it: the plugin and its marketplace, the plugin copy (unedited files; ``--force`` removes
-edited ones too), ``MNEMOSYNE_REPO`` if it still holds the value set here, the rc block, and the
-package if this installer was what installed it. The memory repo is never removed. Hook files in a
-``--target`` repo are committed files, so they are removed with git, as Zethus's repo install is.
+reverses it: the plugin and its marketplace, the plugin copy and the Copilot user hooks (unedited
+files; ``--force`` removes edited ones too) and any folder made for them that is now empty,
+``MNEMOSYNE_REPO`` if it still holds the value set here, the rc block, and the package if this
+installer was what installed it. The memory repo is never removed. Hook files in a ``--target``
+repo are committed files, so they are removed with git, as Zethus's repo install is.
 
 Exit codes: 0 done (or dry run) · 1 conflicts, a failed step, or nothing to uninstall · 2 usage error.
 """
@@ -158,6 +171,12 @@ def marketplace_dir() -> Path:
 
 def default_repo_path() -> Path:
     return home() / "repos" / "mnemosyne-local"
+
+
+def copilot_user_dir() -> Path:
+    """``~/.copilot/hooks``. Deliberately not under ``$COPILOT_HOME``, as in zethus/install.py:
+    only the CLI honours that variable."""
+    return home() / ".copilot" / "hooks"
 
 
 def show(path) -> str:
@@ -316,18 +335,32 @@ def plugin_payloads() -> list[tuple[Path, bytes]]:
     return out
 
 
-def copilot_hooks() -> bytes:
-    """``.github/hooks/mnemosyne.json``, generated from the plugin's hooks.json so the two
-    registrations can't drift: one entry per mode, repo-relative, no ``--host`` (the bridge infers
-    it, and the CLI, VS Code and the cloud agent all read this one file)."""
+def ps_quote(text: str) -> str:
+    return "'" + text.replace("'", "''") + "'"
+
+
+def copilot_hooks(user_dir: Path | None = None, python: str | None = None) -> bytes:
+    """``mnemosyne.json``, generated from the plugin's hooks.json so the registrations can't
+    drift: one entry per mode, no ``--host`` (the bridge infers it, and the CLI, VS Code and the
+    cloud agent all read this one file).
+
+    Without ``user_dir`` it is the repo's copy: repo-relative, run from the repo root. With it, the
+    file fires wherever a session happens to be, so a relative path would find no script and fail
+    silently: the script is named absolutely, and no ``cwd`` is set."""
     claude = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
     hooks = {}
     for event, copilot_event in COPILOT_EVENTS.items():
         (entry,) = claude[event][0]["hooks"]
         mode = entry["command"].split()[-1]
-        script = f".github/hooks/{BRIDGE} {mode}"
-        hook = {"type": "command", "bash": f"python3 {script}", "powershell": f"python {script}",
-                "cwd": "."}
+        if user_dir is None:
+            script = f".github/hooks/{BRIDGE} {mode}"
+            hook = {"type": "command", "bash": f"python3 {script}",
+                    "powershell": f"python {script}", "cwd": "."}
+        else:
+            script = (user_dir / BRIDGE).as_posix()
+            sh, ps = (shlex.quote(python), f"& {ps_quote(python)}") if python else ("python3", "python")
+            hook = {"type": "command", "bash": f"{sh} {shlex.quote(script)} {mode}",
+                    "powershell": f"{ps} {ps_quote(script)} {mode}"}
         if "timeout" in entry:
             hook["timeoutSec"] = entry["timeout"]
         hooks[copilot_event] = [hook]
@@ -337,6 +370,11 @@ def copilot_hooks() -> bytes:
 def target_payloads(target: Path) -> list[tuple[Path, bytes]]:
     hooks = target / ".github" / "hooks"
     return [(hooks / "mnemosyne.json", copilot_hooks()),
+            (hooks / BRIDGE, (PLUGIN / "hooks" / BRIDGE).read_bytes())]
+
+
+def user_hook_payloads(hooks: Path, python: str | None) -> list[tuple[Path, bytes]]:
+    return [(hooks / "mnemosyne.json", copilot_hooks(hooks, python)),
             (hooks / BRIDGE, (PLUGIN / "hooks" / BRIDGE).read_bytes())]
 
 
@@ -456,6 +494,14 @@ def install(args) -> int:
             have = current_hash(dest)
             action = "create" if have is None else "same" if have == sha256(data) else "conflict"
             target_steps.append((dest, data, action))
+    hook_record = manifest.get("copilot_hooks") or {}
+    hook_files: dict = dict(hook_record.get("files", {}))
+    hook_steps = []
+    if args.user or args.copilot_hooks_dir:
+        user_dir = (Path(args.copilot_hooks_dir).expanduser().resolve() if args.copilot_hooks_dir
+                    else copilot_user_dir())
+        hook_steps = [(dest, data, file_action(dest, data, hook_files.get(dest.as_posix())))
+                      for dest, data in user_hook_payloads(user_dir, args.python)]
 
     refused, conflicts = [], []
     if state == "refuse":
@@ -464,7 +510,7 @@ def install(args) -> int:
     if env_action == "conflict":
         conflicts.append(f"{ENV_NAME}  (already {show(current)}; --force repoints it to "
                          f"{show(repo)} and leaves that folder untouched)")
-    for dest, _, action in plugin_steps:
+    for dest, _, action in plugin_steps + hook_steps:
         if action == "foreign":
             refused.append(f"{show(dest)}  (not written by this installer: never overwritten)")
         elif action == "conflict":
@@ -579,6 +625,23 @@ def install(args) -> int:
             if not dry and action != "same":
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(data)
+
+        # 6. Copilot hooks for the user account
+        made = list(hook_record.get("dirs", []))
+        for dest, data, action in hook_steps:
+            if action == "same":
+                ours = dest.as_posix() in hook_files
+                say("same" if ours else "keep", show(dest),
+                    "" if ours else "identical, but not written here: --uninstall leaves it")
+                continue
+            say({"create": "create", "update": "update", "conflict": "overwrite"}[action], show(dest))
+            if not dry:
+                made += [str(p) for p in (dest.parent, *dest.parent.parents) if not p.exists()]
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(data)
+                hook_files[dest.as_posix()] = sha256(data)
+                manifest["copilot_hooks"] = {"files": hook_files, "dirs": made}
+                changed = True
     finally:
         if changed and not dry:
             write_manifest(manifest)
@@ -588,8 +651,8 @@ def install(args) -> int:
         return 0
     where = ("new terminals and apps" if is_windows()
              else f"new shells (or `source {show(rc_file())}` now)")
-    print(f"installed. {ENV_NAME} is visible to {where}; start a new Claude Code session to load "
-          "the hooks. Check with: mnemosyne doctor")
+    print(f"installed. {ENV_NAME} is visible to {where}; start a new agent session to load the "
+          "hooks. Check with: mnemosyne doctor")
     return 0
 
 
@@ -620,7 +683,9 @@ def uninstall(args) -> int:
                     run([claude, "plugin", "marketplace", "remove", MARKETPLACE])
 
     kept = 0
-    for key, recorded in sorted((manifest.get("files") or {}).items()):
+    hook_record = manifest.get("copilot_hooks") or {}
+    tracked = {**(manifest.get("files") or {}), **hook_record.get("files", {})}
+    for key, recorded in sorted(tracked.items()):
         path = Path(key)
         have = current_hash(path)
         if have is None:
@@ -634,6 +699,12 @@ def uninstall(args) -> int:
         if not dry:
             path.unlink()
             prune(path.parent, state_dir())
+    for folder in sorted(hook_record.get("dirs", []), key=len, reverse=True):
+        if not dry:
+            try:
+                Path(folder).rmdir()
+            except OSError:
+                pass                     # it holds something that isn't ours: leave it
 
     env = manifest.get("env") or {}
     if env.get("value"):
@@ -688,6 +759,10 @@ def main(argv: list[str] | None = None) -> int:
                    "already names one, else ~/repos/mnemosyne-local)")
     p.add_argument("--target", metavar="DIR", help="also write Copilot hook files into this "
                    "repository's .github/hooks/")
+    p.add_argument("--user", action="store_true", help="also write Copilot hook files for your "
+                   "account, into ~/.copilot/hooks/")
+    p.add_argument("--copilot-hooks-dir", metavar="PATH", help="like --user, but into this folder "
+                   "instead of ~/.copilot/hooks/")
     p.add_argument("--python", metavar="PATH", help="the interpreter the hooks run (default: "
                    "`python` on PATH)")
     p.add_argument("--force", action="store_true", help="repoint MNEMOSYNE_REPO and overwrite "
@@ -696,11 +771,19 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--uninstall", action="store_true", help="remove what this installer set up "
                    "(never the memory repo)")
     args = p.parse_args(argv)
-    if args.uninstall and (args.repo or args.target):
-        p.error("--uninstall takes no --repo or --target (a repo's hook files are removed with git)")
+    if args.uninstall and (args.repo or args.target or args.copilot_hooks_dir):
+        p.error("--uninstall takes no --repo, --target or --copilot-hooks-dir (the manifest knows "
+                "what was written; a repo's hook files are removed with git)")
     if args.target and not Path(args.target).is_dir():
         print(f"install: target is not a directory: {args.target}", file=sys.stderr)
         return 2
+    if args.copilot_hooks_dir:
+        if Path(args.copilot_hooks_dir).expanduser().is_file():
+            print(f"install: --copilot-hooks-dir is a file: {args.copilot_hooks_dir}", file=sys.stderr)
+            return 2
+        if args.target and same_path(args.copilot_hooks_dir, Path(args.target) / ".github" / "hooks"):
+            p.error("--copilot-hooks-dir can't be the --target repo's .github/hooks: that file is "
+                    "committed, and this one holds a path for one machine")
     return uninstall(args) if args.uninstall else install(args)
 
 

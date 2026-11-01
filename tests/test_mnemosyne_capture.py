@@ -12,9 +12,11 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -401,6 +403,150 @@ class CandidateCli(_Project):
         kept = cd.decisions(self.root)
         self.assertTrue(1 <= len(kept) < 6)  # the current log and one rotation; older ones go
         self.assertEqual(kept[-1]["mode"], "pre-compact")
+
+
+class DoubleFire(_Project):
+    """A repo's .github/hooks/mnemosyne.json and the user-level ~/.copilot/hooks copy both present:
+    the host runs a bridge from each for one event (spec §4.7, Phase 2's exit criterion)."""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(self._td.cleanup)     # after any open handle below has closed
+        self.copies = []
+        for folder in (self.root / ".github" / "hooks", self.root / "home" / ".copilot" / "hooks"):
+            folder.mkdir(parents=True)
+            self.copies.append(shutil.copy(HOOK, folder))
+        self.env = {k: v for k, v in self.env.items() if k != "CLAUDECODE"}
+        self.env["COPILOT_CLI"] = "1"
+
+    def ev(self, **kw):
+        return dict({"sessionId": "c1", "cwd": str(self.root)}, **kw)
+
+    def fire_both(self, mode, event):
+        for script in self.copies:
+            proc = subprocess.run([sys.executable, script, mode], input=json.dumps(event),
+                                  capture_output=True, text=True, env=self.env, cwd=str(self.root))
+            self.assertEqual((proc.returncode, proc.stderr), (0, ""))
+
+    def verdicts(self):
+        return [d["decision"] for d in cd.decisions(self.root)]
+
+    def bridge(self):
+        spec = importlib.util.spec_from_file_location("mnemosyne_hook_double_fire", HOOK)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def age_markers(self):
+        old = time.time() - cd.FIRE_WINDOW - 1
+        for marker in (cd.capture_dir(self.root) / cd.FIRED).iterdir():
+            os.utime(marker, (old, old))
+
+    def test_both_files_record_one_candidate_for_each_mode(self):
+        self.fire_both("prompt", self.ev(prompt="from now on always rebase"))
+        self.assertEqual(self.signals(), ["S4"])
+        self.assertEqual(self.verdicts(), ["candidate", "duplicate"])
+        tool = self.ev(toolName="create", toolArgs={"path": "docs/adr/0001-x.md"})
+        self.fire_both("post-tool", tool)
+        self.assertEqual(self.signals(), ["S4", "S9-S11"])
+        for mode, verdict in (("session-start", "session-start"), ("stop", "would-block"),
+                              ("pre-compact", "flushed")):
+            self.fire_both(mode, self.ev())
+            self.assertEqual(self.verdicts()[-2:], [verdict, "duplicate"], mode)
+
+    def test_runs_at_the_same_moment_still_claim_once(self):
+        event = json.dumps(self.ev(prompt="from now on always rebase"))
+        runs = [subprocess.Popen([sys.executable, HOOK, "prompt"], stdin=subprocess.PIPE, text=True,
+                                 env=self.env, cwd=str(self.root)) for _ in range(6)]
+        for run in runs:
+            run.stdin.write(event)
+            run.stdin.close()
+        for run in runs:
+            self.assertEqual(run.wait(timeout=60), 0)
+        self.assertEqual(self.signals(), ["S4"])       # only the claim's winner writes the spool
+        # Not an exact count: O_APPEND on Windows is seek-then-write, so runs racing on the decision
+        # log can lose a line there. Two winners would still show up as two candidates above.
+        self.assertLessEqual(self.verdicts().count("candidate"), 1)
+
+    def test_the_second_run_prints_no_recall_and_syncs_nothing(self):
+        bridge = self.bridge()
+        with mock.patch.dict(os.environ, self.env, clear=True), \
+                mock.patch("mnemosyne.recall", return_value="L-0001 rebase first") as recall, \
+                redirect_stdout(io.StringIO()) as out:
+            for _ in range(2):
+                bridge.do_prompt(self.ev(prompt="how do we merge"), None)
+        self.assertEqual(recall.call_count, 1)
+        self.assertEqual(out.getvalue().count("L-0001"), 1)
+        with mock.patch.dict(os.environ, self.env, clear=True), mock.patch.object(core, "sync") as sync, \
+                mock.patch.object(core, "sync_has_work", return_value=True):
+            for _ in range(2):
+                bridge.do_session_start(self.ev(), None)
+        self.assertEqual(sync.call_count, 1)
+
+    def test_a_bridge_from_before_the_guard_is_covered_for_capture(self):
+        """Only the engine changes: a committed copy calls capture_event and ignores the result."""
+        for _ in range(2):
+            self.capture("prompt", self.ev(prompt="from now on always rebase"))
+        self.assertEqual(self.signals(), ["S4"])
+
+    def test_one_event_matches_across_the_two_hook_formats(self):
+        # Copilot 1.0.88 ran both, with snake_case stdin and its shell renamed to Bash (§4.7.1).
+        copilot = self.ev(toolName="powershell", toolArgs={"command": "npm test"}, toolResult={
+            "resultType": "success", "textResultForLlm": "x\n<shellId: 1 completed with exit code 2>"})
+        claude = {"session_id": "c1", "cwd": str(self.root), "hook_event_name": "PostToolUse",
+                  "tool_name": "Bash", "tool_input": {"command": "npm test"}, "tool_result": json.dumps(
+                      {"text_result_for_llm": "x\n<shellId: 1 completed with exit code 2>"})}
+        self.assertEqual(cd.fire_key("post-tool", copilot, self.root), cd.fire_key("post-tool", claude, self.root))
+
+    def test_different_events_are_not_duplicates(self):
+        prompt = self.ev(prompt="from now on always rebase")
+        self.capture("prompt", prompt)
+        self.capture("prompt", dict(prompt, sessionId="c2"))             # another session
+        self.capture("prompt", dict(prompt, prompt="from now on squash"))   # another prompt
+        self.capture("stop", self.ev())                                  # another mode
+        self.capture("stop", self.ev(stop_hook_active=True))             # the re-fire after a block
+        self.assertNotIn(cd.DUPLICATE, self.verdicts())
+
+    def test_a_command_that_fails_then_passes_is_two_events(self):
+        base = self.ev(toolName="powershell", toolArgs={"command": "npm test"})
+        for code in (1, 0):
+            self.capture("post-tool", dict(base, toolResult={
+                "resultType": "success", "textResultForLlm": f"<shellId: 1 completed with exit code {code}>"}))
+        self.assertEqual(self.signals(), ["S6"])
+
+    def test_a_real_repeat_after_the_window_counts_again(self):
+        event = self.ev(prompt="from now on always rebase")
+        self.capture("prompt", event)
+        self.age_markers()
+        self.capture("prompt", event)
+        self.assertEqual(self.signals(), ["S4", "S4"])
+        self.assertEqual(self.verdicts(), ["candidate", "candidate"])
+
+    def test_expired_markers_are_cleared(self):
+        for n in range(5):
+            self.capture("prompt", self.ev(prompt=f"prompt {n}"))
+        self.age_markers()
+        self.capture("prompt", self.ev(prompt="one more"))
+        self.assertEqual(len(list((cd.capture_dir(self.root) / cd.FIRED).iterdir())), 1)
+
+    def test_a_guard_that_cannot_claim_lets_the_event_through(self):
+        (cd.ensure_capture_dir(self.root) / cd.FIRED).write_text("not a folder", encoding="utf-8")
+        for _ in range(2):
+            self.capture("prompt", self.ev(prompt="from now on always rebase"))
+        self.assertEqual(self.signals(), ["S4", "S4"])
+
+    def test_a_session_less_event_falls_back_to_the_project(self):
+        event = {"cwd": str(self.root), "prompt": "from now on always rebase"}
+        self.capture("prompt", event)
+        self.capture("prompt", event)
+        self.assertEqual(self.signals(), ["S4"])
+        with tempfile.TemporaryDirectory() as other:
+            self.assertNotEqual(cd.fire_key("prompt", event, self.root), cd.fire_key("prompt", event, Path(other)))
+
+    def test_the_markers_are_never_committed(self):
+        self.capture("prompt", self.ev(prompt="x"))
+        self.assertTrue(cd.is_self_ignored(self.root))
+        self.assertEqual(list((cd.capture_dir(self.root) / cd.FIRED).iterdir())[0].stat().st_size, 0)
 
 
 class SessionStartSkipsIdleSync(unittest.TestCase):

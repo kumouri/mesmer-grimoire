@@ -11,6 +11,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -437,6 +438,208 @@ class CopilotHooksInARepo(InstallerCase):
                               capture_output=True, text=True, cwd=self.target, env=env)
         self.assertEqual((proc.returncode, proc.stdout), (0, ""), proc.stderr)
         self.assertTrue((self.repo / "memory" / ".capture" / "candidates.jsonl").is_file())
+
+
+class CopilotHooksForTheUser(InstallerCase):
+    def setUp(self):
+        super().setUp()
+        self.hooks = self.home / ".copilot" / "hooks"
+
+    def hook_file(self, folder=None):
+        return json.loads(((folder or self.hooks) / "mnemosyne.json").read_text(encoding="utf-8"))
+
+    def test_nothing_is_written_without_asking(self):
+        code, out = self.install()
+        self.assertEqual(code, 0, out)
+        self.assertFalse((self.home / ".copilot").exists())
+        self.assertNotIn("copilot_hooks", self.manifest())
+
+    def test_dry_run_lists_the_files_and_writes_nothing(self):
+        code, out = self.install("--user", "--dry-run")
+        self.assertEqual(code, 0, out)
+        self.assertIn("create    ~/.copilot/hooks/mnemosyne.json", out)
+        self.assertIn("create    ~/.copilot/hooks/mnemosyne_hook.py", out)
+        self.assertEqual(self.tree(), [])
+
+    def test_same_events_as_the_repo_file_but_an_absolute_script(self):
+        code, out = self.install("--user")
+        self.assertEqual(code, 0, out)
+        doc = self.hook_file()
+        repo_doc = json.loads(mi.copilot_hooks())
+        self.assertEqual(doc["version"], repo_doc["version"])
+        self.assertEqual(list(doc["hooks"]), list(repo_doc["hooks"]))
+        script = (self.hooks / "mnemosyne_hook.py").as_posix()
+        for event, (entry,) in doc["hooks"].items():
+            mode = repo_doc["hooks"][event][0]["bash"].split()[-1]
+            self.assertIn(script, entry["bash"])
+            self.assertIn(script, entry["powershell"])
+            self.assertTrue(entry["bash"].endswith(f" {mode}"))
+            self.assertTrue(entry["powershell"].endswith(f" {mode}"))
+            self.assertEqual(entry.get("timeoutSec"), repo_doc["hooks"][event][0].get("timeoutSec"))
+            self.assertNotIn(".github", entry["bash"])     # that path exists only in a repo
+            self.assertNotIn("cwd", entry)
+        self.assertEqual((self.hooks / "mnemosyne_hook.py").read_bytes(),
+                         (mi.PLUGIN / "hooks" / "mnemosyne_hook.py").read_bytes())
+
+    def test_the_commands_run_from_a_repo_with_no_bridge_of_its_own(self):
+        """Through the shell the host uses, from a folder with a space, in an unrelated project."""
+        folder = self.home / "my hooks's folder"
+        code, out = self.install("--copilot-hooks-dir", str(folder), "--python", sys.executable)
+        self.assertEqual(code, 0, out)
+        project = self.home / "some project"
+        project.mkdir()
+        (entry,) = self.hook_file(folder)["hooks"]["userPromptSubmitted"]
+        shell = shutil.which("pwsh") or shutil.which("powershell")
+        if os.name == "nt":
+            cmd = [shell, "-NoProfile", "-Command", entry["powershell"]]
+        else:
+            cmd = ["/bin/sh", "-c", entry["bash"]]
+        env = dict(os.environ, PYTHONPATH=str(REPO / "mnemosyne" / "src"), MNEMOSYNE_REPO=str(self.repo))
+        proc = subprocess.run(cmd, input=json.dumps({"prompt": "from now on rebase", "cwd": str(project),
+                                                     "sessionId": "s"}),
+                              capture_output=True, text=True, cwd=project, env=env)
+        self.assertEqual((proc.returncode, proc.stdout), (0, ""), proc.stderr)
+        self.assertTrue((self.repo / "memory" / ".capture" / "candidates.jsonl").is_file())
+
+    def test_the_powershell_form_runs_where_powershell_exists(self):
+        shell = shutil.which("pwsh") or shutil.which("powershell")
+        if shell is None:
+            self.skipTest("no PowerShell here")
+        folder = self.home / "my hooks's folder"
+        self.install("--copilot-hooks-dir", str(folder), "--python", sys.executable)
+        (entry,) = self.hook_file(folder)["hooks"]["sessionStart"]
+        env = dict(os.environ, PYTHONPATH=str(REPO / "mnemosyne" / "src"), MNEMOSYNE_REPO=str(self.repo))
+        proc = subprocess.run([shell, "-NoProfile", "-Command", entry["powershell"]], input="{}",
+                              capture_output=True, text=True, cwd=self.home, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertTrue((self.repo / "memory" / ".capture" / "decisions.jsonl").is_file())
+
+    def test_rerun_is_safe(self):
+        self.install("--user")
+        before = (self.hooks / "mnemosyne.json").read_bytes()
+        code, out = self.install("--user")
+        self.assertEqual(code, 0, out)
+        self.assertIn("same      ~/.copilot/hooks/mnemosyne.json", out)
+        self.assertIn("same      ~/.copilot/hooks/mnemosyne_hook.py", out)
+        self.assertEqual((self.hooks / "mnemosyne.json").read_bytes(), before)
+
+    def test_a_rerun_without_user_keeps_the_record(self):
+        self.install("--user")
+        self.assertEqual(self.install()[0], 0)
+        self.install("--uninstall")
+        self.assertFalse((self.home / ".copilot").exists())
+
+    def test_a_new_kit_updates_an_unedited_file(self):
+        self.install("--user")
+        (self.hooks / "mnemosyne_hook.py").write_bytes(b"# an older bridge\n")
+        doc = self.manifest()
+        doc["copilot_hooks"]["files"][(self.hooks / "mnemosyne_hook.py").as_posix()] = mi.sha256(b"# an older bridge\n")
+        mi.write_manifest(doc)
+        code, out = self.install("--user")
+        self.assertEqual(code, 0, out)
+        self.assertIn("update    ~/.copilot/hooks/mnemosyne_hook.py", out)
+
+    def test_an_edited_hook_file_is_a_conflict(self):
+        self.install("--user")
+        (self.hooks / "mnemosyne.json").write_text("{}", encoding="utf-8")
+        code, out = self.install("--user")
+        self.assertEqual(code, 1)
+        self.assertIn("edited since install", out)
+        self.assertEqual((self.hooks / "mnemosyne.json").read_text(encoding="utf-8"), "{}")
+        self.assertEqual(self.install("--user", "--force")[0], 0)
+        self.assertIn("hooks", self.hook_file())
+
+    def test_a_hook_file_it_did_not_write_is_never_overwritten(self):
+        self.hooks.mkdir(parents=True)
+        (self.hooks / "mnemosyne.json").write_text("mine", encoding="utf-8")
+        code, out = self.install("--user", "--force")
+        self.assertEqual(code, 1)
+        self.assertIn("not written by this installer", out)
+        self.assertEqual((self.hooks / "mnemosyne.json").read_text(encoding="utf-8"), "mine")
+        self.assertFalse((self.hooks / "mnemosyne_hook.py").exists())
+        self.assertFalse((self.home / ".mnemosyne").exists())
+
+    def test_uninstall_removes_only_what_it_wrote(self):
+        self.hooks.mkdir(parents=True)
+        (self.hooks / "other-tool.json").write_text("{}", encoding="utf-8")
+        self.install("--user")
+        code, out = self.install("--uninstall")
+        self.assertEqual(code, 0, out)
+        self.assertIn("remove    ~/.copilot/hooks/mnemosyne.json", out)
+        self.assertEqual([p.name for p in self.hooks.iterdir()], ["other-tool.json"])
+
+    def test_uninstall_leaves_an_identical_file_it_did_not_write(self):
+        self.hooks.mkdir(parents=True)
+        for dest, data in mi.user_hook_payloads(self.hooks, None):
+            dest.write_bytes(data)
+        code, out = self.install("--user")
+        self.assertEqual(code, 0, out)
+        self.assertIn("keep      ~/.copilot/hooks/mnemosyne.json", out)
+        self.assertEqual(self.install("--uninstall")[0], 0)
+        self.assertTrue((self.hooks / "mnemosyne.json").is_file())
+
+    def test_uninstall_removes_the_folders_it_made_and_no_others(self):
+        (self.home / ".copilot").mkdir()
+        self.install("--user")
+        self.install("--uninstall")
+        self.assertFalse(self.hooks.exists())
+        self.assertTrue((self.home / ".copilot").is_dir())
+
+    def test_uninstall_keeps_an_edited_file(self):
+        self.install("--user")
+        (self.hooks / "mnemosyne.json").write_text("{}", encoding="utf-8")
+        code, out = self.install("--uninstall", "--dry-run")
+        self.assertIn("keep      ~/.copilot/hooks/mnemosyne.json", out)
+        self.assertTrue((self.hooks / "mnemosyne_hook.py").is_file())
+        self.assertEqual(self.install("--uninstall")[0], 0)
+        self.assertEqual([p.name for p in self.hooks.iterdir()], ["mnemosyne.json"])
+
+    def test_a_custom_folder_replaces_the_default_and_expands_the_home(self):
+        code, out = self.install("--copilot-hooks-dir", "~/deep/er/hooks")
+        self.assertEqual(code, 0, out)
+        folder = self.home / "deep" / "er" / "hooks"
+        self.assertTrue((folder / "mnemosyne.json").is_file())
+        self.assertFalse((self.home / ".copilot").exists())
+        self.assertIn(folder.resolve().as_posix(), self.hook_file(folder)["hooks"]["agentStop"][0]["bash"])
+        self.install("--uninstall")
+        self.assertFalse((self.home / "deep").exists())
+
+    def test_uninstall_covers_every_folder_ever_used(self):
+        self.install("--user")
+        self.install("--copilot-hooks-dir", str(self.home / "other"))
+        self.install("--uninstall")
+        self.assertFalse(self.hooks.exists())
+        self.assertFalse((self.home / "other").exists())
+
+    def test_python_picks_the_interpreter_in_both_shells(self):
+        self.install("--user", "--python", "/opt/my py/python")
+        (entry,) = self.hook_file()["hooks"]["sessionStart"]
+        self.assertTrue(entry["bash"].startswith("'/opt/my py/python' "))
+        self.assertTrue(entry["powershell"].startswith("& '/opt/my py/python' "))
+
+    def test_usage_errors(self):
+        target = self.home / "project"
+        target.mkdir()
+        (self.home / "a-file").write_text("x", encoding="utf-8")
+        self.assertEqual(self.install("--copilot-hooks-dir", str(self.home / "a-file"))[0], 2)
+        for argv in (["--uninstall", "--copilot-hooks-dir", "x"],
+                     ["--target", str(target), "--copilot-hooks-dir", str(target / ".github" / "hooks")]):
+            with self.subTest(argv=argv), self.assertRaises(SystemExit) as cm:
+                self.install(*argv)
+            self.assertEqual(cm.exception.code, 2)
+
+    def test_uninstall_accepts_user_as_zethus_passes_it(self):
+        self.install("--user")
+        self.assertEqual(self.install("--user", "--uninstall")[0], 0)
+        self.assertFalse((self.home / ".copilot").exists())
+
+    def test_user_and_repo_files_can_coexist(self):
+        target = self.home / "project"
+        target.mkdir()
+        code, out = self.install("--user", "--target", str(target))
+        self.assertEqual(code, 0, out)
+        self.assertTrue((target / ".github" / "hooks" / "mnemosyne.json").is_file())
+        self.assertTrue((self.hooks / "mnemosyne.json").is_file())
 
 
 if __name__ == "__main__":
