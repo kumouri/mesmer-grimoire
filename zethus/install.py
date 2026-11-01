@@ -7,6 +7,7 @@
     python zethus/install.py --user --dry-run
     python zethus/install.py --user --uninstall                    # remove what --user installed
     python zethus/install.py --user --jetbrains-legacy             # + JetBrains' older global file
+    python zethus/install.py --user --with-mnemosyne               # + Mnemosyne (memory + hooks)
 
 **Repo mode** (``--target``) — what goes where, all under the target's ``.github/``:
 
@@ -52,6 +53,13 @@ every repo. Every file written is recorded, with its hash, in
 yours: it is never overwritten, even with ``--force``. A kit file you edited is a conflict unless
 you pass ``--force``. ``--uninstall`` removes only manifest files you haven't edited (``--force``
 removes edited ones too), then the empty folders it made.
+
+**``--with-mnemosyne``** (either mode) then calls ``mnemosyne/install.py`` from the same clone,
+passing on ``--target``, ``--dry-run``, ``--uninstall`` and ``--mnemosyne-repo`` (as its
+``--repo``). That installer sets up the package, a local git memory repo, ``MNEMOSYNE_REPO`` and the
+hooks; its docstring says what goes where. It runs only after the Zethus step succeeds (an
+uninstall runs both), and the exit code is the worse of the two. Without the flag nothing about
+this installer changes.
 
 Exit codes: 0 installed / uninstalled (or dry run) · 1 conflicts or nothing to uninstall,
 nothing written · 2 usage error.
@@ -396,6 +404,42 @@ def uninstall_user(args) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- --with-mnemosyne
+
+
+MNEMOSYNE_INSTALLER = KIT.parent / "mnemosyne" / "install.py"
+
+
+def mnemosyne_argv(args) -> list[str]:
+    """Zethus's flags, translated for mnemosyne/install.py. ``--force`` is deliberately not passed:
+    there it would repoint ``MNEMOSYNE_REPO``, which deserves its own explicit run."""
+    argv = ["--target", args.target] if args.target else []
+    if args.mnemosyne_repo:
+        argv += ["--repo", args.mnemosyne_repo]
+    if args.dry_run:
+        argv.append("--dry-run")
+    if args.uninstall:
+        argv.append("--uninstall")
+    return argv
+
+
+def run_mnemosyne(argv: list[str]) -> int:
+    """Call Mnemosyne's own installer in-process (one implementation, not a copy of it)."""
+    if not MNEMOSYNE_INSTALLER.is_file():
+        print(f"install: --with-mnemosyne needs {MNEMOSYNE_INSTALLER.parent.name}/install.py beside "
+              "zethus/ (run this from a mesmer-grimoire clone)", file=sys.stderr)
+        return 2
+    module = sys.modules.get("mnemosyne_install")
+    if module is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("mnemosyne_install", MNEMOSYNE_INSTALLER)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["mnemosyne_install"] = module
+        spec.loader.exec_module(module)
+    print(f"\nmnemosyne: install.py {' '.join(argv)}".rstrip())
+    return module.main(argv)
+
+
 # --------------------------------------------------------------------------- cli
 
 
@@ -413,12 +457,23 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--jetbrains-legacy", action="store_true",
                    help="with --user: also write JetBrains' global-copilot-instructions.md, for "
                         "older plugin builds that don't read ~/.copilot/instructions")
+    p.add_argument("--with-mnemosyne", action="store_true",
+                   help="then run mnemosyne/install.py: the package, a local memory repo, "
+                        "MNEMOSYNE_REPO and its hooks (with --target, also that repo's Copilot hooks)")
+    p.add_argument("--mnemosyne-repo", metavar="PATH",
+                   help="with --with-mnemosyne: the memory repo (default ~/repos/mnemosyne-local)")
     args = p.parse_args(argv)
     if not args.user and (args.uninstall or args.jetbrains_legacy):
         p.error("--uninstall and --jetbrains-legacy need --user (a repo install is removed with git)")
+    if args.mnemosyne_repo and not args.with_mnemosyne:
+        p.error("--mnemosyne-repo needs --with-mnemosyne")
     if args.user:
-        return uninstall_user(args) if args.uninstall else install_user(args)
-    return install_repo(args)
+        code = uninstall_user(args) if args.uninstall else install_user(args)
+    else:
+        code = install_repo(args)
+    if not args.with_mnemosyne or (code != 0 and not args.uninstall):
+        return code                      # a refused install wrote nothing; stop there too
+    return max(code, run_mnemosyne(mnemosyne_argv(args)))
 
 
 if __name__ == "__main__":

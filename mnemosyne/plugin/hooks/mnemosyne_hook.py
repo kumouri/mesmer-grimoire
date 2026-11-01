@@ -12,6 +12,8 @@ Modes:
                  which Claude Code injects as additional context. Silent when nothing matches.
                  Also records capture candidates S4/S5 (shadow).
   session-start  (SessionStart)     git-pull the shared memory so lessons are fresh. Silent.
+                 Skipped when there is nothing to pull (no remote, no configured store), since
+                 sync's git calls cost ~300 ms on Windows; `mnemosyne sync` still does it all.
                  Also logs the pending-candidate count (shadow).
   post-tool      (PostToolUse, PostToolUseFailure) records candidates S6, S8 and S9-S11 (shadow).
   stop           (Stop)             logs whether it would block for triage (shadow: never blocks).
@@ -89,6 +91,8 @@ def do_session_start(event, host):
         from mnemosyne import core, load_config, resolve_repo
         repo = resolve_repo(None)
         cfg = load_config(None, repo)
+        if not core.sync_has_work(cfg, repo):
+            return 0  # local-only memory repo: nothing to pull, so skip sync's git calls
         core.sync(cfg, repo)  # best-effort git pull; ignores no-remote / no-git
     except Exception:
         return 0

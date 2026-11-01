@@ -679,6 +679,25 @@ All of this is docs only, still unverified.
   about 58 ms is interpreter start-up and about 90 ms importing the package, both standard-library
   cost. That is inside the 200 ms bound, but with little headroom.
 
+**E6. `session-start` against a git memory repo (2026-11-01).** The Mnemosyne install job
+measured the session-start hook at about 730 ms with a memory repo that was a git repo, against
+about 350 ms without git. A re-run on the same machine timed the bridge 15 times against each kind
+of temp memory repo, using a fresh `mnemosyne init`, with and without `git init` plus one commit,
+and no remote:
+
+| Memory repo | Median before | Median after |
+| --- | --- | --- |
+| Plain folder | 354 ms | 148 ms |
+| Git repo, no remote | 658 ms | 147 ms |
+
+- **Cause:** the mode ran `sync`, which spawns about ten git children (`pull`, `fetch`,
+  `rev-parse`, `show`, …) even when there is nothing to pull. Each one fails or finds nothing.
+- **Fix:** the bridge now asks `core.sync_has_work` first. That reads the git config from disk to
+  see whether the repo has a remote, and checks the config for any store; no git child runs. With
+  neither, `sync` is skipped.
+- **Cost that remains:** a memory repo with a remote still pays for `sync` at every session start.
+  Moving that out of the hook is the hook rule above ("No git"); it hasn't been done yet.
+
 ### 4.8 Engine changes this needs
 
 All of these are inside Mnemosyne and stay stdlib-only.
@@ -720,7 +739,7 @@ Sizes follow stage 1: S is under half a day, M is half a day to two days, L is t
 | **1** | Auto-store for S1 (ADR) and S2 (gate red → green) through Zethus's scripts. `session-start` recall digest. Claude Code `stop` triage of pending candidates through the `lessons-triage` skill. Local tier only (Q7). The Q2 exclusions hold from here: an S1 or S2 candidate in an excluded class is asked at the same triage, never saved | Yes: auto-store to local, one triage checkpoint | A Zethus run that records an ADR and fixes a red gate ends with two `SAVED:` lines and an empty spool; `retire` undoes either; no write outside `local.jsonl`; a `security` ADR is asked, not saved, and the engine refuses it as a hook capture | M |
 | 2 | Ask outcomes (S4–S6, S8–S12), batched; Copilot `sessionStart` and `.github/hooks/*.json`; Amphion watched paths | Yes | Triage on Copilot CLI and VS Code; no double-fire with both files present | M |
 | 3 | Context fingerprints (a context is a spec or ticket, Q5), standards (S7), promotion to shared or store, and config-default proposals. Promotion targets the tiers Mnemosyne's federation already has: the shared tier or any store in `config.stores` (Q3, ruled) | Yes | Three ADRs with the same answer across two specs produce exactly one "promote to standard?" question; three in one spec produce none (Q4) | M |
-| 4 | The shared core (Q1, ruled), inside the stage 1 installer: one source tree for the memory hook script and its `hooks.json`, the `memory` config schema, and the shared skills. Zethus and Amphion each install from it and keep their own names, READMEs and install paths | Packaging | Stage 1 §3.4 CI additions green; installing both kits registers each hook once; `tests/test_zethus.py` green | M, on top of the stage 1 installer |
+| 4 | The shared core (Q1, ruled), inside the stage 1 installer: one source tree for the memory hook script and its `hooks.json`, the `memory` config schema, and the shared skills. Zethus and Amphion each install from it and keep their own names, READMEs and install paths. **Built toward it (2026-11-01):** Mnemosyne has its own installer, `mnemosyne/install.py`. It sets up the package, a local git memory repo (`~/repos/mnemosyne-local` by default, no remote), a persistent `MNEMOSYNE_REPO`, the Claude Code plugin through a local marketplace, and, with `--target`, a Copilot `.github/hooks/*.json` file (`mnemosyne.json`) generated from the plugin's `hooks.json`, so registration keeps one source. `zethus/install.py --with-mnemosyne` calls it rather than copying it (`tests/test_mnemosyne_install.py`, `tests/test_zethus.py`). **Open:** the shared core itself, Amphion's install, and user-level Copilot hooks (no location verified); the shared core's installer should call `mnemosyne/install.py` too | Packaging | Stage 1 §3.4 CI additions green; installing both kits registers each hook once; `tests/test_zethus.py` green | M, on top of the stage 1 installer |
 
 Phase 0 deliberately ships no capture. Building capture on an engine that loses lessons on merge
 (B2) would bank data straight into the bug, which is why Q8 ruled the fixes first. And the signal

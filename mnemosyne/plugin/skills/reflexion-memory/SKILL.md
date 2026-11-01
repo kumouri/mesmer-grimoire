@@ -31,9 +31,9 @@ It reads/writes a **memory repo** (a directory with a `memory/` folder). Point a
 `MNEMOSYNE_REPO` environment variable, or run commands with `--repo <path>`. Create one with
 `mnemosyne --repo <path> init --example software-eng` (the `--example` seeds a config with useful
 recall axes; omit it for the minimal default). If the plugin's hooks are active, recall happens
-automatically on each prompt and the shared memory is pulled on session start. The hooks also record
-lessons-capture *candidates* in shadow mode: they never save a lesson or print anything, so nothing
-changes for you. `mnemosyne candidate list` and `mnemosyne doctor` show what they recorded.
+automatically on each prompt, and a memory repo with a remote is pulled on session start. The
+hooks also record lessons-capture *candidates* in shadow mode: they never save a lesson or print
+anything, so nothing changes for you. `mnemosyne candidate list` and `mnemosyne doctor` show what they recorded.
 
 ## Recall (start of a task)
 

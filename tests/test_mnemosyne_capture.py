@@ -4,10 +4,11 @@ The capture hooks detect signals and append candidates to memory/.capture/, log 
 invocation, and do nothing else: no lesson is stored, nothing is asked, no capture mode prints.
 Event payloads below use the field names observed on real Claude Code, Copilot CLI and Codex
 installs (spec §4.7.1), and every guard is driven with its variable set the way the host sets it.
-Offline: the only subprocesses are the hook bridge itself and a local `git init`.
+Offline: the only subprocesses are the hook bridge itself and local git commands.
 """
 from __future__ import annotations
 
+import importlib.util
 import io
 import json
 import os
@@ -17,6 +18,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parent.parent
 MNEMOSYNE_SRC = REPO / "mnemosyne" / "src"
@@ -399,6 +401,62 @@ class CandidateCli(_Project):
         kept = cd.decisions(self.root)
         self.assertTrue(1 <= len(kept) < 6)  # the current log and one rotation; older ones go
         self.assertEqual(kept[-1]["mode"], "pre-compact")
+
+
+class SessionStartSkipsIdleSync(unittest.TestCase):
+    """session-start syncs only when there is something to pull. In a local-only memory repo,
+    sync's git children cost ~300 ms on Windows (658 ms -> 147 ms measured 2026-11-01)."""
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.repo = Path(self._td.name) / "mem"
+        core.init_repo(self.repo)
+        self.git("init", "-q")
+        spec = importlib.util.spec_from_file_location("mnemosyne_hook_under_test", HOOK)
+        self.bridge = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.bridge)
+        env = {k: v for k, v in os.environ.items() if k not in HOST_ENV}
+        env["MNEMOSYNE_REPO"] = str(self.repo)
+        patcher = mock.patch.dict(os.environ, env, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def git(self, *args, cwd=None):
+        subprocess.run(["git", "-C", str(cwd or self.repo), *args], check=True,
+                       capture_output=True, stdin=subprocess.DEVNULL)
+
+    def session_start(self):
+        with mock.patch.object(core, "sync") as sync:
+            self.bridge.do_session_start({"hook_event_name": "SessionStart"}, None)
+        return sync.called
+
+    def test_no_remote_no_store_skips_sync(self):
+        self.assertFalse(core.has_remote(self.repo))
+        self.assertFalse(self.session_start())
+
+    def test_a_remote_brings_sync_back(self):
+        self.git("remote", "add", "origin", "https://example.invalid/memory.git")
+        self.assertTrue(core.has_remote(self.repo))
+        self.assertTrue(self.session_start())
+
+    def test_a_store_brings_sync_back(self):
+        (self.repo / "mnemosyne.config.json").write_text(json.dumps(
+            {"stores": [{"tier": "team", "prefix": "T", "path": str(self.repo / "team")}]}),
+            encoding="utf-8")
+        self.assertTrue(self.session_start())
+
+    def test_a_plain_folder_has_no_remote(self):
+        with tempfile.TemporaryDirectory() as plain:
+            self.assertFalse(core.has_remote(Path(plain)))
+
+    def test_a_linked_worktree_reads_the_common_config(self):
+        self.git("-c", "user.name=t", "-c", "user.email=t@example.com",
+                 "commit", "-q", "--allow-empty", "-m", "init")
+        self.git("remote", "add", "origin", "https://example.invalid/memory.git")
+        linked = Path(self._td.name) / "linked"
+        self.git("worktree", "add", "-q", "--detach", str(linked))
+        self.assertTrue(core.has_remote(linked))
 
 
 class PluginRegistration(unittest.TestCase):
