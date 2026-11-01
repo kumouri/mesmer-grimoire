@@ -5,6 +5,8 @@ description: Translate a Markdown spec (a Zethus spec or any spec-shaped Markdow
 
 # Spec to stories
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 A spec describes a change. A story is a unit of work someone can pick up, estimate, and mark done.
 This skill does the translation, and refuses to call the output "decent" until it's earned that.
 
@@ -89,7 +91,7 @@ and show the drafts first — approval covers what was actually shown, not what 
 
 If, after approval, the batch is to be created in Jira: check whether an Atlassian/Jira MCP tool is
 available in this session first (only the calling agent can see its own tool list); otherwise run
-`python .github/zethus/scripts/jira-access.py` to check for a CLI or a REST token. Create issues one
+`python <kit root>/scripts/jira-access.py` to check for a CLI or a REST token. Create issues one
 at a time, report each created key back, and stop and ask again before creating anything beyond the
 approved batch.
 

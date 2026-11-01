@@ -228,7 +228,7 @@ sizes, "from memory").
 
 | Kit | File | Mnemosyne today | Natural seam |
 | --- | --- | --- | --- |
-| Zethus | [`zethus/agents/zethus.agent.md`](../zethus/agents/zethus.agent.md) | none | Stage table: recall on entering a stage; triage at stage 7 exit |
+| Zethus | [`zethus/com.github.copilot/agents/zethus.agent.md`](../zethus/com.github.copilot/agents/zethus.agent.md) | none | Stage table: recall on entering a stage; triage at stage 7 exit |
 | Zethus | [`zethus/copilot-instructions.md`](../zethus/copilot-instructions.md) | none | none needed; stays a router |
 | Zethus | [`zethus/scripts/base-freshness.py`](../zethus/scripts/base-freshness.py) | none | Runs at stage 0 on every host: can print the recall digest |
 | Zethus | [`zethus/scripts/new-adr.py`](../zethus/scripts/new-adr.py) | none | Every ADR is a human-signed decision: auto-capture |
@@ -524,6 +524,17 @@ been run there, so every mode cell in that column is unverified.
 In Phase 0 every mode runs in **shadow mode** on every host: the bridge records candidates and logs
 one decision per invocation, `stop` logs "would block" instead of blocking, and no capture mode
 prints anything. So the output-shape cells above decide Phase 1 and 2 behaviour, not Phase 0's.
+
+**The Copilot plugin is a third registration of the same bridge.** `mnemosyne@mesmer-grimoire`
+(`com.github.copilot/hooks/hooks.json` in the plugin) ran on Copilot CLI 1.0.105 and 1.0.106-2,
+with a local marketplace and a temporary `COPILOT_HOME`, and each event fired once: `sessionStart`,
+`userPromptSubmitted`, `postToolUse` and `agentStop` were observed, and `preCompact` was not run.
+With the plugin, `.github/hooks` and `$COPILOT_HOME/hooks` all present, both runtimes ran all three
+registrations of every event. The engine's claim let one through and logged two as `duplicate`.
+That is the Phase 2 exit criterion on a real host, and the first evidence that the CLI reads the
+user-level folder. The Claude file beside the plugin's did not fire, so it stays Claude Code's.
+`install.py --user` skips the user file when it finds the plugin; the guard is what holds where it
+can't see one.
 
 Registration lives in one neutral file: Claude-format `hooks.json` in the shared core's plugin. It is read
 as-is by Claude Code, Copilot CLI and VS Code (from `.claude/settings.json` in repo installs), and

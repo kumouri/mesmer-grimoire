@@ -8,6 +8,7 @@ and the hooks, in one step.
     python mnemosyne/install.py --target path/to/repo   # + Copilot hook files in that repo
     python mnemosyne/install.py --user                  # + Copilot hook files in ~/.copilot/hooks
     python mnemosyne/install.py --copilot-hooks-dir DIR # + the same, in a folder of your choosing
+    python mnemosyne/install.py --migrate-to-plugin     # drop the user hook files for the Copilot plugin
     python mnemosyne/install.py --uninstall             # undo it; the memory repo is never removed
 
 It is a script beside the package rather than a ``mnemosyne install`` subcommand because its first
@@ -49,6 +50,17 @@ whatever is already in place:
    for one machine: never commit it. ``--python`` sets the interpreter it calls, and otherwise it
    calls ``python3`` / ``python`` as the repo's does. A repo that also has its own copy doesn't
    double-fire, because the engine claims each event once (``mnemosyne.candidates``).
+
+**Beside the Copilot plugin.** ``mnemosyne@mesmer-grimoire`` carries these hooks too, so it is the
+default way to get them. This installer still sets up what a plugin can't: the package, the memory
+repo and ``MNEMOSYNE_REPO``. If the Copilot CLI has recorded the plugin (``enabledPlugins`` in
+``settings.json``, or a copy under ``installed-plugins/``, in ``~/.copilot`` and
+``$COPILOT_HOME``), step 6 is skipped, and ``--force`` writes the files anyway. A ``--target`` repo
+still gets its files, because teammates and the cloud agent need them. Should both fire, the
+engine's guard lets one through, so skipping is tidiness and the guard is the safety. A plugin that
+VS Code or IntelliJ installed itself may not be recorded where this looks; the guard covers that
+too. ``--migrate-to-plugin`` removes the user hook files only, as ``--uninstall`` would, and leaves
+everything else installed. Files you edited stay, unless ``--force``, and the exit code is 1.
 
 **Safety.** Everything is checked before anything is written, so a refused install writes nothing:
 
@@ -315,12 +327,15 @@ def env_store(value: str | None, where: str | None = None) -> None:
 
 
 def plugin_payloads() -> list[tuple[Path, bytes]]:
-    """The plugin copied into the local marketplace, plus the marketplace's own manifest."""
+    """The plugin copied into the local marketplace, plus the marketplace's own manifest. The
+    Copilot half of the folder stays out: Claude Code reads neither file."""
     dest = marketplace_dir() / "plugins" / "mnemosyne"
     out = []
     for src in sorted(p for p in PLUGIN.rglob("*") if p.is_file()):
         rel = src.relative_to(PLUGIN)
         if "__pycache__" in rel.parts or src.suffix in (".pyc", ".pyo"):
+            continue
+        if rel.parts[0] == "com.github.copilot" or rel == Path("plugin.json"):
             continue
         out.append((dest / rel, src.read_bytes()))
     version = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["version"]
@@ -389,6 +404,25 @@ def claude_settings_has_bridge(target: Path) -> bool:
 
 
 # --------------------------------------------------------------------------- host probes
+
+
+def copilot_plugin() -> str | None:
+    """Mnemosyne's plugin id if the Copilot CLI has it installed, else ``None``. ``$COPILOT_HOME``
+    counts here, unlike in ``copilot_user_dir``: this reads what the CLI wrote."""
+    homes = [home() / ".copilot"]
+    if os.environ.get("COPILOT_HOME"):
+        homes.append(Path(os.environ["COPILOT_HOME"]))
+    for folder in homes:
+        try:
+            enabled = json.loads((folder / "settings.json").read_text(encoding="utf-8"))["enabledPlugins"]
+            found = [k for k, on in enabled.items() if on and k.split("@")[0] == "mnemosyne"]
+        except (OSError, ValueError, KeyError, AttributeError, TypeError):
+            found = []
+        if found:
+            return found[0]
+        for copied in sorted((folder / "installed-plugins").glob("*/mnemosyne/plugin.json")):
+            return f"mnemosyne@{copied.parent.parent.name}"
+    return None
 
 
 def installed_plugins(claude: str) -> list[str]:
@@ -497,7 +531,8 @@ def install(args) -> int:
     hook_record = manifest.get("copilot_hooks") or {}
     hook_files: dict = dict(hook_record.get("files", {}))
     hook_steps = []
-    if args.user or args.copilot_hooks_dir:
+    copilot = copilot_plugin()
+    if (args.user or args.copilot_hooks_dir) and (copilot is None or args.force):
         user_dir = (Path(args.copilot_hooks_dir).expanduser().resolve() if args.copilot_hooks_dir
                     else copilot_user_dir())
         hook_steps = [(dest, data, file_action(dest, data, hook_files.get(dest.as_posix())))
@@ -625,8 +660,16 @@ def install(args) -> int:
             if not dry and action != "same":
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(data)
+        if target_steps and copilot is not None:
+            say("note", f"Copilot plugin {copilot} runs these hooks too",
+                "the engine lets each event through once")
 
         # 6. Copilot hooks for the user account
+        if (args.user or args.copilot_hooks_dir) and not hook_steps:
+            say("skip", "Copilot user hooks", f"plugin {copilot} carries them; --force writes them anyway")
+            if hook_files:
+                say("offer", "user hook files from an earlier install are still there",
+                    "remove them with --migrate-to-plugin")
         made = list(hook_record.get("dirs", []))
         for dest, data, action in hook_steps:
             if action == "same":
@@ -659,6 +702,64 @@ def install(args) -> int:
 # --------------------------------------------------------------------------- uninstall
 
 
+def remove_tracked(tracked: dict, force: bool, dry: bool) -> int:
+    """Remove recorded files that are unedited (``force``: edited too). Returns how many stayed."""
+    kept = 0
+    for key, recorded in sorted(tracked.items()):
+        path = Path(key)
+        have = current_hash(path)
+        if have is None:
+            say("gone", show(path))
+            continue
+        if have != recorded and not force:
+            kept += 1
+            say("keep", show(path), "edited since install; --force removes it")
+            continue
+        say("remove", show(path))
+        if not dry:
+            path.unlink()
+            prune(path.parent, state_dir())
+    return kept
+
+
+def remove_folders(folders: list, dry: bool) -> None:
+    for folder in sorted(folders, key=len, reverse=True):
+        if not dry:
+            try:
+                Path(folder).rmdir()
+            except OSError:
+                pass                     # it holds something that isn't ours: leave it
+
+
+def migrate_to_plugin(args) -> int:
+    """Drop the user-level hook files; the plugin carries the same hooks. Safe to run twice."""
+    manifest = read_manifest()
+    record = manifest.get("copilot_hooks") or {}
+    files = record.get("files") or {}
+    kept = 0
+    if files:
+        kept = remove_tracked(files, args.force, args.dry_run)
+        remove_folders(record.get("dirs", []), args.dry_run)
+        if not args.dry_run:
+            left = {k: v for k, v in files.items() if Path(k).exists()}
+            manifest["copilot_hooks"] = {"files": left, "dirs": record.get("dirs", [])}
+            if not left:
+                del manifest["copilot_hooks"]
+            write_manifest(manifest)
+    else:
+        print("migrate: no user-level Copilot hook files to remove")
+    plugin = copilot_plugin()
+    if plugin is None:
+        print(f"migrate: no Mnemosyne plugin found. Add it with:\n"
+              "  copilot plugin marketplace add kumouri/mesmer-grimoire#main\n"
+              "  copilot plugin install mnemosyne@mesmer-grimoire")
+    else:
+        print(f"migrate: Copilot plugin {plugin} takes over.")
+    if args.dry_run:
+        print("dry run: nothing removed")
+    return 1 if kept else 0
+
+
 def uninstall(args) -> int:
     manifest = read_manifest()
     if not manifest:
@@ -682,29 +783,10 @@ def uninstall(args) -> int:
                 if MARKETPLACE in known_marketplaces(claude):
                     run([claude, "plugin", "marketplace", "remove", MARKETPLACE])
 
-    kept = 0
     hook_record = manifest.get("copilot_hooks") or {}
     tracked = {**(manifest.get("files") or {}), **hook_record.get("files", {})}
-    for key, recorded in sorted(tracked.items()):
-        path = Path(key)
-        have = current_hash(path)
-        if have is None:
-            say("gone", show(path))
-            continue
-        if have != recorded and not args.force:
-            kept += 1
-            say("keep", show(path), "edited since install; --force removes it")
-            continue
-        say("remove", show(path))
-        if not dry:
-            path.unlink()
-            prune(path.parent, state_dir())
-    for folder in sorted(hook_record.get("dirs", []), key=len, reverse=True):
-        if not dry:
-            try:
-                Path(folder).rmdir()
-            except OSError:
-                pass                     # it holds something that isn't ours: leave it
+    kept = remove_tracked(tracked, args.force, dry)
+    remove_folders(hook_record.get("dirs", []), dry)
 
     env = manifest.get("env") or {}
     if env.get("value"):
@@ -770,10 +852,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--dry-run", action="store_true", help="print the plan; write nothing")
     p.add_argument("--uninstall", action="store_true", help="remove what this installer set up "
                    "(never the memory repo)")
+    p.add_argument("--migrate-to-plugin", action="store_true", help="remove only the user-level "
+                   "Copilot hook files, because the Copilot plugin carries the same hooks")
     args = p.parse_args(argv)
     if args.uninstall and (args.repo or args.target or args.copilot_hooks_dir):
         p.error("--uninstall takes no --repo, --target or --copilot-hooks-dir (the manifest knows "
                 "what was written; a repo's hook files are removed with git)")
+    if args.migrate_to_plugin and (args.uninstall or args.repo or args.target or args.copilot_hooks_dir):
+        p.error("--migrate-to-plugin takes no --uninstall, --repo, --target or --copilot-hooks-dir "
+                "(the manifest knows what was written)")
     if args.target and not Path(args.target).is_dir():
         print(f"install: target is not a directory: {args.target}", file=sys.stderr)
         return 2
@@ -784,6 +871,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.target and same_path(args.copilot_hooks_dir, Path(args.target) / ".github" / "hooks"):
             p.error("--copilot-hooks-dir can't be the --target repo's .github/hooks: that file is "
                     "committed, and this one holds a path for one machine")
+    if args.migrate_to_plugin:
+        return migrate_to_plugin(args)
     return uninstall(args) if args.uninstall else install(args)
 
 

@@ -6,7 +6,7 @@
 | Date | 2026-10-19 |
 | Deciders | Ceryce Armstrong |
 | Source | Ceryce's ruling, 2026-10-19, on a read-only analysis of where the kit repeats work between stages |
-| Enforced where | The stage table in [`../agents/zethus.agent.md`](../agents/zethus.agent.md); [`../skills/implement-phase/SKILL.md`](../skills/implement-phase/SKILL.md) (preconditions, *Done when*); [`../skills/test-plan/SKILL.md`](../skills/test-plan/SKILL.md) (*After implementing — verify*); [`../skills/pre-push-gates/SKILL.md`](../skills/pre-push-gates/SKILL.md); [`../skills/docs-sync-check/SKILL.md`](../skills/docs-sync-check/SKILL.md); [`../skills/zethus-pr-description/SKILL.md`](../skills/zethus-pr-description/SKILL.md) step 1; `tests/test_zethus.py` |
+| Enforced where | The stage table in [`../com.github.copilot/agents/zethus.agent.md`](../com.github.copilot/agents/zethus.agent.md); [`../skills/implement-phase/SKILL.md`](../skills/implement-phase/SKILL.md) (preconditions, *Done when*); [`../skills/test-plan/SKILL.md`](../skills/test-plan/SKILL.md) (*After implementing — verify*); [`../skills/pre-push-gates/SKILL.md`](../skills/pre-push-gates/SKILL.md); [`../skills/docs-sync-check/SKILL.md`](../skills/docs-sync-check/SKILL.md); [`../skills/zethus-pr-description/SKILL.md`](../skills/zethus-pr-description/SKILL.md) step 1; `tests/test_zethus.py` |
 | Supersedes | the stage order Gates (5) → Docs (6), and the Stage 3 exit "tests exist and pass" |
 | Superseded by | — |
 

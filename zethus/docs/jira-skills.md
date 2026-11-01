@@ -106,7 +106,7 @@ All optional, read the same way as every other Zethus key (see the README's
 
 Like the rest of Zethus, these two skills are plain `SKILL.md` files (`name` and `description`
 frontmatter, then prose) and install into `.github/skills/`, so GitHub Copilot (CLI, VS Code,
-JetBrains) picks them up the same way it picks up the other ten. Unlike `agents/zethus.agent.md`,
+JetBrains) picks them up the same way it picks up the other ten. Unlike `com.github.copilot/agents/zethus.agent.md`,
 the `SKILL.md` format is not Copilot-specific — Claude Code reads folders of `SKILL.md` files from
 `.claude/skills/` the same way, so copying `skills/spec-to-stories/` and `skills/story-enrich/`
 there (as-is, no rewriting) works under Claude Code too. Nothing in either skill calls a

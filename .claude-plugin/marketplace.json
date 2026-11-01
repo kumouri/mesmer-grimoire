@@ -1,0 +1,24 @@
+{
+  "name": "mesmer-grimoire",
+  "owner": {
+    "name": "Ceryce Armstrong",
+    "url": "https://github.com/kumouri"
+  },
+  "metadata": {
+    "description": "Ceryce Armstrong's Claude Code plugins. Add it pinned: kumouri/mesmer-grimoire#main."
+  },
+  "plugins": [
+    {
+      "name": "amphion",
+      "source": "./amphion/plugin",
+      "version": "0.2.0",
+      "description": "A spec-to-PR implementation pipeline for Claude Code, as six composable skills."
+    },
+    {
+      "name": "mnemosyne",
+      "source": "./mnemosyne/plugin",
+      "version": "0.5.0",
+      "description": "Reflexion memory for Claude Code: recall on prompt, sync on session start, lessons capture in shadow mode."
+    }
+  ]
+}

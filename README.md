@@ -45,6 +45,8 @@ stones set themselves. Pipeline + diagram: [amphion/docs/pipeline.md](amphion/do
 | [`hooks/`](hooks/) | Standalone Claude Code hooks. |
 | [`commands/`](commands/) | Standalone custom slash commands. |
 | [`zethus/`](zethus/) | GitHub Copilot process kit — enforcing agent, ten skills, templates, scripts. |
+| [`.github/plugin/`](.github/plugin/marketplace.json) | Copilot plugin catalogue (Zethus, Mnemosyne). Add `kumouri/mesmer-grimoire#main`. |
+| [`.claude-plugin/`](.claude-plugin/marketplace.json) | Claude Code plugin catalogue (Amphion, Mnemosyne). |
 | [`agents/`](agents/) | Custom subagent definitions. |
 | [`docs/`](docs/) | Cross-cutting docs, such as the [Morpheus retrospective](docs/morpheus-retrospective.md). |
 | [`scripts/`](scripts/) | Repo-maintenance scripts: the CI identifier guard and the doc-pointer check. |

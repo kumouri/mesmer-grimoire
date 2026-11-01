@@ -13,7 +13,7 @@ applyTo: "**/*.md"
   beside the code. If a router section grows past a paragraph, move the detail into a leaf and
   leave a pointer behind.
 - **Every pointer must resolve.** Relative links must name files that exist, with exact case. Check
-  with `python .github/zethus/scripts/docs-pointer-check.py`.
+  with `python <kit root>/scripts/docs-pointer-check.py`.
 - **No hand-maintained counts.** Don't type test totals, file counts or line counts into prose;
   they are wrong by the next commit. Say how to measure them instead.
 - **Spec status is one of** `DRAFT`, `SIGNED-OFF`, `PARTIAL(merged: …; in review: …)`, `BUILT`, or

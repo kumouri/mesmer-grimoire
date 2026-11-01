@@ -19,6 +19,7 @@ the old name.
 | `amphion/` | Spec-to-PR pipeline: markdown skills under one plugin, config-driven, no runtime | [`amphion/README.md`](amphion/README.md), [`amphion/docs/pipeline.md`](amphion/docs/pipeline.md) |
 | `zethus/` | GitHub Copilot process kit: agent, skills, templates, stdlib scripts, installer | [`zethus/README.md`](zethus/README.md) |
 | `skills/`, `hooks/`, `commands/`, `agents/` | Standalone artifacts of each kind, one folder or file each | the directory's `README.md` |
+| `.github/plugin/`, `.claude-plugin/` | The Copilot and Claude Code plugin catalogues, kept separate | [`zethus/README.md`](zethus/README.md#install-the-plugin-default) |
 | `docs/` | Cross-cutting docs and retrospectives | [`docs/morpheus-retrospective.md`](docs/morpheus-retrospective.md) |
 | `scripts/` | Repo-maintenance checks run by CI, each with its tests | the script's docstring |
 | `tests/` | Python `unittest` suite, gated by CI | `python -m unittest discover -s tests -t .` |

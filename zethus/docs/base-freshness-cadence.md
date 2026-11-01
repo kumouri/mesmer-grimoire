@@ -6,7 +6,7 @@
 | Date | 2026-10-07 |
 | Deciders | Ceryce Armstrong |
 | Source | Ceryce's report of using the kit, 2026-10-07 |
-| Enforced where | [`../agents/zethus.agent.md`](../agents/zethus.agent.md) ("Check the base at two points"), [`../copilot-instructions.md`](../copilot-instructions.md), [`../skills/pre-push-gates/SKILL.md`](../skills/pre-push-gates/SKILL.md) step 0, and `--merge-base-only` in [`../scripts/base-freshness.py`](../scripts/base-freshness.py) |
+| Enforced where | [`../com.github.copilot/agents/zethus.agent.md`](../com.github.copilot/agents/zethus.agent.md) ("Check the base at two points"), [`../copilot-instructions.md`](../copilot-instructions.md), [`../skills/pre-push-gates/SKILL.md`](../skills/pre-push-gates/SKILL.md) step 0, and `--merge-base-only` in [`../scripts/base-freshness.py`](../scripts/base-freshness.py) |
 | Supersedes | the original cadence: `base-freshness.py` at the start of every stage, plus separately inside several skills |
 | Superseded by | — |
 | Amended | 2026-10-19: Docs moved before Gates, so the stages between the checkpoints are now 1–5 and 7 ([run each check once per phase](run-once-per-phase.md)). The two checkpoints are unchanged. |

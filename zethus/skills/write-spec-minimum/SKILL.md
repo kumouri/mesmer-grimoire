@@ -5,6 +5,8 @@ description: Write a one-screen minimum spec for a change that fits in one PR â€
 
 # Write a minimum spec
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 This is the fast path, not a way around the process. A minimum spec takes about ten minutes. It
 still catches the two most expensive mistakes: building the wrong thing, and building on a wrong
 belief about the code.
@@ -19,7 +21,7 @@ true:
 
 ## Procedure
 
-1. **Create the file:** `python .github/zethus/scripts/new-spec.py minimum "<title>"`.
+1. **Create the file:** `python <kit root>/scripts/new-spec.py minimum "<title>"`.
 2. **The ask.** Paste the request verbatim, then say what the spec answers and what it doesn't.
 3. **What is true today.** Write two to six facts cited to `file:line`, from
    [research-existing-code](../research-existing-code/SKILL.md), plus a one-line *not covered*.
@@ -45,5 +47,5 @@ Write its steps, then begin the first one. These records, and any check you run 
 ## When it grows
 
 If the minimum spec starts to need a second open question, a second PR, or a measurement, promote
-it. Add the missing full-template headings from `.github/zethus/templates/spec-full.md` in their
+it. Add the missing full-template headings from `<kit root>/templates/spec-full.md` in their
 template order. Don't start over.

@@ -5,6 +5,8 @@ description: Research one or more existing Jira stories against the real codebas
 
 # Story enrich
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 A Jira story is usually written before anyone reads the code it touches. This skill closes that
 gap: it researches what's actually there, then hands back a version a person can act on — never a
 transcript of how the research happened.
@@ -16,7 +18,7 @@ Try these in order, and use the first that works:
 1. **An Atlassian/Jira MCP tool**, if this session has one — check your own available tools; this
    is a fact about the session, not something a script can detect. Use it read-only: fetch the
    story's title, description, acceptance criteria, and key.
-2. **A CLI or REST access**, detected with `python .github/zethus/scripts/jira-access.py`. Exit `0`
+2. **A CLI or REST access**, detected with `python <kit root>/scripts/jira-access.py`. Exit `0`
    names a `jira`/`acli` CLI or a REST token; use it read-only, the same way.
 3. **Pasted text.** If neither is available, ask the person to paste the story's title,
    description, acceptance criteria, and key (if it has one). This is a normal path, not a

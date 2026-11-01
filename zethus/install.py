@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Install the Zethus kit into a repository's ``.github/``, or once for your user account.
 
+The Copilot plugin (``zethus@mesmer-grimoire``, see the README) is the default for VS Code, IntelliJ
+and the CLI on one machine. This script is for repo mode, and so for the cloud agent, which never
+loads a user's plugins, and for user mode where a plugin can't be used.
+
     python zethus/install.py --target path/to/your-repo            # repo mode: commit it
     python zethus/install.py --target path/to/your-repo --dry-run  # show the plan only
     python zethus/install.py --user                                # user mode: every repo, no commit
@@ -8,12 +12,13 @@
     python zethus/install.py --user --uninstall                    # remove what --user installed
     python zethus/install.py --user --jetbrains-legacy             # + JetBrains' older global file
     python zethus/install.py --user --with-mnemosyne               # + Mnemosyne (memory + hooks)
+    python zethus/install.py --user --migrate-to-plugin            # drop --user's copy for the plugin
 
 **Repo mode** (``--target``) — what goes where, all under the target's ``.github/``:
 
     copilot-instructions.md        -> copilot-instructions.md
-    instructions/*.instructions.md -> instructions/
-    agents/*.agent.md              -> agents/
+    com.github.copilot/rules/      -> instructions/   (zethus-docs.* as docs.*)
+    com.github.copilot/agents/     -> agents/
     skills/<name>/                 -> skills/<name>/
     templates/*.md                 -> zethus/templates/
     scripts/*.py                   -> zethus/scripts/
@@ -33,8 +38,8 @@ conflict and writes **nothing**, so a repo is never left half-installed.
 table for which clients read which):
 
     copilot-instructions.md        -> ~/.copilot/instructions/zethus.instructions.md (applyTo "**")
-    instructions/docs.*            -> ~/.copilot/instructions/zethus-docs.instructions.md
-    agents/*.agent.md              -> ~/.copilot/agents/
+    com.github.copilot/rules/      -> ~/.copilot/instructions/zethus-docs.instructions.md
+    com.github.copilot/agents/     -> ~/.copilot/agents/
     skills/<name>/                 -> ~/.copilot/skills/<name>/
     templates/*.md                 -> ~/.copilot/zethus/templates/
     scripts/*.py                   -> ~/.copilot/zethus/scripts/
@@ -45,8 +50,9 @@ Current JetBrains builds read ``~/.copilot/instructions``, ``~/.copilot/agents``
 Only ``--jetbrains-legacy`` also writes the working agreement to JetBrains' single
 ``global-copilot-instructions.md`` (Windows/macOS, only if absent), for older plugin builds.
 
-The Markdown is rewritten on the way: every ``.github/zethus/...`` path becomes the absolute path
-of the user-level copy, and every mention of the repo config names the full resolution order.
+The kit's Markdown says ``<kit root>``, because a plugin can live anywhere. Both modes rewrite it on
+the way: repo mode to ``.github/zethus/``, and user mode to the absolute path of the user-level
+copy, where every mention of the repo config also names the full resolution order.
 No ``config.json`` is created — a user default with example gates would override discovery in
 every repo. Every file written is recorded, with its hash, in
 ``~/.copilot/zethus/install-manifest.json``. A file that exists and isn't in that manifest is
@@ -54,16 +60,28 @@ yours: it is never overwritten, even with ``--force``. A kit file you edited is 
 you pass ``--force``. ``--uninstall`` removes only manifest files you haven't edited (``--force``
 removes edited ones too), then the empty folders it made.
 
+**Beside the plugin.** Personal and project skills silently beat a plugin's skills of the same
+name, so a user-mode copy would shadow the plugin. ``--user`` finds a plugin the Copilot CLI
+recorded (``enabledPlugins`` in ``settings.json``, or a copy under ``installed-plugins/``, in
+``~/.copilot`` and ``$COPILOT_HOME``), writes nothing and says so; ``--force`` installs anyway.
+``--user --migrate-to-plugin`` removes a prior user-mode copy, as ``--uninstall`` does, and prints
+the commands that add the plugin if it can't find one. Edited files stay and still shadow, so they
+are named and the exit code is 1. A repo install beside the plugin only gets a note: the committed
+copy wins in that repo, and the plugin's hook stays quiet there. A plugin that VS Code or IntelliJ
+installed itself may not be recorded where this looks; the plugin's hook catches that case and
+asks the model to tell you.
+
 **``--with-mnemosyne``** (either mode) then calls ``mnemosyne/install.py`` from the same clone,
 passing on ``--target`` or ``--user``, ``--dry-run``, ``--uninstall``, ``--mnemosyne-repo`` (as its
 ``--repo``) and ``--mnemosyne-copilot-hooks-dir`` (as its ``--copilot-hooks-dir``). That installer
 sets up the package, a local git memory repo, ``MNEMOSYNE_REPO`` and the hooks, including, in user
-mode, Copilot's in ``~/.copilot/hooks``; its docstring says what goes where. It runs only after the Zethus step succeeds (an
-uninstall runs both), and the exit code is the worse of the two. Without the flag nothing about
+mode, Copilot's in ``~/.copilot/hooks``; its docstring says what goes where. It runs only after the
+Zethus step succeeds (an uninstall or a ``--migrate-to-plugin`` runs both), and the exit code is the
+worse of the two. Without the flag nothing about
 this installer changes.
 
-Exit codes: 0 installed / uninstalled (or dry run) · 1 conflicts or nothing to uninstall,
-nothing written · 2 usage error.
+Exit codes: 0 installed / uninstalled / skipped for the plugin (or dry run) · 1 conflicts, nothing
+to uninstall, or a migration that left edited files · 2 usage error.
 """
 from __future__ import annotations
 
@@ -71,6 +89,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 from dataclasses import dataclass
@@ -85,15 +104,29 @@ FALLBACK_FRONTMATTER = (
     'applyTo: "**"\n'
     "---\n\n"
 )
+AGENTS = KIT / "com.github.copilot" / "agents"
+RULES = KIT / "com.github.copilot" / "rules"
+KIT_ROOT_NOTE = re.compile(r"^> `<kit root>` is the folder[^\n]*\n\n", re.M)
+MARKETPLACE_ENTRY = "kumouri/mesmer-grimoire#main"
+PLUGIN_NAME = "zethus"
 PLATFORM = sys.platform            # tests patch this to exercise each client's paths
+
+
+def repo_text(src: Path) -> str:
+    """A kit Markdown file as a repo install has it: ``<kit root>`` is ``.github/zethus``, so the
+    note defining it goes, and the agent's links lose the plugin's extra folder."""
+    text = KIT_ROOT_NOTE.sub("", src.read_text(encoding="utf-8"))
+    text = text.replace("<kit root>/copilot-instructions.md", ".github/copilot-instructions.md")
+    text = text.replace("<kit root>/", ".github/zethus/")
+    return text.replace("](../../", "](../") if src.parent == AGENTS else text
 
 
 def plan(target_github: Path) -> list[tuple[Path | None, Path, str]]:
     """Return ``(source, dest, action)``; action is create | overwrite-candidate | keep | adapt."""
     items: list[tuple[Path | None, Path]] = []
-    for src in sorted((KIT / "instructions").glob("*.instructions.md")):
-        items.append((src, Path("instructions") / src.name))
-    for src in sorted((KIT / "agents").glob("*.agent.md")):
+    for src in sorted(RULES.glob("*.instructions.md")):
+        items.append((src, Path("instructions") / src.name.removeprefix("zethus-")))
+    for src in sorted(AGENTS.glob("*.agent.md")):
         items.append((src, Path("agents") / src.name))
     for skill in sorted(p for p in (KIT / "skills").iterdir() if p.is_dir()):
         for src in sorted(f for f in skill.rglob("*") if f.is_file()):
@@ -145,12 +178,15 @@ def install_repo(args) -> int:
             continue
         out = github / dest
         out.parent.mkdir(parents=True, exist_ok=True)
-        if action == "adapt" or (action == "conflict" and dest == FALLBACK_INSTRUCTIONS):
-            text = src.read_text(encoding="utf-8")
+        if src.suffix == ".md":
+            head = FALLBACK_FRONTMATTER if dest == FALLBACK_INSTRUCTIONS else ""
             with open(out, "w", encoding="utf-8", newline="\n") as fh:
-                fh.write(FALLBACK_FRONTMATTER + text)
+                fh.write(head + repo_text(src))
         else:
             shutil.copyfile(src, out)
+    if (plugin := find_plugin()) is not None:
+        print(f"note      Copilot plugin {plugin} is installed too: in this repo the committed copy "
+              "wins, and the plugin's hook stays quiet")
     if args.dry_run:
         print("dry run: nothing written")
     else:
@@ -166,6 +202,25 @@ def copilot_home() -> Path:
     """``~/.copilot``. Deliberately not ``$COPILOT_HOME``: only the CLI honours that variable,
     so a kit installed there would be invisible to VS Code and JetBrains."""
     return Path.home() / ".copilot"
+
+
+def find_plugin() -> str | None:
+    """The plugin's id if the Copilot CLI has it installed, else ``None``. ``$COPILOT_HOME`` counts
+    here, unlike in ``copilot_home``: this reads what the CLI wrote, and the CLI honours it."""
+    homes = [copilot_home()]
+    if os.environ.get("COPILOT_HOME"):
+        homes.append(Path(os.environ["COPILOT_HOME"]))
+    for home in homes:
+        try:
+            enabled = json.loads((home / "settings.json").read_text(encoding="utf-8"))["enabledPlugins"]
+            found = [k for k, on in enabled.items() if on and k.split("@")[0] == PLUGIN_NAME]
+        except (OSError, ValueError, KeyError, AttributeError, TypeError):
+            found = []
+        if found:
+            return found[0]
+        for copied in sorted((home / "installed-plugins").glob(f"*/{PLUGIN_NAME}/plugin.json")):
+            return f"{PLUGIN_NAME}@{copied.parent.parent.name}"
+    return None
 
 
 def jetbrains_dir() -> Path | None:
@@ -228,15 +283,14 @@ def user_payloads() -> list[tuple[Path, bytes, bool]]:
     home = copilot_home()
 
     def md(src: Path, prefix: str = "") -> bytes:
-        return (prefix + rewrite(src.read_text(encoding="utf-8"))).encode("utf-8")
+        return (prefix + rewrite(repo_text(src))).encode("utf-8")
 
     out: list[tuple[Path, bytes, bool]] = []
     agreement = KIT / "copilot-instructions.md"
     out.append((home / "instructions" / "zethus.instructions.md", md(agreement, FALLBACK_FRONTMATTER), False))
-    for src in sorted((KIT / "instructions").glob("*.instructions.md")):
-        name = src.name if src.name.startswith("zethus") else "zethus-" + src.name
-        out.append((home / "instructions" / name, md(src), False))
-    for src in sorted((KIT / "agents").glob("*.agent.md")):
+    for src in sorted(RULES.glob("*.instructions.md")):
+        out.append((home / "instructions" / src.name, md(src), False))
+    for src in sorted(AGENTS.glob("*.agent.md")):
         out.append((home / "agents" / src.name, md(src), False))
     for skill in sorted(p for p in (KIT / "skills").iterdir() if p.is_dir()):
         for src in sorted(f for f in skill.rglob("*") if f.is_file()):
@@ -282,7 +336,7 @@ def user_plan(jetbrains_legacy: bool) -> list[Step]:
     payloads = user_payloads()
     if jetbrains_legacy and (jb := jetbrains_dir()) is not None:
         payloads.append((jb / "global-copilot-instructions.md",
-                         rewrite((KIT / "copilot-instructions.md").read_text(encoding="utf-8")).encode("utf-8"),
+                         rewrite(repo_text(KIT / "copilot-instructions.md")).encode("utf-8"),
                          True))
     steps: list[Step] = []
     for dest, data, optional in payloads:
@@ -330,6 +384,14 @@ def prune_roots() -> set[Path]:
 
 
 def install_user(args) -> int:
+    plugin = find_plugin()
+    if plugin is not None and not args.force:
+        print(f"skip      user-mode install: Copilot plugin {plugin} is installed, and a copy in "
+              f"{show(copilot_home())} would shadow its skills. --force installs it anyway.")
+        if read_manifest():
+            print("offer     a user-mode copy is already there. Remove it with: "
+                  "python zethus/install.py --user --migrate-to-plugin")
+        return 0
     steps = user_plan(jetbrains_legacy=args.jetbrains_legacy)
     foreign = [s for s in steps if s.action == "foreign"]
     edited = [s for s in steps if s.action == "conflict"]
@@ -405,6 +467,28 @@ def uninstall_user(args) -> int:
     return 0
 
 
+def migrate_to_plugin(args) -> int:
+    """Remove the user-mode copy so the plugin's skills load. Safe to run twice."""
+    if read_manifest():
+        uninstall_user(args)
+    else:
+        print(f"migrate: no user-mode copy to remove ({show(manifest_path())} is missing)")
+    plugin = find_plugin()
+    if plugin is None:
+        print("migrate: no Zethus plugin found. Add it with:\n"
+              f"  copilot plugin marketplace add {MARKETPLACE_ENTRY}\n"
+              f"  copilot plugin install {PLUGIN_NAME}@mesmer-grimoire\n"
+              "  (in VS Code or IntelliJ, add the same marketplace entry in the plugin settings)")
+    else:
+        print(f"migrate: Copilot plugin {plugin} takes over.")
+    left = [] if args.dry_run else [s.name for s in sorted((KIT / "skills").iterdir()) if s.is_dir()
+                                    and (copilot_home() / "skills" / s.name / "SKILL.md").exists()]
+    if left:
+        print(f"migrate: {len(left)} skill(s) stay in {show(copilot_home() / 'skills')} and still "
+              "shadow the plugin's: " + ", ".join(left))
+    return 1 if left else 0
+
+
 # --------------------------------------------------------------------------- --with-mnemosyne
 
 
@@ -423,6 +507,8 @@ def mnemosyne_argv(args) -> list[str]:
         argv.append("--dry-run")
     if args.uninstall:
         argv.append("--uninstall")
+    if args.migrate_to_plugin:
+        argv.append("--migrate-to-plugin")
     return argv
 
 
@@ -460,6 +546,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--jetbrains-legacy", action="store_true",
                    help="with --user: also write JetBrains' global-copilot-instructions.md, for "
                         "older plugin builds that don't read ~/.copilot/instructions")
+    p.add_argument("--migrate-to-plugin", action="store_true",
+                   help="with --user: remove the user-mode copy so the Copilot plugin's skills "
+                        "aren't shadowed (--force removes edited files too)")
     p.add_argument("--with-mnemosyne", action="store_true",
                    help="then run mnemosyne/install.py: the package, a local memory repo, "
                         "MNEMOSYNE_REPO and its hooks (with --target, that repo's Copilot hooks; "
@@ -470,17 +559,25 @@ def main(argv: list[str] | None = None) -> int:
                    help="with --with-mnemosyne: write the user-level Copilot hook files here "
                         "instead of ~/.copilot/hooks")
     args = p.parse_args(argv)
-    if not args.user and (args.uninstall or args.jetbrains_legacy):
-        p.error("--uninstall and --jetbrains-legacy need --user (a repo install is removed with git)")
+    if not args.user and (args.uninstall or args.jetbrains_legacy or args.migrate_to_plugin):
+        p.error("--uninstall, --jetbrains-legacy and --migrate-to-plugin need --user (a repo install "
+                "is removed with git)")
+    if args.migrate_to_plugin and args.uninstall:
+        p.error("--migrate-to-plugin already uninstalls the user-mode copy; use one or the other")
     if (args.mnemosyne_repo or args.mnemosyne_copilot_hooks_dir) and not args.with_mnemosyne:
         p.error("--mnemosyne-repo and --mnemosyne-copilot-hooks-dir need --with-mnemosyne")
-    if args.mnemosyne_copilot_hooks_dir and args.uninstall:
-        p.error("--uninstall takes no --mnemosyne-copilot-hooks-dir (the manifest knows what was written)")
+    if args.mnemosyne_copilot_hooks_dir and (args.uninstall or args.migrate_to_plugin):
+        p.error("--uninstall and --migrate-to-plugin take no --mnemosyne-copilot-hooks-dir (the "
+                "manifest knows what was written)")
+    if args.mnemosyne_repo and args.migrate_to_plugin:
+        p.error("--migrate-to-plugin takes no --mnemosyne-repo: it changes no memory repo")
     if args.user:
-        code = uninstall_user(args) if args.uninstall else install_user(args)
+        action = (migrate_to_plugin if args.migrate_to_plugin
+                  else uninstall_user if args.uninstall else install_user)
+        code = action(args)
     else:
         code = install_repo(args)
-    if not args.with_mnemosyne or (code != 0 and not args.uninstall):
+    if not args.with_mnemosyne or (code != 0 and not (args.uninstall or args.migrate_to_plugin)):
         return code                      # a refused install wrote nothing; stop there too
     return max(code, run_mnemosyne(mnemosyne_argv(args)))
 

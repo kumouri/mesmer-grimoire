@@ -25,6 +25,8 @@ from unittest import mock
 
 REPO = Path(__file__).resolve().parent.parent
 KIT = REPO / "zethus"
+AGENT = "com.github.copilot/agents/zethus.agent.md"
+DOCS_RULE = "com.github.copilot/rules/zethus-docs.instructions.md"
 SCRIPTS = KIT / "scripts"
 
 REQUIRED_SKILLS = {
@@ -635,7 +637,7 @@ class KitContract(unittest.TestCase):
             self.assertLessEqual(len(fm["description"]), 1024, name)
 
     def test_agent_frontmatter(self):
-        path = KIT / "agents/zethus.agent.md"
+        path = KIT / AGENT
         fm = frontmatter(path)
         self.assertTrue(fm.get("description"))
         self.assertEqual(fm.get("name"), "zethus")
@@ -645,12 +647,12 @@ class KitContract(unittest.TestCase):
         self.assertTrue(set(tools) <= {"read", "search", "edit", "execute", "web", "todo", "agent"})
 
     def test_agent_links_every_skill(self):
-        text = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+        text = (KIT / AGENT).read_text(encoding="utf-8")
         for name in REQUIRED_SKILLS:
-            self.assertIn(f"../skills/{name}/SKILL.md", text)
+            self.assertIn(f"../../skills/{name}/SKILL.md", text)
 
     def test_path_instructions_have_apply_to(self):
-        for path in (KIT / "instructions").glob("*.instructions.md"):
+        for path in (KIT / "com.github.copilot/rules").glob("*.instructions.md"):
             self.assertTrue(frontmatter(path).get("applyTo"), path.name)
 
     def test_minimum_spec_headings_are_a_strict_ordered_subset_of_full(self):
@@ -685,10 +687,10 @@ class KitContract(unittest.TestCase):
         ``zethus/docs/base-freshness-cadence.md``. A third gating call is that cadence creeping
         back, so this test names the two files allowed to make one.
         """
-        agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+        agent = (KIT / AGENT).read_text(encoding="utf-8")
         gates = (KIT / "skills/pre-push-gates/SKILL.md").read_text(encoding="utf-8")
         for text in (agent, gates):
-            self.assertIn("python .github/zethus/scripts/base-freshness.py", text)
+            self.assertIn("python <kit root>/scripts/base-freshness.py", text)
         self.assertIn("## Check the base at two points, not at every stage", agent)
         self.assertIn("two freshness checkpoints", gates)
 
@@ -717,7 +719,7 @@ class KitContract(unittest.TestCase):
         Ceryce's ruling, 2026-10-19 (``zethus/docs/run-once-per-phase.md``): Docs is Stage 5 and
         Gates Stage 6, immediately before the PR, and every stage map and cross-reference agrees.
         """
-        agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+        agent = (KIT / AGENT).read_text(encoding="utf-8")
         table = agent.split("## The stages", 1)[1].split("\n\n", 2)[1]
         rows = [[c.strip() for c in line.strip("|").split("|")][:2]
                 for line in table.splitlines()[2:]]
@@ -726,7 +728,7 @@ class KitContract(unittest.TestCase):
                                 ["6", "Gates"], ["7", "PR"]])
         self.assertIn("../skills/docs-sync-check/SKILL.md) | Every doc", agent)
         stage_map = "4 Tests · 5 Docs · 6 Gates · 7 PR"
-        for doc in ("agents/zethus.agent.md", "README.md"):
+        for doc in (AGENT, "README.md"):
             text = (KIT / doc).read_text(encoding="utf-8")
             self.assertIn(stage_map, text, doc)
             self.assertNotIn("5 Gates", text, doc)
@@ -745,7 +747,7 @@ class KitContract(unittest.TestCase):
         The mutation check proves its restore with ``git diff --quiet`` rather than a re-run.
         Ceryce's ruling, 2026-10-19 (``zethus/docs/run-once-per-phase.md``).
         """
-        agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+        agent = (KIT / AGENT).read_text(encoding="utf-8")
         self.assertIn("written and compiling", agent)
         self.assertIn("passes in one run", agent)
         implement = (KIT / "skills/implement-phase/SKILL.md").read_text(encoding="utf-8")
@@ -785,7 +787,7 @@ class KitContract(unittest.TestCase):
         self.assertIn("in review (PR #n)", implement)
         self.assertNotIn("Leave `BUILT` for when the last phase merges.", implement)
 
-        agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+        agent = (KIT / AGENT).read_text(encoding="utf-8")
         model = agent.split("## Branch model", 1)[1].split("\n**Stuck branch.**", 1)[0]
         for rule in ("Phases are **stacked**", "pushed, not merged", "--update-refs",
                      "pushed to the PR"):
@@ -799,7 +801,7 @@ class KitContract(unittest.TestCase):
         self.assertIn("Never merge your own PR", instructions, "the merge rule itself stays")
 
         # Status words: in review is its own state; BUILT still waits for the last merge.
-        for doc in ("instructions/docs.instructions.md", "templates/spec-full.md",
+        for doc in (DOCS_RULE, "templates/spec-full.md",
                     "skills/write-spec-full/SKILL.md"):
             text = (KIT / doc).read_text(encoding="utf-8")
             self.assertIn("PARTIAL(merged: …; in review: …)", text, doc)
@@ -822,8 +824,8 @@ class KitContract(unittest.TestCase):
         "mark it done the moment it's done": the list is updated at stage entry and when the plan
         changes, and the header line names the current step in between.
         """
-        agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
-        self.assertIn('"todo"', frontmatter(KIT / "agents/zethus.agent.md")["tools"])
+        agent = (KIT / AGENT).read_text(encoding="utf-8")
+        self.assertIn('"todo"', frontmatter(KIT / AGENT)["tools"])
         self.assertNotIn("Mark it done the moment it's done", agent)
         for rule in ("## Keep the plan visible",
                      "Exactly one step is in progress at a time",
@@ -844,7 +846,7 @@ class KitContract(unittest.TestCase):
         self.assertNotIn("ticked the moment it's done", readme)
 
     def test_commits_are_signed_before_the_trailer_block_alongside_the_trailer(self):
-        agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+        agent = (KIT / AGENT).read_text(encoding="utf-8")
         for rule in ("## Sign your commits", "commits.signature", "commits.aiTrailer",
                      "never instead of it", '`commits.signature: ""` means no signature line'):
             self.assertIn(rule, agent)
@@ -882,7 +884,7 @@ class KitContract(unittest.TestCase):
             self.assertIn("start Phase 0 with [implement-phase]", after, name)
             self.assertIn("They are not a place to stop", after, name)
 
-        agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+        agent = (KIT / AGENT).read_text(encoding="utf-8")
         section = agent.split("## Hand off to the next stage, and never stop silently", 1)[1]
         section = section.split("\n## ", 1)[0]
         for rule in ("A check that passes is not a place to stop", "**in the same turn**",
@@ -901,7 +903,7 @@ class KitContract(unittest.TestCase):
         Ceryce's report, 2026-11-01 (``zethus/docs/questions-come-first.md``): asked what had
         happened, the agent looked for the least-effort answer so it could get back to the task.
         """
-        agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+        agent = (KIT / AGENT).read_text(encoding="utf-8")
         self.assertLess(agent.index("## The person's questions come first"),
                         agent.index("## Keep the plan visible"), "sits with the process rules")
         section = agent.split("## The person's questions come first", 1)[1].split("\n## ", 1)[0]

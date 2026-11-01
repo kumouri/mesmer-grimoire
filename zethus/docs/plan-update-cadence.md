@@ -6,7 +6,7 @@
 | Date | 2026-10-19 |
 | Deciders | Ceryce Armstrong |
 | Source | Ceryce's ruling, 2026-10-19 |
-| Enforced where | *Keep the plan visible*, rule 2, in [`../agents/zethus.agent.md`](../agents/zethus.agent.md); `tests/test_zethus.py` |
+| Enforced where | *Keep the plan visible*, rule 2, in [`../com.github.copilot/agents/zethus.agent.md`](../com.github.copilot/agents/zethus.agent.md); `tests/test_zethus.py` |
 | Supersedes | the visible-plan rule's "Mark it done the moment it's done, not in a batch at the end of the turn" |
 | Superseded by | — |
 

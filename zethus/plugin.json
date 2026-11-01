@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "zethus",
+  "version": "0.7.0",
+  "description": "A development process for GitHub Copilot that it follows and enforces: research, spec, sign-off, phased implementation, tests, docs, local gates and an evidence PR.",
+  "author": {
+    "name": "Ceryce Armstrong",
+    "url": "https://github.com/kumouri"
+  },
+  "homepage": "https://github.com/kumouri/mesmer-grimoire/tree/main/zethus",
+  "repository": "https://github.com/kumouri/mesmer-grimoire",
+  "license": "Apache-2.0",
+  "keywords": [
+    "process",
+    "spec",
+    "adr",
+    "gates",
+    "pull-request"
+  ]
+}

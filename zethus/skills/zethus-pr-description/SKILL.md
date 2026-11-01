@@ -5,6 +5,8 @@ description: Write a pull request description with evidence — what and why, li
 
 # PR description
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 A good description lets the reviewer read the diff already knowing what to check. It carries the
 evidence the author gathered, so the reviewer doesn't have to repeat it, and it says plainly what
 wasn't checked.
@@ -32,7 +34,7 @@ already current; don't fetch again, and there is nothing here to re-gate. If you
 merge-base to hand (a resumed session, say), ask for it alone:
 
 ```bash
-python .github/zethus/scripts/base-freshness.py --merge-base-only
+python <kit root>/scripts/base-freshness.py --merge-base-only
 ```
 
 That fetches, prints the merge-base, and exits 0 whatever the branch's freshness, so it cannot
@@ -53,7 +55,7 @@ describes a diff that no longer exists.
 
 ## Step 2: fill the template
 
-Start from `.github/zethus/templates/pr.md`:
+Start from `<kit root>/templates/pr.md`:
 
 - **What / Why:** one sentence, then two or three lines. Link the spec, and say which phase this
   PR is.

@@ -5,6 +5,8 @@ description: Recover routes, JSP view resolution, session attributes, method-sec
 
 # Web-app target reader: old Spring MVC + JSP
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 Rank 2 of the ranked legacy web-app targets
 ([`../../docs/webapp-modernization.md`](../../docs/webapp-modernization.md#ranked-legacy-targets)).
 Built for the same hybrid shape as
@@ -18,7 +20,7 @@ microservices plus a new frontend (Angular is a supported HLA-named choice — s
 1. **Run the reader over every controller source file:**
 
    ```bash
-   python .github/zethus/scripts/spring-mvc-jsp-reader.py path/to/SomeController.java \
+   python <kit root>/scripts/spring-mvc-jsp-reader.py path/to/SomeController.java \
      --struts-classes LoginAction LoginForm \
      --out rules/spring-mvc.json --session-out session-state/spring-mvc.json \
      --routes-out routes/spring-mvc.json

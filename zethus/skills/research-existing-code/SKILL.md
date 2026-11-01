@@ -5,6 +5,8 @@ description: Research how existing code actually behaves before specifying or ch
 
 # Research existing code
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 The goal is a set of facts about today's code, each tied to where it is, that a spec can build on
 and a reviewer can check in seconds. What this guards against is a claim that goes further than
 the look behind it: "it's only called from here" when only one directory was searched.
@@ -31,7 +33,7 @@ the look behind it: "it's only called from here" when only one directory was sea
    freshness gate here; research on the base it confirmed. On a long-lived branch
    (`branchModel.style` `rebase`), `HEAD` ids change at every rebase, so cite code on the base at
    the **merge-base**, and cite `HEAD` only for code this branch changed. If you don't have that
-   merge-base to hand, `python .github/zethus/scripts/base-freshness.py --merge-base-only` prints
+   merge-base to hand, `python <kit root>/scripts/base-freshness.py --merge-base-only` prints
    it and cannot stop this stage.
 5. **Back every negative claim with the search that proved it.** "Nothing else calls X" is only
    true to the extent of the search, so record the command and its result.

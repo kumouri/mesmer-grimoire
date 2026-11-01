@@ -5,6 +5,8 @@ description: Before the pre-push gates and the PR, find the documentation that d
 
 # Docs sync check
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 Stale documentation is a bug, and it's the one reviewers are least likely to catch: the diff shows
 the code that changed, not the README that now describes it wrongly. So fix the docs **in the same
 change**, without being asked. Change only the docs that describe code this diff actually touched.
@@ -14,7 +16,7 @@ change**, without being asked. Change only the docs that describe code this diff
 1. **Check pointers, and list docs whose code changed:**
 
    ```bash
-   python .github/zethus/scripts/docs-pointer-check.py --sync-base origin/<base>
+   python <kit root>/scripts/docs-pointer-check.py --sync-base origin/<base>
    ```
 
    - Broken pointers (exit 1) must be fixed. A relative link to a moved or renamed file breaks, and

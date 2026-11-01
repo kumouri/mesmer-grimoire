@@ -48,7 +48,7 @@ Ceryce, Telegram, 2026-09-27 01:10 CT, from the todo that motivated both extensi
 
 | # | Fact | Where | How verified |
 |---|---|---|---|
-| F1 | Zethus's agent runs every change through a fixed seven-stage table (Orient, Research, Spec, Implement, Tests, Docs, Gates, PR), each with a named skill and an exit condition | `agents/zethus.agent.md:14-25` | read the stage table |
+| F1 | Zethus's agent runs every change through a fixed seven-stage table (Orient, Research, Spec, Implement, Tests, Docs, Gates, PR), each with a named skill and an exit condition | `com.github.copilot/agents/zethus.agent.md:14-25` | read the stage table |
 | F2 | A skill is a plain `SKILL.md` with only `name` and `description` frontmatter — no schema for a skill's own inputs or outputs beyond what its prose says | `skills/research-existing-code/SKILL.md:1-4` (representative of all ten) | read the frontmatter of all ten skill files |
 | F3 | `research-existing-code` already requires every claim cited to `file:line`, every negative claim backed by the search that proved it, and an explicit "what this did not cover" section | `skills/research-existing-code/SKILL.md:12-44` | read the procedure |
 | F4 | Config already has a documented resolution order (`.github/zethus.config.json` → `$ZETHUS_CONFIG` → `.copilot/zethus.config.json` → `.claude/amphion.config.json` → `~/.copilot/zethus/config.json` → discovery) and shares key names with Amphion | `README.md:229-282` | read the config table |
@@ -179,7 +179,7 @@ clients aren't excluded, just not what v1 is built and gated against.
 | *(added 2026-09-28, web-app v1)* Alongside the golden-master check | Every HTTP-shaped fixture has the fields a replay needs, and none looks like it captured real user data | proceed | list the gaps, refuse |
 
 This reuses `base-freshness.py`'s pattern exactly: stdlib Python, one purpose, an exit code the
-agent's refusal table can act on (`agents/zethus.agent.md:96-109` already has the shape for this —
+agent's refusal table can act on (`com.github.copilot/agents/zethus.agent.md:96-109` already has the shape for this —
 "decline, and say why" — this just adds these rows). The credential row is a standing safety check
 rather than a stage boundary: **v1's job stops at detection** — flagging the credential and
 refusing to use it — not at remediation; reporting it to security and rotating it are left to the

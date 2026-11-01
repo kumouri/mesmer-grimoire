@@ -3,9 +3,10 @@
 **A development process for GitHub Copilot, in a form Copilot can follow and enforce.** One custom
 agent runs every change through research → spec → sign-off → phased implementation → tests → docs →
 local gates → a PR with evidence, and refuses to skip a stage. Ten standalone skills hold one procedure
-each. Four Markdown templates and five stdlib Python scripts do the mechanical parts. It installs into
-a repository's `.github/` folder, or once for your user account under `~/.copilot/` so it follows
-you into every repo without changing any of them. Nothing in it is specific to one organization.
+each. Four Markdown templates and five stdlib Python scripts do the mechanical parts. Install it as a
+Copilot plugin from this repo's marketplace, so it follows you into every repo without changing any
+of them, or copy it into a repository's `.github/` folder for a whole team and the cloud agent.
+Nothing in it is specific to one organization.
 
 > Amphion and his twin Zethus built the walls of Thebes. Amphion played his lyre and the stones set
 > themselves. Zethus carried each stone by hand and set it true. [Amphion][amphion] is the
@@ -128,8 +129,8 @@ plan, this is a rule in the agent file rather than a script check: the kit has n
 | File | Installs to | Purpose |
 |---|---|---|
 | [`copilot-instructions.md`](copilot-instructions.md) | `.github/copilot-instructions.md` | The standing rules, short and imperative. Copilot loads them for every request in the repo. |
-| [`instructions/docs.instructions.md`](instructions/docs.instructions.md) | `.github/instructions/` | Path-scoped rules (`applyTo: "**/*.md"`): Markdown is canonical, router vs leaf docs, pointers resolve, spec status vocabulary, ADRs superseded rather than rewritten. |
-| [`agents/zethus.agent.md`](agents/zethus.agent.md) | `.github/agents/` | **The enforcer.** The stage table with exit conditions, the visible plan, per-turn behaviour, and the refusal table. |
+| [`com.github.copilot/rules/zethus-docs.instructions.md`](com.github.copilot/rules/zethus-docs.instructions.md) | `.github/instructions/docs.instructions.md` | Path-scoped rules (`applyTo: "**/*.md"`): Markdown is canonical, router vs leaf docs, pointers resolve, spec status vocabulary, ADRs superseded rather than rewritten. |
+| [`com.github.copilot/agents/zethus.agent.md`](com.github.copilot/agents/zethus.agent.md) | `.github/agents/` | **The enforcer.** The stage table with exit conditions, the visible plan, per-turn behaviour, and the refusal table. |
 | [`skills/research-existing-code`](skills/research-existing-code/SKILL.md) | `.github/skills/` | Facts cited to `file:line`, the search behind every negative claim, and what the research did *not* cover. |
 | [`skills/write-spec-minimum`](skills/write-spec-minimum/SKILL.md) | `.github/skills/` | The one-screen spec for one PR, and the fast path when someone says "just code it". |
 | [`skills/write-spec-full`](skills/write-spec-full/SKILL.md) | `.github/skills/` | Verbatim ask, measured problem, facts, assumptions checked, options, phases, rollback, out of scope, open questions, then stop for sign-off. |
@@ -149,21 +150,82 @@ plan, this is a rule in the agent file rather than a script check: the kit has n
 | [`scripts/new-spec.py`](scripts/new-spec.py) | `.github/zethus/scripts/` | `new-spec.py full\|minimum "Title"` creates `docs/specs/<slug>.md` as `DRAFT`. |
 | [`scripts/docs-pointer-check.py`](scripts/docs-pointer-check.py) | `.github/zethus/scripts/` | Fails on relative Markdown links that don't resolve, including case mismatches that only break on Linux. With `--sync-base`, it also lists docs whose described code changed (report-only). |
 | [`zethus.config.example.json`](zethus.config.example.json) | `.github/zethus.config.json` | Project facts: integration branch, gate commands, spec and ADR dirs, the doc-to-code map, the AI co-author trailer and commit signature. |
-| [`install.py`](install.py) | — | Copies all of the above into place: into a repo (`--target`) or for your user account (`--user`, with `--uninstall`). Never clobbers a file it didn't write, and writes nothing if there are conflicts. `--with-mnemosyne` also sets up [Mnemosyne](#add-mnemosyne-in-the-same-step). |
+| [`plugin.json`](plugin.json), [`com.github.copilot/hooks/`](com.github.copilot/hooks/session_start.py) | — | The [plugin](#install-the-plugin-default): its manifest, and the `sessionStart` hook that injects the working agreement and says where the scripts and templates are. |
+| [`install.py`](install.py) | — | Copies all of the above into place: into a repo (`--target`) or for your user account (`--user`, with `--uninstall` and `--migrate-to-plugin`). Never clobbers a file it didn't write, and writes nothing if there are conflicts. `--with-mnemosyne` also sets up [Mnemosyne](#add-mnemosyne-in-the-same-step). |
 
 The scripts are Python 3.10+ standard library only. There are no PowerShell twins: Python runs
 natively on Windows, and a second implementation would be a second thing to drift.
 
+The kit's Markdown writes `<kit root>` for the folder holding `scripts/` and `templates/`, because a
+plugin can live anywhere. `install.py` turns it into a real path, and the plugin's hook announces it.
+
 ## Install
 
-There are two modes. Pick one per machine and repo; they don't need each other.
+The plugin is the default for VS Code, IntelliJ and the Copilot CLI. `install.py` is for repo mode,
+and so for the cloud agent, which never loads a user's plugins.
 
-| | Repo mode (`--target`) | User mode (`--user`) |
-|---|---|---|
-| Where it goes | The repo's `.github/`, committed | `~/.copilot/`, on your machine only |
-| Who gets it | Everyone who clones the repo, plus the Copilot cloud agent | You, in every repo you open |
-| Changes the repo | Yes: a PR adding `.github/` files | No. Optional per-repo config stays untracked |
-| Right when | The team adopts the process | You may not commit to `.github/`, or you want it everywhere |
+| | Plugin (default) | Repo mode (`--target`) | User mode (`--user`) |
+|---|---|---|---|
+| Where it goes | The client's plugin folder | The repo's `.github/`, committed | `~/.copilot/`, on your machine only |
+| Who gets it | You, in every repo you open | Everyone who clones the repo, plus the Copilot cloud agent | You, in every repo you open |
+| Changes the repo | No | Yes: a PR adding `.github/` files | No. Optional per-repo config stays untracked |
+| Updates | From the marketplace | Re-run in a PR | Re-run on each machine |
+| Right when | You want it everywhere, with one setting | The team adopts the process, or the cloud agent must follow it | A client on your machine can't use plugins |
+
+### Install the plugin (default)
+
+Add the marketplace `kumouri/mesmer-grimoire#main`, then install **zethus** from it. Pin `#main`:
+the repo's default branch is `develop`, which would serve unreleased work.
+
+```bash
+copilot plugin marketplace add kumouri/mesmer-grimoire#main
+copilot plugin install zethus@mesmer-grimoire
+```
+
+- **Copilot CLI:** the commands above. It needs a build with Agent Plugins 1.0; 1.0.65 ignored this
+  layout's agent and hooks, and 1.0.105 and 1.0.106-2 run it.
+- **VS Code:** add the same entry to `chat.plugins.marketplaces`, then install from the Extensions
+  view. Its hooks are in preview, and organizations can turn them off.
+- **IntelliJ:** add the same entry under *Tools → GitHub Copilot → Customizations → Plugin
+  Marketplaces*. It takes GitHub shorthand, a git URI or a local repo. A shorthand and a URI for one
+  repo count as one marketplace, so adding both installs nothing twice.
+
+Then pick the **zethus** agent, or invoke a skill as `/zethus:write-spec-minimum`. Set per-repo
+facts as in [Config for user-level use](#config-for-user-level-use). The same marketplace carries
+**mnemosyne**, whose hooks record lessons-capture candidates while Zethus works; its
+[README](../mnemosyne/README.md#github-copilot-the-plugin) says what else it needs.
+
+| What a plugin can't do by itself | What Zethus does |
+|---|---|
+| Ship always-on instructions: the Copilot CLI doesn't load a plugin's `rules/` | A `sessionStart` hook injects `copilot-instructions.md` as `additionalContext` |
+| Expand a variable inside a skill's text | The same hook announces the kit root. If it didn't run, a skill's own note says the kit is two folders above that skill's folder |
+
+If an organization turns hooks off, the working agreement doesn't load. The agent file still
+carries the procedure, so select it. The docs rule is in `com.github.copilot/rules/`, which only
+VS Code loads, as its source reads it.
+
+**Beside an `install.py` copy.** Project and personal skills silently beat a plugin's skills of the
+same name, and the agreement would load twice, so the two never both act:
+
+- `install.py --user` finds a plugin the Copilot CLI recorded, writes nothing and says so. `--force`
+  installs anyway.
+- `install.py --user --migrate-to-plugin` removes an earlier user-mode copy. It removes what
+  `--uninstall` removes, keeps your own files, and exits 1 if an edited skill stays and still
+  shadows the plugin (`--force` removes edited files too).
+- In a repo with the kit in `.github/zethus/`, the plugin's hook prints nothing: the repo's copy is
+  in charge there.
+- If it finds a user-mode copy, the hook injects only a line asking the model to tell you to
+  migrate. That covers a plugin installed by VS Code or IntelliJ, which the installer may not see.
+
+**What was tested.** On Windows, with a temporary `COPILOT_HOME`: a local marketplace on Copilot CLI
+1.0.105 (`--no-auto-update`) and 1.0.106-2, then a GitHub marketplace on 1.0.106-2. The model quoted
+the kit root the hook announced, the **zethus** agent loaded, and it ran a bundled script from that
+root. Nothing has been run in VS Code or IntelliJ, so those steps rest on their docs and settings
+screens.
+
+### Install with `install.py`
+
+Two more modes. Pick one per machine and repo; they don't need each other.
 
 ### Install into a repository
 
@@ -204,14 +266,14 @@ Add `--jetbrains-legacy` only for an older JetBrains Copilot plugin that doesn't
 | Kit piece | User-mode location |
 |---|---|
 | Working agreement (`copilot-instructions.md`) | `~/.copilot/instructions/zethus.instructions.md`, with `applyTo: "**"`. Your own `~/.copilot/copilot-instructions.md` is left alone. |
-| `instructions/docs.instructions.md` | `~/.copilot/instructions/zethus-docs.instructions.md` |
-| `agents/zethus.agent.md` | `~/.copilot/agents/` |
+| `com.github.copilot/rules/zethus-docs.instructions.md` | `~/.copilot/instructions/zethus-docs.instructions.md` |
+| `com.github.copilot/agents/zethus.agent.md` | `~/.copilot/agents/` |
 | `skills/<name>/` | `~/.copilot/skills/<name>/` |
 | Templates, scripts | `~/.copilot/zethus/templates/`, `~/.copilot/zethus/scripts/` |
 | Example config | `~/.copilot/zethus/config.example.json`, for reference only |
 | Working agreement, for older JetBrains builds | Only with `--jetbrains-legacy`: `global-copilot-instructions.md` in JetBrains' Copilot folder, and only if you don't have one |
 
-The installed Markdown is rewritten on the way. Every `.github/zethus/…` path becomes the absolute
+The installed Markdown is rewritten on the way. Every `<kit root>/…` path becomes the absolute
 path of your user-level copy, and each mention of the config lists the full resolution order
 below. So the agent and skills run `python <home>/.copilot/zethus/scripts/run-local-gates.py`
 from any repo.
@@ -457,6 +519,7 @@ The formats were checked against GitHub's and VS Code's documentation in Septemb
 |---|---|---|
 | Repository instructions | `.github/copilot-instructions.md`, plain Markdown | [Adding repository custom instructions][gh-repo-instructions] · [support matrix][gh-instructions-support] |
 | Path-specific instructions | `.github/instructions/*.instructions.md` with `applyTo` | [VS Code custom instructions][vsc-instructions] |
+| Copilot plugin | Agent Plugins 1.0: `plugin.json`, `skills/`, `com.github.copilot/{agents,rules,hooks}/`; catalogue in `.github/plugin/marketplace.json` | [CLI plugin reference][cli-ref] · [VS Code agent plugins][vsc-plugins] · [Agent Plugins spec][ap-spec] |
 | Custom agent | `.github/agents/*.agent.md`: `name`, `description`, `tools` | [Custom agents configuration][gh-agents-config] · [Creating custom agents][gh-agents-create] · [VS Code custom agents][vsc-agents] |
 | Skills | `.github/skills/<name>/SKILL.md`: `name` (matches the folder), `description` | [About agent skills][gh-skills] · [Creating skills][gh-skills-create] · [VS Code agent skills][vsc-skills] |
 
@@ -629,6 +692,10 @@ Unlike the rest of this kit, these two skills also work unmodified under Claude 
   private paths. A project-specific fact goes in a config key, not in the text.
 - Keep the skills standalone. Each one must work when invoked alone, and cross-links between skills
   are relative (`../<skill>/SKILL.md`).
+- Keep the plugin's version in `plugin.json` and its entry in
+  [`.github/plugin/marketplace.json`](../.github/plugin/marketplace.json) equal, and bump both on a
+  release: clients use it for update checks. [`tests/test_copilot_plugins.py`](../tests/test_copilot_plugins.py)
+  enforces that, and that no skill text says `.github/zethus/`: only `install.py` writes that.
 - Keep the scripts stdlib-only, with no shell and no network, and cover them in
   [`tests/test_zethus.py`](../tests/test_zethus.py). That file also enforces Copilot's frontmatter
   rules on every skill, the minimum ⊂ full spec contract, and that this kit's own Markdown has no
@@ -646,6 +713,8 @@ Unlike the rest of this kit, these two skills also work unmodified under Claude 
 [gh-agents-config]: https://docs.github.com/en/copilot/reference/custom-agents-configuration
 [gh-agents-create]: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/create-custom-agents
 [vsc-agents]: https://code.visualstudio.com/docs/copilot/customization/custom-agents
+[vsc-plugins]: https://code.visualstudio.com/docs/copilot/customization/agent-plugins
+[ap-spec]: https://agent-plugins.org/specification
 [gh-hooks]: https://docs.github.com/en/copilot/reference/hooks-configuration
 [gh-skills]: https://docs.github.com/en/copilot/concepts/agents/about-agent-skills
 [gh-skills-create]: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/create-skills

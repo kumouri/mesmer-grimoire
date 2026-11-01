@@ -5,6 +5,8 @@ description: Recover business rules from ksh (and adjacent POSIX shell) batch dr
 
 # Batch-type reader: ksh scripts
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 A `ksh` wrapper is usually treated as plumbing around "the real job." It isn't: its exit code is
 often the *only* thing the caller (a scheduler, another script) ever sees, and its trap handlers and
 lock files are the actual definition of what happens when the job is interrupted. This reader makes
@@ -16,7 +18,7 @@ those explicit. See
 1. **Run the reader over every wrapper in the job:**
 
    ```bash
-   python .github/zethus/scripts/ksh-wrapper-reader.py path/to/job.ksh [more.ksh ...] \
+   python <kit root>/scripts/ksh-wrapper-reader.py path/to/job.ksh [more.ksh ...] \
      --out rules/job-ksh.json
    ```
 

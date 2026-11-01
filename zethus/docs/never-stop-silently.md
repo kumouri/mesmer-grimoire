@@ -6,7 +6,7 @@
 | Date | 2026-11-01 |
 | Deciders | Ceryce Armstrong |
 | Source | Ceryce's report of using the kit, 2026-11-01 (below) |
-| Enforced where | *Hand off to the next stage, and never stop silently* and *How you behave at every turn* in [`../agents/zethus.agent.md`](../agents/zethus.agent.md); *Keep moving, and never stop silently* in [`../copilot-instructions.md`](../copilot-instructions.md); the **Next** line closing every stage skill, including *On sign-off* in [`../skills/write-spec-full/SKILL.md`](../skills/write-spec-full/SKILL.md) and [`../skills/write-spec-minimum/SKILL.md`](../skills/write-spec-minimum/SKILL.md); `tests/test_zethus.py`. Convention only at runtime: no hook or script checks it (see *Why no hook*) |
+| Enforced where | *Hand off to the next stage, and never stop silently* and *How you behave at every turn* in [`../com.github.copilot/agents/zethus.agent.md`](../com.github.copilot/agents/zethus.agent.md); *Keep moving, and never stop silently* in [`../copilot-instructions.md`](../copilot-instructions.md); the **Next** line closing every stage skill, including *On sign-off* in [`../skills/write-spec-full/SKILL.md`](../skills/write-spec-full/SKILL.md) and [`../skills/write-spec-minimum/SKILL.md`](../skills/write-spec-minimum/SKILL.md); `tests/test_zethus.py`. Convention only at runtime: no hook or script checks it (see *Why no hook*) |
 | Supersedes | — |
 | Superseded by | — |
 
