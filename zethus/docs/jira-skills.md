@@ -74,8 +74,8 @@ shared-system action in this kit ("open it — don't merge it",
 - Approval covers exactly the batch shown. A person asking to create ten stories after seeing eight
   gets asked again for the other two.
 - As with the rest of Zethus, this is enforced by the skill's own instructions, not by a technical
-  hook — Copilot and Claude Code have no mechanism to block a tool call the way a pre-tool-use hook
-  can (see the README's "The limit of enforcement"). The discipline is the same one
+  hook. Both hosts now offer a blocking pre-tool-use hook, but Zethus doesn't install one (see the
+  README's "The limit of enforcement"). The discipline is the same one
   `zethus-pr-description`, `write-adr`, and the agent's refusal table already rely on.
 
 ## Jira access, and how it's detected

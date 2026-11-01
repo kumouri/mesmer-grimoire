@@ -87,14 +87,16 @@ fire, an idempotency gap that double-posted) saves normally.
 mnemosyne promote L-0009                     # local → this repo's shared tier
 mnemosyne promote L-0007 L-0009 --to team    # export up to a configured team/enterprise store
 mnemosyne promote --from-file promos.json    # batch across tiers via a manifest
-mnemosyne stores                             # list configured shared stores + clone/pull status
+mnemosyne stores                             # list configured shared stores + whether each is fetched
 ```
 
-Promotion moves the lesson to a shared tier, marks it `proposed`, and prints the git/PR steps. A
-human reviewer approves before it becomes team-wide truth. **Stores** are additional git repos
-(e.g. `team`, `enterprise`) declared in `mnemosyne.config.json`; `recall` federates over them,
-`--to <tier>` exports up to one (opening the PR in *that* repo), and the local original retires
-automatically on the next `sync` once its upstream PR merges. Relay the promotion/export line.
+Promotion commits the lesson alone on a review branch, keeps the local copy marked `proposed`, and
+prints the push/PR step. Merging the PR is the approval, and a human reviewer does it before the
+lesson becomes team-wide truth. **Stores** are additional git repos (e.g. `team`, `enterprise`)
+declared in `mnemosyne.config.json`; `recall` federates over the ones `sync` has fetched (it never
+touches the network), `--to <tier>` exports up to one (opening the PR in *that* repo), and the
+local original retires automatically on the next `sync` once its PR merges. Relay the
+promotion/export line.
 
 ## Curate on demand
 

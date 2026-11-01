@@ -108,13 +108,15 @@ def promote(lesson_ids: str, to: str = "", push: bool = False) -> dict:
     """Promote LOCAL lesson(s) for team review: the same operation as the `mnemosyne promote` CLI.
 
     lesson_ids: one id or a comma-separated list (e.g. "L-0009" or "L-0007,L-0009").
-    to:         empty (default) moves them to this repo's SHARED tier; a store tier label from config
-                (e.g. "team") exports them UP to that store instead, like `export`.
-    push:       false (default) only stages the governance PR: each result's `pr.commands` lists the
-                git steps; relay them to the user. true also runs them (create the branch, commit,
-                push to origin) and reports `pr.pushed` / `pr.error`.
-    Lessons are marked review=proposed; a human reviewer approves the PR before a lesson becomes
-    team-wide truth, so never merge it yourself. Announce which lessons were promoted.
+    to:         empty (default) proposes them for this repo's SHARED tier; a store tier label from
+                config (e.g. "team") exports them UP to that store instead, like `export`.
+    push:       false (default) commits each lesson alone on its own review branch, without touching
+                the working tree, and returns the remaining step (push, open the PR) in
+                `pr.commands`; relay it to the user. true also pushes and reports `pr.pushed` /
+                `pr.error`.
+    The local copy is kept, marked review=proposed, until the PR merges. Merging the PR is the
+    approval, and only a human reviewer does that, so never merge it yourself; the next `sync`
+    retires the local copy. Announce which lessons were promoted.
     """
     ids = [x.strip() for x in lesson_ids.split(",") if x.strip()]
     return mn.promote(ids, to=to or None, push=push)
@@ -126,10 +128,10 @@ def export(lesson_ids: str, to: str) -> dict:
 
     lesson_ids: one id or a comma-separated list (e.g. "L-0007,L-0009").
     to:         the destination tier label (e.g. "team" or "enterprise").
-    Each lesson is copied into the store under a new store-prefixed id (review=proposed) and the local
-    original is kept + marked for retire-on-merge; `sync` retires it once the upstream PR is approved.
-    The result's `pr.commands` are the git steps that stage that PR in the store repo; relay them.
-    Announce which lessons were exported and to which tier.
+    Each lesson is scrubbed and committed under a new store-prefixed id on a review branch in the
+    store repo; the local original is kept + marked for retire-on-merge, and the next `sync` after
+    the store's PR merges retires it. The result's `pr.commands` are the remaining steps (push, open
+    the PR); relay them. Announce which lessons were exported and to which tier.
     """
     ids = [x.strip() for x in lesson_ids.split(",") if x.strip()]
     return mn.export(ids, to)

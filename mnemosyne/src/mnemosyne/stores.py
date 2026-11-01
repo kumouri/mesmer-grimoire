@@ -9,9 +9,10 @@ committed lessons into a single federated view for recall/stats/validate. Writin
 Design notes:
   - Each store has a distinct id `prefix`, so federated lesson ids never collide (validated in
     config._validate). That is what lets `federated_load` merge repos without shadowing.
-  - Clone/pull are BEST-EFFORT and never raise into a recall — an unreachable or uncredentialed
-    remote is skipped with a human-readable note (mirrors core.bump_usage's swallow-and-continue).
-    Recall never pulls (read-only over already-cloned dirs); pulling is a `sync`-time action.
+  - Recall never touches the network: it reads only stores already on disk (`cached`), and a
+    store that isn't is skipped with a note pointing at `sync`. Clone and pull happen in `sync`
+    (and a write such as export may clone the store it writes to). Both are BEST-EFFORT and never
+    raise: an unreachable or uncredentialed remote is skipped with a human-readable note.
   - Import direction: this module imports leaf primitives from core at top level; core imports
     THIS module lazily inside functions only, so there is no import cycle.
 """
@@ -89,17 +90,28 @@ def is_memory_repo(p: Path) -> bool:
     return (p / "memory").is_dir()
 
 
+def cached(st: Store) -> tuple:
+    """Return (repo_path, note) for a store already on disk, without any network access.
+
+    A url-store that hasn't been cloned yet returns (None, note) telling the user to run `sync`."""
+    d = store_dir(st)
+    if st.path or d.exists():
+        if not is_memory_repo(d):
+            return None, f"store '{st.tier}': {d} is not a mnemosyne memory repo (no memory/ dir)"
+        return d, None
+    return None, f"store '{st.tier}': not fetched yet; run `mnemosyne sync` to clone it"
+
+
 def ensure_cloned(st: Store) -> tuple:
     """Return (repo_path, note). Clone a url-store on first use; verify a path-store exists.
 
     Never raises: on any failure returns (None, "<reason>") so callers can skip the store.
     A url-store is cloned atomically (temp dir + rename) so a concurrent clone can't leave a
     half-populated cache dir behind."""
+    d, note = cached(st)
+    if d is not None or st.path or store_dir(st).exists():
+        return d, note
     d = store_dir(st)
-    if st.path or d.exists():
-        if not is_memory_repo(d):
-            return None, f"store '{st.tier}': {d} is not a mnemosyne memory repo (no memory/ dir)"
-        return d, None
     # url-store, not yet cloned
     if not st.url:
         return None, f"store '{st.tier}': no path and no url to clone"
@@ -131,6 +143,18 @@ def cache_root_ready() -> Path:
     return root
 
 
+def _leave_review_branch(st: Store, d: Path):
+    """Put a store clone back on its default branch if an older export left it on a clean review
+    branch; pulling there would track the review branch and never see the merge."""
+    if not git(d, "branch", "--show-current")[1].startswith("reflexion/"):
+        return
+    if git(d, "status", "--porcelain")[1]:
+        return  # uncommitted work: leave it for a human
+    default = st.branch or git(d, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")[1].partition("/")[2]
+    if default:
+        git(d, "checkout", "--quiet", default)
+
+
 def pull(st: Store) -> tuple:
     """Best-effort `git pull --ff-only` for a store. Return (repo_path, note). Never raises."""
     d, note = ensure_cloned(st)
@@ -141,6 +165,7 @@ def pull(st: Store) -> tuple:
         code, _o, _e = git(d, "rev-parse", "--is-inside-work-tree")
         if code != 0:
             return d, None
+    _leave_review_branch(st, d)
     code, out, err = git(d, "pull", "--ff-only", env=_BATCH_ENV)
     if code == 127:
         return d, f"store '{st.tier}': git not found"
@@ -152,13 +177,14 @@ def pull(st: Store) -> tuple:
 # ----------------------------------------------------------------------------- id allocation
 
 
-def next_store_id(st: Store, store_lessons) -> str:
-    """Allocate the next `<prefix>-NNNN` id within a store's own lessons."""
+def next_store_id(st: Store, store_lessons, taken=()) -> str:
+    """Allocate the next `<prefix>-NNNN` id above a store's lessons and any `taken` ids (the
+    store's committed ids on its default and review branches; see core.committed_lessons)."""
     import re
     mx = 0
     pat = re.compile(rf"^{re.escape(st.prefix)}-(\d+)$")
-    for l in store_lessons:
-        m = pat.match(l.get("id", ""))
+    for lid in [l.get("id", "") for l in store_lessons] + list(taken):
+        m = pat.match(lid or "")
         if m:
             mx = max(mx, int(m.group(1)))
     return f"{st.prefix}-{mx + 1:04d}"
@@ -173,7 +199,9 @@ def federated_load(cfg, repo: Path, *, pull_remotes=False, notes=None):
     tier_by_id       'local'/'shared' for the primary repo, else the store's tier label.
     origin_by_id     'primary' or the store tier label.
     source_repo_by_id  Path of the repo each lesson lives in (primary or a store dir).
-    notes            optional list; skip messages for unreachable stores are appended here.
+    notes            optional list; skip messages for unreachable or unfetched stores go here.
+    pull_remotes     pull (and clone) each store first. Off for every read, so reads never touch
+                     the network; only `sync` fetches.
 
     With cfg.stores empty this returns exactly what core.load_all would (plus trivial maps), so
     the whole federated path degenerates to today's two-tier behavior."""
@@ -185,7 +213,7 @@ def federated_load(cfg, repo: Path, *, pull_remotes=False, notes=None):
     src = {i: repo for i in tier}
 
     for st in resolve_stores(cfg):
-        d, note = (pull(st) if pull_remotes else ensure_cloned(st))
+        d, note = (pull(st) if pull_remotes else cached(st))
         if note and notes is not None:
             notes.append(note)
         if d is None:

@@ -258,12 +258,15 @@ def _print_pr(pr, push, header, where=""):
 
 
 def _print_shared_promote(res, push):
-    print(f"PROMOTED: {res['id']} moved local -> shared and marked review=proposed — \"{res['title']}\".")
-    if res["pr"]["is_git"]:
-        _print_pr(res["pr"], push, "  Stage the review PR (PR-reviewed promotion gate):")
-        if not push:
-            print("  (a human reviewer approves before it becomes team-wide truth)")
+    pr = res["pr"]
+    if pr["is_git"]:
+        renamed = f" as {res['shared_id']}" if res["shared_id"] != res["id"] else ""
+        print(f"PROMOTED: {res['id']} committed alone{renamed} on review branch {res['branch']} "
+              f"(cut from {pr['base']}) — \"{res['title']}\".")
+        _print_pr(pr, push, "  Push it and open the review PR:")
+        print("  Merging the PR is the approval; the next `mnemosyne sync` retires the local copy.")
     else:
+        print(f"PROMOTED: {res['id']} moved local -> shared and marked review=proposed — \"{res['title']}\".")
         print("  note: not a git repo yet — `git init` the memory repo to enable PR promotion.")
     print(f"  Announce: {res['id']} was promoted for team review.")
 
@@ -276,13 +279,13 @@ def _print_export(res, push):
     else:
         ids = ", ".join(f"{e['local_id']}->{e['remote_id']}" for e in exported)
         print(f"EXPORTED: {len(exported)} lesson(s) to the '{tier}' store as proposed ({ids}).")
-        print(f"  local originals kept + marked proposed; they retire automatically on `sync` once merged upstream.")
+        print("  local originals kept + marked proposed; they retire automatically on `sync` once merged upstream.")
     for sk in res.get("skipped", []):
         print(f"  skipped {sk['id']}: {sk['reason']}")
     pr = res.get("pr")
     if exported and pr:
         if pr["is_git"]:
-            _print_pr(pr, push, f"  Stage the review PR in the '{tier}' store repo:",
+            _print_pr(pr, push, f"  Push the review branch and open its PR in the '{tier}' store repo:",
                       where=f" in the {tier} store")
         else:
             print(f"  note: the {tier} store is not a git repo — `git init` it to enable PR promotion.")
@@ -341,10 +344,12 @@ def cmd_stores(cfg, repo_arg, args):
     for st in sts:
         d = _stores.store_dir(st)
         where = st.path or st.url
-        status = "ready" if (d.exists() and _stores.is_memory_repo(d)) else ("not cloned" if st.url else "missing")
+        status = "ready" if (d.exists() and _stores.is_memory_repo(d)) else ("not fetched" if st.url else "missing")
         ro = " [readonly]" if st.readonly else ""
         print(f"  {st.tier:<12} ({st.prefix}-) {status:<11} {where}{ro}")
         print(f"               cache: {d}")
+    if any(st.url and not _stores.store_dir(st).exists() for st in sts):
+        print("  Recall reads only fetched stores; run `mnemosyne sync` to clone the rest.")
     return 0
 
 
@@ -358,7 +363,7 @@ def cmd_sync(cfg, repo, args):
         state = f"ok @ {s['sha']}" if s["ok"] else f"skipped: {s['note']}"
         print(f"  store {s['tier']}: {state}")
     if res.get("retired"):
-        print(f"  retired-on-merge (approved upstream): {', '.join(res['retired'])}")
+        print(f"  retired-on-merge (review PR merged): {', '.join(res['retired'])}")
     return 0 if res["ok"] else 1
 
 
@@ -688,6 +693,8 @@ def run_selftest() -> int:
         check("recall collapses the exported original against its upstream twin",
               not (local_id in shownc and remote_id in shownc))
 
+        # tmp2 is a plain directory, not a git repo, so there is no review PR whose merge approves
+        # the export; stand in for the reviewer here. Git stores need no such step.
         team_by_id[remote_id]["review"]["state"] = "approved"
         core.write_jsonl(core.shared_path(tmp2), list(team_by_id.values()))
         syncres = core.sync(cfgf, tmp)

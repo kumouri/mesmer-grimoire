@@ -422,9 +422,10 @@ Surfaces that don't support a tool ignore it; for example, `web` and `todo` aren
 cloud agent, and `todo` is documented only for VS Code. The agent's plan falls back to a checklist
 in its replies wherever `todo` isn't available (see [Seeing the plan](#seeing-the-plan)).
 
-**The limit of enforcement.** Copilot has no hook that can block a tool call the way a
-pre-tool-use hook can. So the agent enforces the process through its instructions, its stage
-gates and its refusal table. The scripts give each stage an objective exit condition: an exit code
+**The limit of enforcement.** Copilot now has a blocking hook: a `preToolUse` hook in
+`.github/hooks/*.json` can deny a tool call on the Copilot CLI and the cloud agent
+([hooks configuration][gh-hooks], checked October 2026). This kit doesn't install one yet, so the
+agent enforces the process through its instructions, its stage gates and its refusal table. The scripts give each stage an objective exit condition: an exit code
 is harder to talk around than a sentence. Merging is protected by your platform's branch
 protection, not by this kit.
 
@@ -596,6 +597,7 @@ Unlike the rest of this kit, these two skills also work unmodified under Claude 
 [gh-agents-config]: https://docs.github.com/en/copilot/reference/custom-agents-configuration
 [gh-agents-create]: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/create-custom-agents
 [vsc-agents]: https://code.visualstudio.com/docs/copilot/customization/custom-agents
+[gh-hooks]: https://docs.github.com/en/copilot/reference/hooks-configuration
 [gh-skills]: https://docs.github.com/en/copilot/concepts/agents/about-agent-skills
 [gh-skills-create]: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/create-skills
 [vsc-skills]: https://code.visualstudio.com/docs/copilot/customization/agent-skills

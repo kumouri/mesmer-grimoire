@@ -112,7 +112,7 @@ config with `mnemosyne config`.
 
 A config may also declare **stores** — additional shared memory repos federated in as broader
 tiers. Each store has a `tier` label, a distinct id `prefix` (so federated ids never collide), and
-a git `url` (auto-cloned) or a `path` to an existing repo:
+a git `url` (cloned into a cache by `sync`) or a `path` to an existing repo:
 
 ```json
 "stores": [
@@ -128,9 +128,9 @@ a git `url` (auto-cloned) or a `path` to an existing repo:
 | `recall` | Context in → ranked, budgeted lesson digest out (the hot path). |
 | `capture` / `add` | Save a decision/convention/… to the local tier. |
 | `reflect` | Save a learned-from-failure lesson (needs `--reflection-of`). |
-| `promote <id…>` | Promote local lesson(s) to shared, or `--to <tier>` / `--from-file <manifest>` to export up to a store. Prints the git steps that stage the review PR; `--push` runs them (branch, commit, push). |
-| `sync` | `git pull` the shared memory + every configured store; retire exported-then-approved originals. |
-| `stores` | List configured shared stores (broader tiers) + their clone/pull status. |
+| `promote <id…>` | Propose local lesson(s) for the shared tier, or `--to <tier>` / `--from-file <manifest>` to export up to a store. Commits each lesson alone on a review branch (your working tree and branch are untouched) and prints the push step; `--push` pushes too. Merging the PR is the approval. |
+| `sync` | The only network path: `git pull` the shared memory, clone or pull every configured store, and retire local originals whose review PR has merged. |
+| `stores` | List configured shared stores (broader tiers) + whether each is fetched yet. |
 | `render` | Regenerate `memory/LESSONS.md` from the JSONL. |
 | `list` / `show` / `stats` | Browse and summarize lessons (`list --tier`/`--store`; `stats` shows counts by tier). |
 | `validate` | Schema + spine consistency (exit 0 ok / 1 problems). |
@@ -145,7 +145,7 @@ Everything is also available as the Python API (`mn.recall/capture/reflect/promo
 and as MCP tools.
 
 Environment: `MNEMOSYNE_REPO` (primary repo), `MNEMOSYNE_CONFIG` (config path), `MNEMOSYNE_AUTHOR`
-(lesson author), `MNEMOSYNE_CACHE` (where url-stores are cloned; default `~/.mnemosyne/stores`),
+(lesson author; without it lessons record `unknown`, never your login name), `MNEMOSYNE_CACHE` (where url-stores are cloned; default `~/.mnemosyne/stores`),
 and `MNEMOSYNE_LOCK_TIMEOUT` (seconds a save waits for the store lock; default 10).
 
 ## Layout
@@ -188,9 +188,10 @@ A memory repo scaffolded by an older `mnemosyne init` should add `.store.lock` t
 - **shared** (`memory/lessons.jsonl`, committed) — team-wide truth; entered only via a reviewed
   promotion PR (see [`docs/lesson-review-checklist.md`](docs/lesson-review-checklist.md)).
 - **stores** (`config.stores`) — broader shared repos (e.g. `team`, `enterprise`) federated in at
-  recall time and written up to with `promote --to <tier>`. `recall` reads them best-effort (an
-  unreachable store is skipped with a note, never a failure); `sync` pulls them and retires a local
-  original once its exported copy is approved upstream. See [`docs/design.md`](docs/design.md).
+  recall time and written up to with `promote --to <tier>`. `recall` reads only stores already
+  fetched and never touches the network (any other store is skipped with a note, never a
+  failure); `sync` fetches them and retires a local original once its copy's review PR merges.
+  See [`docs/design.md`](docs/design.md).
 
 Every command prints a quotable `RECALL:` / `SAVED:` / `PROMOTED:` / `EXPORTED:` line meant to be
 relayed verbatim. Memory is never applied silently and never shared unreviewed.
@@ -199,7 +200,7 @@ relayed verbatim. Memory is never applied silently and never shared unreviewed.
 
 ```bash
 PYTHONPATH=src python -m mnemosyne selftest     # zero-dep test suite
-python -m unittest tests.test_mnemosyne         # from the repo root: selftest + crash-safety + promote tests
+python -m unittest tests.test_mnemosyne tests.test_mnemosyne_review_flow tests.test_mnemosyne_mcp_stdio
 ```
 
 The engine has no runtime dependencies; only the MCP server needs the `mcp` package (installed via

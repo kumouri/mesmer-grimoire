@@ -97,12 +97,13 @@ def reflect(title, lesson, reflection_of, *, category=None, memory_type=None, co
 
 
 def promote(lesson_id, *, to=None, push=False, repo=None, config=None):
-    """Promote lesson(s) to a shared tier, mark review=proposed and stage the governance PR.
+    """Propose lesson(s) for a shared tier through a review PR; the local copy stays until it merges.
 
-    Default (to=None or "shared"): move a single local lesson to this repo's shared tier.
-    to=<store tier> (e.g. "team"): export the given id(s) UP to a configured store — see export().
-    The result's `pr` carries the git steps that stage the review PR; push=True also runs them
-    (branch, commit, push), exactly like `mnemosyne promote --push`."""
+    Default (to=None or "shared"): commit a single local lesson alone on a review branch for this
+    repo's shared tier. to=<store tier> (e.g. "team"): export the given id(s) UP to a configured
+    store — see export(). The result's `pr` carries the remaining step (push, open the PR);
+    push=True also pushes, exactly like `mnemosyne promote --push`. Merging the PR is the approval,
+    and the next sync() retires the local copy."""
     cfg, repo_path = _prep(repo, config)
     if to in (None, "shared") and isinstance(lesson_id, str):
         return core.promote(cfg, repo_path, lesson_id, push=push)
@@ -113,10 +114,10 @@ def promote(lesson_id, *, to=None, push=False, repo=None, config=None):
 def export(lesson_ids, to, *, push=False, repo=None, config=None):
     """Export chosen local lesson(s) UP to a broader shared store (team/enterprise, ...).
 
-    Copies each lesson into the store under a new store-prefixed id (review=proposed) and marks the
-    local original for retire-on-merge. `to` is a tier label from config.stores; `lesson_ids` is one
-    id or a list. Returns a dict describing the exported/skipped lessons and, under `pr`, the git
-    steps that stage the PR in the store repo (run as well when push=True)."""
+    Commits each lesson, scrubbed, under a new store-prefixed id on a review branch in the store repo
+    and marks the local original for retire-on-merge. `to` is a tier label from config.stores;
+    `lesson_ids` is one id or a list. Returns a dict describing the exported/skipped lessons and,
+    under `pr`, the remaining step (push, open the PR), which push=True runs."""
     cfg, repo_path = _prep(repo, config)
     ids = [lesson_ids] if isinstance(lesson_ids, str) else list(lesson_ids)
     return core.export(cfg, repo_path, ids, to, push=push)
