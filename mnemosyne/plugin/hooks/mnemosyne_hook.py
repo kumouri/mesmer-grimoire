@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Mnemosyne Claude Code hook bridge.
+"""Mnemosyne hook bridge (Claude Code plugin hooks; the same script serves any host that runs
+Claude-format hooks).
 
 Invoked by the plugin's hooks.json with a mode argument. Reads the hook's JSON event on
 stdin and drives the reflexion memory. It is deliberately fail-open: if the `mnemosyne`
@@ -9,14 +10,27 @@ so it can never break a session.
 Modes:
   prompt         (UserPromptSubmit) recall lessons for the user's prompt; print the digest,
                  which Claude Code injects as additional context. Silent when nothing matches.
+                 Also records capture candidates S4/S5 (shadow).
   session-start  (SessionStart)     git-pull the shared memory so lessons are fresh. Silent.
+                 Also logs the pending-candidate count (shadow).
+  post-tool      (PostToolUse, PostToolUseFailure) records candidates S6, S8 and S9-S11 (shadow).
+  stop           (Stop)             logs whether it would block for triage (shadow: never blocks).
+  pre-compact    (PreCompact)       logs the spool state before compaction (shadow).
+
+Capture runs in SHADOW MODE (docs/lessons-capture-spec.md, Phase 0): candidates are appended to
+memory/.capture/ in the memory repo and every invocation logs one decision line, but nothing is
+stored as a lesson, nothing is asked, and no capture mode prints anything. The detection lives
+in the engine (`mnemosyne.candidates`); `mnemosyne candidate list` and `mnemosyne doctor` read the
+results. MNEMOSYNE_CAPTURE=off turns capture off and leaves recall as it was.
 
 There is no session-end mode: Claude Code discards SessionEnd hook output, so a "remember to
 /reflect" reminder there would never be seen. Any other mode (including a stale `session-end`
 from an older hooks.json) is a silent no-op.
 
 Point it at a memory repo with $MNEMOSYNE_REPO (else it uses the cwd, and stays silent if
-that isn't a memory repo). Optional $MNEMOSYNE_CONFIG selects a config.
+that isn't a memory repo). Optional $MNEMOSYNE_CONFIG selects a config. `--host <name>` after
+the mode names the host for the decision log when a registration knows it; otherwise the host
+is inferred from the event's shape.
 """
 import json
 import sys
@@ -24,9 +38,10 @@ import sys
 
 def _load_event():
     try:
-        return json.loads(sys.stdin.read() or "{}")
+        ev = json.loads(sys.stdin.read() or "{}")
     except (json.JSONDecodeError, ValueError):
         return {}
+    return ev if isinstance(ev, dict) else {}
 
 
 def _mn():
@@ -37,11 +52,20 @@ def _mn():
         return None
 
 
-def do_prompt():
+def _capture(mode, event, host):
+    """Shadow capture: record candidates and log the decision. Never raises, never prints."""
+    try:
+        from mnemosyne import candidates
+        candidates.capture_event(mode, event, host=host)
+    except Exception:
+        pass  # fail-open: capture must never break a session or the recall beside it
+
+
+def do_prompt(event, host):
     mn = _mn()
     if mn is None:
         return 0
-    event = _load_event()
+    _capture("prompt", event, host)
     prompt = (event.get("prompt") or "").strip()
     if not prompt:
         return 0
@@ -56,10 +80,11 @@ def do_prompt():
     return 0
 
 
-def do_session_start():
+def do_session_start(event, host):
     mn = _mn()
     if mn is None:
         return 0
+    _capture("session-start", event, host)
     try:
         from mnemosyne import core, load_config, resolve_repo
         repo = resolve_repo(None)
@@ -70,16 +95,28 @@ def do_session_start():
     return 0
 
 
-MODES = {"prompt": do_prompt, "session-start": do_session_start}
+def _capture_only(mode):
+    def run(event, host):
+        if _mn() is not None:
+            _capture(mode, event, host)
+        return 0
+    return run
+
+
+MODES = {"prompt": do_prompt, "session-start": do_session_start,
+         "post-tool": _capture_only("post-tool"), "stop": _capture_only("stop"),
+         "pre-compact": _capture_only("pre-compact")}
 
 
 def main():
-    mode = sys.argv[1] if len(sys.argv) > 1 else "prompt"
+    args = sys.argv[1:]
+    mode = args[0] if args else "prompt"
+    host = args[args.index("--host") + 1] if "--host" in args[:-1] else None
     fn = MODES.get(mode)
     if fn is None:
         return 0
     try:
-        return fn()
+        return fn(_load_event(), host)
     except Exception:
         return 0  # never let a hook error surface to the user
 

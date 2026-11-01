@@ -54,10 +54,11 @@ import mnemosyne as mn
 mn.recall("migrating the ledger POST endpoint", stage="plan")
 ```
 
-**2. Claude Code plugin** — a skill + hooks (auto-recall on each prompt, sync on session start) +
-`/recall`, `/reflect`, `/promote` commands. Install the `mnemosyne` plugin from this repo, then set
-`MNEMOSYNE_REPO` to your memory repo. (The plugin's hooks import the `mnemosyne` package and its
-commands run the `mnemosyne` CLI, so install it as above first.)
+**2. Claude Code plugin** — a skill + hooks (auto-recall on each prompt, sync on session start,
+and lessons capture in shadow mode, below) + `/recall`, `/reflect`, `/promote` commands. Install
+the `mnemosyne` plugin from this repo, then set `MNEMOSYNE_REPO` to your memory repo. (The plugin's
+hooks import the `mnemosyne` package and its commands run the `mnemosyne` CLI, so install it as
+above first.)
 
 **3. MCP server** — the same operations as MCP tools for any MCP client (install with the `[mcp]`
 extra, as above). Its `promote` tool takes the same options as the CLI command: one or more ids, a
@@ -139,6 +140,8 @@ a git `url` (cloned into a cache by `sync`) or a `path` to an existing repo:
 | `init` | Scaffold a memory repo (`--example <name>` seeds a config, e.g. `multi-store`). |
 | `wizard` | Interactively build a documented `mnemosyne.config.json` (self-documenting prompts + `_about` block). |
 | `config` | Print the resolved active config and its source. |
+| `candidate list` / `add` / `label` / `stats` | The lessons-capture spool (shadow mode, below): list recorded candidates, add one by hand, label one `lesson` or `noise`, and show each signal's count and precision. |
+| `doctor` | What the capture hooks recorded and decided, newest last, plus the spool's health. |
 | `selftest` | Zero-dependency test suite. |
 
 Everything is also available as the Python API (`mn.recall/capture/reflect/promote/export/prune/…`)
@@ -146,7 +149,8 @@ and as MCP tools.
 
 Environment: `MNEMOSYNE_REPO` (primary repo), `MNEMOSYNE_CONFIG` (config path), `MNEMOSYNE_AUTHOR`
 (lesson author; without it lessons record `unknown`, never your login name), `MNEMOSYNE_CACHE` (where url-stores are cloned; default `~/.mnemosyne/stores`),
-and `MNEMOSYNE_LOCK_TIMEOUT` (seconds a save waits for the store lock; default 10).
+`MNEMOSYNE_LOCK_TIMEOUT` (seconds a save waits for the store lock; default 10), and
+`MNEMOSYNE_CAPTURE` (`off` turns the capture hooks off; recall is unaffected).
 
 ## Layout
 
@@ -156,6 +160,7 @@ mnemosyne/
 ├── src/mnemosyne/
 │   ├── core.py                    # the engine (axis-driven scorer, hygiene, git, export/sync)
 │   ├── stores.py                  # federation: clone/pull stores + federated load across tiers
+│   ├── candidates.py              # lessons-capture spool + signal detection for the hooks (shadow mode)
 │   ├── config.py                  # config loader/validator
 │   ├── wizard.py                  # interactive, self-documenting config builder
 │   ├── cli.py                     # CLI (dynamic per-axis flags) + self-test
@@ -196,11 +201,52 @@ A memory repo scaffolded by an older `mnemosyne init` should add `.store.lock` t
 Every command prints a quotable `RECALL:` / `SAVED:` / `PROMOTED:` / `EXPORTED:` line meant to be
 relayed verbatim. Memory is never applied silently and never shared unreviewed.
 
+## Lessons capture (shadow mode)
+
+The plugin's hooks also watch for moments worth a lesson and record them as **candidates**. This is
+Phase 0 of the [lessons-capture spec](../docs/lessons-capture-spec.md), so it runs in **shadow
+mode**: it records and logs, but **nothing is stored as a lesson and nothing is asked**, and no
+capture hook prints anything. It is there to measure how often each signal fires, and how often a
+candidate was worth keeping, before any of it is automated.
+
+| Hook (Claude Code event) | Mode | Records |
+|---|---|---|
+| `UserPromptSubmit` | `prompt` | S4 "remember / always / never / from now on"; S5 a correction ("no,", "don't", "instead", "that's wrong") |
+| `PostToolUse`, `PostToolUseFailure` | `post-tool` | S6 a shell command that failed and then passed; S8 the `fresh-eyes-investigation` skill; S9–S11 a write to a watched path |
+| `Stop` | `stop` | logs whether it *would* block for triage; never blocks |
+| `PreCompact` | `pre-compact` | logs the spool state |
+| `SessionStart` | `session-start` | logs the pending count (and syncs, as before) |
+
+- **Where it goes:** `memory/.capture/` in the memory repo. The directory ignores itself, so the
+  spool is never committed. `candidates.jsonl` holds candidates and labels; `decisions.jsonl` holds
+  one line per hook run.
+- **What a candidate holds:** pointers only (signal, tool, repo-relative path, exit code, a short
+  command head such as `npm test`), never tool output. The prompt signals keep a short excerpt of
+  the user's words, with machine paths replaced by `<path>`. A candidate that carries a credential
+  shape (an access key, a token, a private key, a `password=` assignment) is dropped, and only the
+  shape's name is logged.
+- **Watched paths:** a project sets them with a `memory` block in `.github/zethus.config.json`,
+  `.copilot/zethus.config.json` or `.claude/amphion.config.json` (the first one that has the block
+  wins). Without one, the defaults are these:
+
+  ```json
+  "memory": { "enabled": true, "watch": ["docs/adr/", "docs/specs/", "docs/friction-log.md"] }
+  ```
+
+  `"enabled": false` there, or `MNEMOSYNE_CAPTURE=off`, turns capture off.
+- **Reviewing it:** `mnemosyne candidate list` shows what was recorded. Label each candidate with
+  `mnemosyne candidate label <id> lesson|noise`, then `mnemosyne candidate stats` shows each
+  signal's count and precision. `mnemosyne doctor` shows the hooks' recent decisions, so a hook
+  that fails open never fails silently.
+- **Other hosts:** the same `mnemosyne_hook.py` reads each host's field names, as observed on real
+  Claude Code, Copilot CLI and Codex installs. A host-specific registration can pass `--host <name>`
+  after the mode. The spec's §4.7 has the per-host matrix, and what was and wasn't verified.
+
 ## Development
 
 ```bash
 PYTHONPATH=src python -m mnemosyne selftest     # zero-dep test suite
-python -m unittest tests.test_mnemosyne tests.test_mnemosyne_review_flow tests.test_mnemosyne_mcp_stdio
+python -m unittest tests.test_mnemosyne tests.test_mnemosyne_review_flow tests.test_mnemosyne_mcp_stdio tests.test_mnemosyne_capture
 ```
 
 The engine has no runtime dependencies; only the MCP server needs the `mcp` package (installed via

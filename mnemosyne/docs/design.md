@@ -217,6 +217,24 @@ Every command prints a quotable line the surfaces relay verbatim:
 
 Memory is never applied behind the user's back, and never shared unreviewed.
 
+## Capture candidates (shadow mode)
+
+Deciding what is worth a lesson is split by what can be done deterministically
+([lessons-capture spec](../../docs/lessons-capture-spec.md) §4.2). Hooks detect cheap, explainable
+**signals** and append **candidates** to a spool; the agent judges them later, at a checkpoint. No
+hook parses a transcript or calls a model.
+
+The spool lives in `memory/.capture/`, a directory whose own `.gitignore` is `*`, so it can't be
+committed even from a memory repo scaffolded before it existed. Writes are single appends with no
+store lock, so a hook never waits on a save. A candidate carries pointers rather than text, and a
+credential shape anywhere in it drops it whole. Every hook run appends one decision line, which is
+what `mnemosyne doctor` reads. The detection lives in `mnemosyne.candidates`, and the plugin's
+`mnemosyne_hook.py` only feeds it the event.
+
+For now it runs in **shadow mode**: candidates and decisions are recorded, but nothing becomes a
+lesson and nothing is asked. `candidate label` and `candidate stats` turn a week of that into each
+signal's count and precision, which decides what later phases may store automatically.
+
 ## Governance
 
 Lessons are **superseded, never silently deleted** (`--supersede` marks the old one and links the
@@ -229,8 +247,8 @@ template and `CODEOWNERS` to route shared-store changes to the right reviewers.
 One engine, three delivery layers (see the [README](../README.md)):
 
 - **CLI / library** — `mnemosyne …` or `import mnemosyne`; the stdlib foundation.
-- **Claude Code plugin** — a skill + hooks (recall on prompt, sync on session start) + `/recall`,
-  `/reflect`, `/promote` commands.
+- **Claude Code plugin** — a skill + hooks (recall on prompt, sync on session start, lessons capture
+  in shadow mode) + `/recall`, `/reflect`, `/promote` commands.
 - **MCP server** — the same operations as MCP tools for any MCP client.
 
 ## References

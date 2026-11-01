@@ -131,6 +131,32 @@ def build_parser(cfg: Config) -> argparse.ArgumentParser:
     hy.add_argument("--max-age-days", dest="max_age_days", type=int, default=cfg.prune_max_age_days)
     hy.set_defaults(func=cmd_hygiene)
 
+    from .candidates import SIGNALS, VERDICTS
+    ca = sub.add_parser("candidate", help="the lessons-capture candidate spool (shadow mode: recorded, never stored)")
+    csub = ca.add_subparsers(dest="candidate_cmd", required=True)
+    cl = csub.add_parser("list", help="list recorded candidates, oldest first")
+    cl.add_argument("--signal", choices=sorted(SIGNALS))
+    cl.add_argument("--pending", action="store_true", help="only candidates not labelled yet")
+    cl.add_argument("--limit", type=int, default=50, help="show the newest N (0 = all)")
+    cl.set_defaults(func=cmd_candidate_list)
+    cad = csub.add_parser("add", help="record a candidate by hand (or from a script)")
+    cad.add_argument("--signal", required=True, choices=sorted(SIGNALS))
+    cad.add_argument("--evidence", help="JSON object of pointers (path, tool, exit code); never pasted output")
+    cad.add_argument("--session", default="")
+    cad.set_defaults(func=cmd_candidate_add)
+    clb = csub.add_parser("label", help="record whether a candidate was worth a lesson (precision data)")
+    clb.add_argument("id")
+    clb.add_argument("verdict", choices=VERDICTS)
+    clb.add_argument("--note", default="")
+    clb.set_defaults(func=cmd_candidate_label)
+    cs = csub.add_parser("stats", help="count and precision of each signal")
+    cs.add_argument("--days", type=int, help="only candidates from the last N days")
+    cs.set_defaults(func=cmd_candidate_stats)
+
+    dr = sub.add_parser("doctor", help="what the capture hooks recorded and decided, newest last")
+    dr.add_argument("--last", type=int, default=10, help="how many recent decisions to show")
+    dr.set_defaults(func=cmd_doctor)
+
     it = sub.add_parser("init", help="scaffold a memory repo (memory/ + .gitignore [+ config])")
     it.add_argument("--example", help="copy a bundled example config into the repo (e.g. software-eng)")
     it.set_defaults(func=cmd_init)
@@ -464,6 +490,125 @@ def cmd_hygiene(cfg, repo, args):
         print("  near-duplicate pairs: none")
     print(f"  prune candidates: {h['prune_candidates']}"
           + (" — run `mnemosyne prune` to review" if h["prune_candidates"] else ""))
+    return 0
+
+
+def _candidate_line(c):
+    ctx = c.get("context") or {}
+    where = ctx.get("repo", "") + (f"@{ctx['branch']}" if ctx.get("branch") else "")
+    state = c.get("verdict") or "pending"
+    head = (f"  {c['id']}  {c['signal']} {c.get('name', '')}  {state}  {c.get('ts', '')[:16].replace('T', ' ')}"
+            f"  {c.get('host', '')}  {where}").rstrip()
+    ev = c.get("evidence") or {}
+    if ev.get("match"):
+        detail = f"match \"{ev['match']}\": \"{ev.get('excerpt', '')}\""
+    else:
+        detail = ", ".join(f"{k}={v}" for k, v in ev.items())
+    lines = [head] + ([f"      {detail}"] if detail else [])
+    if c.get("note"):
+        lines.append(f"      note: {c['note']}")
+    return lines
+
+
+def cmd_candidate_list(cfg, repo, args):
+    from . import candidates as cd
+    rows = cd.candidates(repo)
+    if args.signal:
+        rows = [c for c in rows if c["signal"] == args.signal]
+    if args.pending:
+        rows = [c for c in rows if not c.get("verdict")]
+    shown = rows[-args.limit:] if args.limit else rows
+    if args.format == "json":
+        print(json.dumps(shown, indent=2))
+        return 0
+    pending = sum(1 for c in rows if not c.get("verdict"))
+    print(f"CANDIDATES: {len(rows)} ({pending} pending, {len(rows) - pending} labelled) — shadow mode: "
+          f"none was stored as a lesson or asked about.")
+    if len(shown) < len(rows):
+        print(f"  (showing the newest {len(shown)}; --limit 0 shows all)")
+    for c in shown:
+        for ln in _candidate_line(c):
+            print(ln)
+    if pending:
+        print(f"  Label each with: {PROG} candidate label <id> lesson|noise [--note \"...\"]")
+    return 0
+
+
+def cmd_candidate_add(cfg, repo, args):
+    from . import candidates as cd
+    try:
+        evidence = json.loads(args.evidence) if args.evidence else {}
+    except ValueError as e:
+        raise core.EngineError(f"--evidence is not valid JSON: {e}")
+    if not isinstance(evidence, dict):
+        raise core.EngineError("--evidence must be a JSON object")
+    shape = core.find_secret(json.dumps(evidence))
+    if shape:
+        raise core.EngineError(f"--evidence carries a credential shape ({shape}); nothing recorded")
+    c = cd.add_candidate(repo, args.signal, host="cli", event="manual", session=args.session,
+                         evidence=evidence)
+    if args.format == "json":
+        print(json.dumps(c, indent=2))
+    else:
+        print(f"CANDIDATE: {c['id']} recorded for {c['signal']} {c['name']} (shadow: not stored as a lesson).")
+    return 0
+
+
+def cmd_candidate_label(cfg, repo, args):
+    from . import candidates as cd
+    rec = cd.label(repo, args.id, args.verdict, args.note)
+    if args.format == "json":
+        print(json.dumps(rec, indent=2))
+    else:
+        print(f"LABELLED: {rec['id']} as {rec['verdict']}.")
+    return 0
+
+
+def cmd_candidate_stats(cfg, repo, args):
+    from . import candidates as cd
+    s = cd.stats(repo, args.days)
+    if args.format == "json":
+        print(json.dumps(s, indent=2))
+        return 0
+    window = f"last {s['days']} day(s)" if s["days"] else "all time"
+    print(f"CANDIDATE STATS ({window}): {s['total']} candidate(s) across {len(s['signals'])} signal(s)")
+    if s["signals"]:
+        print(f"  {'signal':<26} {'count':>5} {'lesson':>6} {'noise':>5} {'unlabelled':>10} {'precision':>9}")
+    for r in s["signals"]:
+        prec = "-" if r["precision"] is None else f"{r['precision']:.2f}"
+        print(f"  {(r['signal'] + ' ' + r['name']):<26} {r['count']:>5} {r['lesson']:>6} {r['noise']:>5} "
+              f"{r['unlabelled']:>10} {prec:>9}")
+    return 0
+
+
+def cmd_doctor(cfg, repo, args):
+    from . import candidates as cd
+    d = cd.doctor(repo, args.last)
+    if args.format == "json":
+        print(json.dumps(d, indent=2))
+        return 0
+    if not d["exists"]:
+        print(f"DOCTOR: no capture activity recorded in {d['dir']}. If the hooks are installed, check that "
+              f"MNEMOSYNE_REPO points at this memory repo and MNEMOSYNE_CAPTURE isn't off.")
+        return 0
+    print(f"DOCTOR: capture spool at {d['dir']} (self-ignored: {'yes' if d['self_ignored'] else 'NO'}) "
+          f"— shadow mode: nothing is stored or asked.")
+    print(f"  candidates: {d['candidates']} ({d['pending']} pending)   decisions logged: {d['decisions']}")
+    if d["by_decision"]:
+        print("  by decision: " + ", ".join(f"{k}={v}" for k, v in sorted(d["by_decision"].items())))
+    if d["last_by_mode"]:
+        print("  last run per mode: " + ", ".join(f"{k} {v}" for k, v in sorted(d["last_by_mode"].items())))
+    if d["slowest"]:
+        print(f"  slowest hook body: {d['slowest']['ms']} ms ({d['slowest']['mode']}, {d['slowest']['ts']})")
+    if d["recent"]:
+        print(f"  last {len(d['recent'])} decision(s):")
+    for r in d["recent"]:
+        sig = (" " + ",".join(r["signals"])) if r.get("signals") else ""
+        extra = f" — {r['detail']}" if r.get("detail") else ""
+        print(f"    {r.get('ts', '')} {r.get('host', ''):<12} {r.get('mode', ''):<13} "
+              f"{r.get('decision', '')}{sig}{extra} ({r.get('ms', '?')} ms)")
+    if not d["self_ignored"]:
+        print(f"  WARNING: {d['dir']}/.gitignore is missing or doesn't ignore '*'; the spool could be committed.")
     return 0
 
 

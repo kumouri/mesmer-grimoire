@@ -578,6 +578,37 @@ def scrub_text(text, roots):
     return _MACHINE_PATH_RE.sub("<path>", text)
 
 
+# Credential shapes (spec §4.6 "Secrets"). Matched by shape, never by a list of known secrets.
+# The capture spool drops any candidate whose text carries one (candidates.py).
+_SECRET_SHAPES = (
+    ("cloud-access-key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
+    ("github-token", re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{30,}")),
+    ("github-pat", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}")),
+    ("sk-key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}")),
+    ("slack-token", re.compile(r"\bxox[abposr]-[A-Za-z0-9-]{10,}")),
+    ("private-key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+    ("jwt", re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")),
+    ("credential-assignment", re.compile(
+        r"(?i)\b(?:password|passwd|pwd|token|secret|api[_-]?key|access[_-]?key)\s*[=:]\s*['\"]?[^\s'\"]{6,}")),
+)
+
+
+def find_secret(text) -> str | None:
+    """The name of the first credential shape found in `text`, else None."""
+    if not text:
+        return None
+    for name, pat in _SECRET_SHAPES:
+        if pat.search(text):
+            return name
+    return None
+
+
+def scrub_machine_paths(text):
+    """Free text with home-directory, drive, UNC and WSL paths replaced by <path>. Unlike scrub_text
+    it needs no repo roots, so it runs no git (the capture hooks may not)."""
+    return _MACHINE_PATH_RE.sub("<path>", text) if text else text
+
+
 def scrub_lesson(lesson: dict, repo: Path) -> dict:
     """A copy of `lesson` that is safe to leave the local tier (see the section comment)."""
     out = json.loads(json.dumps(lesson))
