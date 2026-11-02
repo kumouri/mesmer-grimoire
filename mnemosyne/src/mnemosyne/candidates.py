@@ -15,6 +15,7 @@ FILES   memory/.capture/ in the memory repo. The directory carries its own `.git
                             rotated to decisions.1.jsonl past DECISION_LOG_MAX bytes
           state.json        tool failures awaiting a matching success, per session (signal S6)
           fired/            one empty marker per recent hook event, the double-fire guard (below)
+          *.lock            empty files to lock, never the data itself: see WRITES, and _rotate
 GUARD   a host that reads two hook files (a repo's .github/hooks and ~/.copilot/hooks) runs the
         bridge twice for one event. The first run claims the event with an O_EXCL marker; the other
         logs decision "duplicate" and stops, and the bridge then skips its recall and sync too. It
@@ -24,8 +25,22 @@ GUARD   a host that reads two hook files (a repo's .github/hooks and ~/.copilot/
         match. A marker lasts FIRE_WINDOW seconds, so a real repeat later on counts again. A failed
         claim lets the event through: a double-fire is better than a lost signal. With capture off
         nothing may be written, so the guard doesn't run there.
-WRITES  every line is one os.write on an O_APPEND descriptor, without the store lock: a hook must
-        never wait on a store write. A torn line (a crash mid-write) is skipped on read.
+WRITES  concurrent hooks must not lose a line, and a hook must never wait on a store write, so
+        appends skip the store lock. O_APPEND isn't enough on its own: the Windows C runtime seeks
+        and then writes, and it isn't atomic on 9p (WSL's /mnt/c) or NFS either, so racing writers
+        land on one offset and overwrite each other.
+        Windows: one WriteFile on a handle opened with FILE_APPEND_DATA alone. The kernel picks the
+        offset, so there is no lock, no wait and no timeout. `_winapi` is private, but subprocess
+        has already loaded it by this point; ctypes would add about 20 ms to every hook.
+        POSIX: one O_APPEND write, atomic by itself on a local filesystem, under a flock on
+        <file>.lock. The lock is for the filesystems above and costs microseconds on the others.
+        A run that waits SPOOL_LOCK_WAIT, or can't lock at all, writes anyway with "contended" set
+        on the line, which `doctor` counts: a line that might race beats a line never written.
+        Not covered: on 9p an append is slow enough that three or more writers at once can outlast
+        the wait, and a line that races there can still be lost (a lost line takes its mark with
+        it, so `doctor` undercounts). A Windows process and a WSL process appending to one file on
+        /mnt/c don't share a lock at all, because flock doesn't reach the Windows side.
+        A torn line (a crash mid-write, or a spool from before this fix) is skipped on read.
 PRIVACY a candidate carries pointers (signal, path, tool, exit code, a short command head), never
         tool output. The prompt signals keep a short excerpt of the user's own words, with machine
         paths replaced by <path>. Any candidate whose text has a credential shape is dropped, and
@@ -52,10 +67,16 @@ from .core import EngineError
 CAPTURE_DIR = ".capture"
 CANDIDATES = "candidates.jsonl"
 DECISIONS = "decisions.jsonl"
+ROTATE_LOCK = "decisions.rotate.lock"
 STATE = "state.json"
 FIRED = "fired"
 DUPLICATE = "duplicate"       # the decision logged by the second run of one event
 DECISION_LOG_MAX = 1_000_000  # bytes; the previous log is kept as decisions.1.jsonl
+SPOOL_LOCK_WAIT = 0.15        # seconds a POSIX append waits for its lock before writing anyway
+_SPOOL_LOCK_POLL = 0.001
+_FILE_APPEND_DATA = 0x4       # Windows: open for appending only, so the kernel picks the offset
+_SHARE_ALL = 0x7              # read, write and delete: readers and a rotation are never refused
+_OPEN_ALWAYS = 4
 FAILURE_TTL = 3600            # seconds a tool failure waits for its matching success (S6)
 FIRE_WINDOW = 10              # seconds a second run counts as the same event, whether the host
                               # runs its hook files together or one after the other
@@ -118,19 +139,51 @@ def is_self_ignored(repo: Path) -> bool:
         return False
 
 
-def _append(path: Path, obj: dict):
-    data = (json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
-    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o666)
-    try:
-        os.write(fd, data)
-    finally:
-        os.close(fd)
+def _line(obj: dict) -> bytes:
+    return (json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+
+
+if os.name == "nt":
+    import _winapi
+
+    def _append(path: Path, obj: dict):
+        handle = _winapi.CreateFile(str(path), _FILE_APPEND_DATA, _SHARE_ALL, _winapi.NULL,
+                                    _OPEN_ALWAYS, 0, _winapi.NULL)
+        try:
+            _winapi.WriteFile(handle, _line(obj))
+        finally:
+            _winapi.CloseHandle(handle)
+else:
+    def _wait_for_lock(fd: int) -> bool:
+        deadline = time.monotonic() + SPOOL_LOCK_WAIT
+        while not core._try_os_lock(fd):
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(_SPOOL_LOCK_POLL)
+        return True
+
+    def _append(path: Path, obj: dict):
+        lock = None
+        try:
+            lock = os.open(f"{path}.lock", os.O_RDWR | os.O_CREAT, 0o666)
+            locked = _wait_for_lock(lock)
+        except OSError:
+            locked = False  # a filesystem without flock
+        try:
+            fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o666)
+            try:
+                os.write(fd, _line(obj if locked else dict(obj, contended=True)))
+            finally:
+                os.close(fd)
+        finally:
+            if lock is not None:
+                os.close(lock)  # closing drops the flock
 
 
 def _read(path: Path) -> list:
     rows = []
     try:
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return rows
     for line in text.splitlines():
@@ -209,14 +262,33 @@ def stats(repo: Path, days=None) -> dict:
     return {"days": days, "total": len(rows), "signals": [per[k] for k in sorted(per)]}
 
 
+def _rotate(d: Path, log: Path):
+    """Keep a full log as decisions.1.jsonl. Two runs past the limit must not both rotate, or the
+    second moves a near-empty log over the one just kept. So the size is checked again under a
+    lock, and a run that can't get the lock leaves the rotation to the next run, without waiting."""
+    try:
+        if log.stat().st_size <= DECISION_LOG_MAX:
+            return
+        fd = os.open(str(d / ROTATE_LOCK), os.O_RDWR | os.O_CREAT, 0o666)
+    except OSError:
+        return
+    try:
+        if core._try_os_lock(fd):
+            try:
+                if log.stat().st_size > DECISION_LOG_MAX:
+                    os.replace(str(log), str(d / "decisions.1.jsonl"))
+            finally:
+                core._os_unlock(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
 def log_decision(repo: Path, rec: dict):
     d = ensure_capture_dir(repo)
     log = d / DECISIONS
-    try:
-        if log.stat().st_size > DECISION_LOG_MAX:
-            os.replace(str(log), str(d / "decisions.1.jsonl"))
-    except OSError:
-        pass
+    _rotate(d, log)
     _append(log, rec)
 
 
@@ -229,6 +301,7 @@ def doctor(repo: Path, last: int = 10) -> dict:
     """What the capture hooks have been doing: the last decisions, counts, and spool health."""
     log = decisions(repo)
     cands = candidates(repo)
+    contended = sum(1 for r in log + cands if r.get("contended"))
     by_decision, last_by_mode, slowest = {}, {}, None
     for r in log:
         by_decision[r.get("decision", "?")] = by_decision.get(r.get("decision", "?"), 0) + 1
@@ -239,7 +312,7 @@ def doctor(repo: Path, last: int = 10) -> dict:
             "self_ignored": is_self_ignored(repo), "candidates": len(cands),
             "pending": sum(1 for c in cands if not c.get("verdict")),
             "decisions": len(log), "by_decision": by_decision, "last_by_mode": last_by_mode,
-            "slowest": slowest, "recent": log[-last:] if last else []}
+            "slowest": slowest, "contended": contended, "recent": log[-last:] if last else []}
 
 
 # ----------------------------------------------------------------------------- event reading

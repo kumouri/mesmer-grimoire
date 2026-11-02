@@ -600,6 +600,8 @@ def cmd_doctor(cfg, repo, args):
         print("  last run per mode: " + ", ".join(f"{k} {v}" for k, v in sorted(d["last_by_mode"].items())))
     if d["slowest"]:
         print(f"  slowest hook body: {d['slowest']['ms']} ms ({d['slowest']['mode']}, {d['slowest']['ts']})")
+    if d["contended"]:
+        print(f"  contention: {d['contended']} line(s) written past a busy lock; they may have raced")
     if d["recent"]:
         print(f"  last {len(d['recent'])} decision(s):")
     for r in d["recent"]:
