@@ -12,7 +12,7 @@
     {
       "name": "zethus",
       "source": "./zethus",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "description": "A development process for GitHub Copilot that it follows and enforces: research, spec, sign-off, phased implementation, tests, docs, local gates and an evidence PR.",
       "license": "Apache-2.0",
       "repository": "https://github.com/kumouri/mesmer-grimoire"

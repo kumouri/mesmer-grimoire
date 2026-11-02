@@ -40,6 +40,7 @@ def load(path: Path, name: str):
 
 
 zi = load(ZETHUS / "install.py", "zethus_install_plugins")
+sync = load(REPO / "scripts" / "sync_zethus_plugin_root.py", "sync_zethus_plugin_root")
 
 
 def read_json(path: Path) -> dict:
@@ -98,15 +99,47 @@ class PluginLayout(unittest.TestCase):
             for path in root.glob("skills/*/SKILL.md"):
                 self.assertRegex(path.read_text(encoding="utf-8"), rf"(?m)^name: {path.parent.name}$")
 
+    def test_zethus_agent_and_hook_are_where_each_host_reads_them(self):
+        """The CLI reads a 1.0-schema plugin's agents and hooks only under com.github.copilot/.
+        IntelliJ's language server reads them only at the root: it listed the skills and no agent
+        or hook until the root mirror existed. See scripts/sync_zethus_plugin_root.py."""
+        for root in (ZETHUS / "com.github.copilot", ZETHUS):
+            self.assertEqual([p.name for p in root.glob("agents/*.agent.md")], ["zethus.agent.md"], root)
+            self.assertEqual(set(read_json(root / "hooks" / "hooks.json")["hooks"]), {"sessionStart"}, root)
+        self.assertFalse((ZETHUS / "hooks.json").exists(), "the language server reads it before hooks/")
+        self.assertEqual([p.name for p in (ZETHUS / "hooks").iterdir()], ["hooks.json"], "one script, in one place")
+
+    def test_zethus_root_mirror_is_in_step(self):
+        self.assertEqual(sync.stale(), [], "run: python scripts/sync_zethus_plugin_root.py")
+        self.assertEqual(sync.main(["--check"]), 0)
+
+    def test_zethus_root_mirror_links_resolve(self):
+        mirror = ZETHUS / "agents" / "zethus.agent.md"
+        links = re.findall(r"\]\((\.\./[^)#]+)", mirror.read_text(encoding="utf-8"))
+        self.assertGreater(len(links), 10)
+        for link in links:
+            self.assertTrue((mirror.parent / link).resolve().is_file(), link)
+
+    def test_zethus_mirror_rewrites_only_the_depth(self):
+        canon = "---\nname: x\n---\n\n> note: else two folders above this file's folder.\n\n[a](../../skills/a/SKILL.md)\n"
+        out = sync.mirror_agent(canon, "x.agent.md")
+        self.assertTrue(out.startswith("---\nname: x\n---\n\n<!-- Generated from com.github.copilot/agents/x.agent.md"))
+        self.assertIn("else the folder above this file's folder.", out)
+        self.assertIn("[a](../skills/a/SKILL.md)", out)
+        self.assertNotIn("../../", out)
+        with self.assertRaises(ValueError):
+            sync.mirror_agent("no frontmatter", "y.agent.md")
+
     def test_zethus_text_is_root_agnostic(self):
         shipped = [ZETHUS / "copilot-instructions.md", *ZETHUS.glob("com.github.copilot/**/*.md"),
-                   *ZETHUS.glob("skills/**/*.md")]
+                   *ZETHUS.glob("agents/*.md"), *ZETHUS.glob("skills/**/*.md")]
         self.assertGreater(len(shipped), 20)
         for path in shipped:
             self.assertNotIn(".github/zethus/", path.read_text(encoding="utf-8"), path)
 
     def test_a_skill_using_the_kit_root_defines_it(self):
-        for path in [*ZETHUS.glob("skills/*/SKILL.md"), *ZETHUS.glob("com.github.copilot/agents/*.md")]:
+        for path in [*ZETHUS.glob("skills/*/SKILL.md"), *ZETHUS.glob("com.github.copilot/agents/*.md"),
+                     *ZETHUS.glob("agents/*.md")]:
             text = path.read_text(encoding="utf-8")
             if "<kit root>" in text:
                 self.assertRegex(text, zi.KIT_ROOT_NOTE, f"{path}: works alone only with the note")
