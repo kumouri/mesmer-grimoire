@@ -17,6 +17,10 @@ Run this stage last, after [docs-sync-check](../docs-sync-check/SKILL.md) and im
 the push, so one full run covers everything you push, docs and spec edits included. If you edit
 anything after it goes green, run it again.
 
+That binds the final run, not an earlier one. An early run may overlap docs work when the gates
+don't read docs ([why](../../docs/independent-work-runs-concurrently.md)), but it can only find a
+red. The run that clears the push starts after the last edit, on the exact tree that is pushed.
+
 0. **Check the base is fresh:** `python <kit root>/scripts/base-freshness.py`.
    Gates run on a stale base check a tree that won't be the one that merges, and the PR describes
    a diff against a base that has moved. Exit 1 (STALE) means stop: rebase onto `origin/<base>`

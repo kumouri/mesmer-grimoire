@@ -60,12 +60,25 @@ the team's call, on the team's schedule, so a process that merges only when a wh
 doesn't block the work. A pushed phase is marked *in review* in the spec, never *built*. See
 [the next phase starts on push](docs/phase-advance-on-push.md).
 
+Independent work doesn't wait in line. The stages order exit conditions, and uncommitted code alone
+doesn't hold anything. Two or three independent tasks may run at once when neither reads the
+other's output or the files the other is changing, such as docs while the local gates run (when the
+gates don't read docs) or read-only research while a build runs. Each is named in the visible plan,
+and the final gate run still happens last, on the exact tree that is pushed. Remote or long-running
+work starts as soon as the pending change doesn't touch what that work runs: the agent checks the
+image build and deploy definition instead of guessing, says so in one line, and asks once if the
+definitions don't settle it. Results collected while local tooling was still changing are re-judged
+with its final version, and the run log says so. If you say a piece of work isn't affected, it
+starts without being re-litigated. See
+[independent work runs concurrently](docs/independent-work-runs-concurrently.md).
+
 ### Seeing the plan
 
 On starting, and on entering each stage, the agent writes the plan before doing the stage's work.
 The plan is the stage map (done, current, still to come) plus the current stage's concrete steps,
-each worded so you can tell what "done" means. Exactly one step is in progress at a time, and the
-header line of every reply names it. The list itself is updated when a stage is entered and when
+each worded so you can tell what "done" means. One step is in progress at a time, or two or three
+when they are independent and each is named in the plan, and the header line of every reply names
+what's in progress. The list itself is updated when a stage is entered and when
 the plan changes, not each time a step finishes: finished steps are ticked at the next update. That
 saves a todo call, and a model round trip, per step ([plan update cadence](docs/plan-update-cadence.md)).
 When the plan changes, the list changes in the same turn and the reply says what changed and why. A stage isn't exited while any of its steps is open, unless the step was
