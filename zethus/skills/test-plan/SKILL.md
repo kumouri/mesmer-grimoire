@@ -45,11 +45,14 @@ behaviour that exists only when the parts are joined. Tag anything you can't aut
    file is byte for byte the one that passed, so there's nothing to re-run. A non-zero exit means
    it isn't; restore it until it is. If the mutated test still passes, it proves nothing: fix the
    test, not the code. Record the check in one line in the PR ("reverting `retry.py:52` fails
-   `test_backoff_doubles_until_cap`").
+   `test_backoff_doubles_until_cap`"). Nothing that reads that file runs alongside this check:
+   a gate run in parallel would see the broken line.
 3. **Flaky means failing.** A test that passes on retry isn't passing. Fix it, or quarantine it
    with a tracked issue that names it, and say so in the PR.
 
-Next, in the same turn: [docs-sync-check](../docs-sync-check/SKILL.md).
+Next, in the same turn: [docs-sync-check](../docs-sync-check/SKILL.md). It may already be running:
+docs can overlap a test run that doesn't read them
+([why](../../docs/independent-work-runs-concurrently.md)).
 
 ## Anti-patterns
 

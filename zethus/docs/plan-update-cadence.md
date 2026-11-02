@@ -8,7 +8,7 @@
 | Source | Ceryce's ruling, 2026-10-19 |
 | Enforced where | *Keep the plan visible*, rule 2, in [`../com.github.copilot/agents/zethus.agent.md`](../com.github.copilot/agents/zethus.agent.md); `tests/test_zethus.py` |
 | Supersedes | the visible-plan rule's "Mark it done the moment it's done, not in a batch at the end of the turn" |
-| Superseded by | — |
+| Superseded by | In one clause, "exactly one is in progress": see [independent work runs concurrently](independent-work-runs-concurrently.md) |
 
 ## Decision
 

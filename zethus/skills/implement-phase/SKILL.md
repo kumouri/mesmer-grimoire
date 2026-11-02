@@ -62,6 +62,12 @@ procedure keeps each phase small and keeps its deviations visible.
    and its reason. The status names both halves, leaving out an empty one:
    `PARTIAL(merged: phases 0–1; in review: phase 2)`. A pushed phase is in review, not built:
    leave `BUILT` for when the last phase's PR merges.
+7. **Code in progress doesn't hold work that doesn't run it.** A deployed run, a remote job or a
+   long-running task starts as soon as this phase's pending change doesn't touch what it runs.
+   Check the image or artifact build and the deploy definition instead of guessing, say in one
+   line what you checked, and if they don't settle it, ask once, as an option list. Results
+   collected while local tooling was still changing get re-judged with its final version, and the
+   run log says so ([why](../../docs/independent-work-runs-concurrently.md)).
 
 ## Done when
 

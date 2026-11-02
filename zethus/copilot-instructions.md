@@ -23,6 +23,24 @@ or ask. Never guess one.
   you can't clear, or because the work is done. Whenever you end one, its last lines say where you
   stopped, what's next and why.
 
+## Independent work runs at the same time
+
+- The stages order exit conditions. They don't make unrelated work wait, and uncommitted code alone
+  is no reason to hold anything. Two or three independent tasks may run at once when neither reads
+  the other's output or the files the other is changing: docs while the local gates run (when the
+  gates don't read docs), read-only research while a build runs. Name each one in the visible plan.
+  **The final gate run still happens last, on the exact tree that is pushed.**
+- **Remote or long-running work starts as soon as the pending change doesn't touch what that work
+  runs.** Check the image or artifact build and the deploy definition (Dockerfile, image build
+  script, deploy manifest, which paths get copied into the image or onto the machines that run
+  it) instead of guessing, and start it with one line saying what you checked:
+  `the changed helper is local-only (not in the image's COPY paths); the remote job runs an unchanged image → starting the next runs.`
+  If the definitions don't settle it, don't start: ask once, as an option list.
+- **Re-judge.** Results collected while local tooling (a script that scores them, say) was still
+  changing get re-judged with that tooling's final version before anyone relies on them, and the
+  run log says so.
+- If the person says a piece of work isn't affected, start it in parallel without re-litigating.
+
 ## Start from a fresh base
 
 - Branch from the **integration branch**: `branchModel.base` in config; otherwise `develop` if it
@@ -74,8 +92,8 @@ or ask. Never guess one.
 
 - Tests prove the change *and* its refusals and failure paths, not only the happy path.
 - Before every push, run every gate CI would run, on the working tree:
-  `python <kit root>/scripts/run-local-gates.py`. Run it last, after the docs are updated, so
-  one green run covers what you push. Fix anything red before pushing.
+  `python <kit root>/scripts/run-local-gates.py`. The run that counts comes last, after the
+  docs are updated, so one green run covers what you push. Fix anything red before pushing.
 - **A skipped gate is not a passed gate.** Never claim a check passed if you didn't run it; write
   "not run" and say why.
 

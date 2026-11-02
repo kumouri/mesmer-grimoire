@@ -39,7 +39,10 @@ change**, without being asked. Change only the docs that describe code this diff
    confirmed. "No doc describes this code" is a valid answer once you've done step 2.
 
 Next: [pre-push-gates](../pre-push-gates/SKILL.md). This stage runs before the gates, not after
-them, so the one full gate run covers these edits too and doesn't have to be repeated.
+them, so the one full gate run covers these edits too and doesn't have to be repeated. Docs work
+may overlap an earlier test or gate run that doesn't read docs
+([why](../../docs/independent-work-runs-concurrently.md)); it finishes before the final run
+starts.
 
 ## Rules
 

@@ -828,9 +828,9 @@ class KitContract(unittest.TestCase):
         self.assertIn('"todo"', frontmatter(KIT / AGENT)["tools"])
         self.assertNotIn("Mark it done the moment it's done", agent)
         for rule in ("## Keep the plan visible",
-                     "Exactly one step is in progress at a time",
+                     "One step is in progress at a time, or two or three when they are",
                      "Update the list at stage entry and when the plan changes, not at every step",
-                     "the header line on every reply names it",
+                     "The header line on every reply names what's in progress",
                      "When the plan changes, change the list in the same turn",
                      "A stage isn't exited with open steps",
                      "You have no todo-list tool",
@@ -919,6 +919,90 @@ class KitContract(unittest.TestCase):
                      "Don't shrink the answer", "offer to resume"):
             self.assertIn(rule, instructions)
         self.assertIn("docs/questions-come-first.md", (KIT / "README.md").read_text(encoding="utf-8"))
+
+    def test_independent_work_runs_at_the_same_time(self):
+        """The stages order exit conditions; they don't queue unrelated work.
+
+        Ceryce's report and rulings, 2026-11-01 (``zethus/docs/independent-work-runs-concurrently.md``):
+        the agent wouldn't start independent remote runs while unrelated local changes were
+        pending.
+        """
+        def flat(text):
+            return " ".join(text.replace("\n> ", " ").split())
+
+        rules = ("Two or three independent tasks may run at once",
+                 "the other's output or the files the other is changing",
+                 "docs while the local gates run",
+                 "read-only research while a build runs",
+                 "The final gate run still happens last, on the exact tree that is pushed",
+                 "Remote or long-running work starts as soon as the pending change doesn't touch "
+                 "what that work runs",
+                 "the deploy definition",
+                 "which paths get copied into the image or onto the machines that run it",
+                 "the changed helper is local-only (not in the image's COPY paths); the remote "
+                 "job runs an unchanged image → starting the next runs.",
+                 "ask once, as an option list",
+                 "re-judged with that tooling's final version before anyone relies on them, and "
+                 "the run log says so",
+                 "isn't affected",
+                 "without re-litigating")
+        agent = (KIT / AGENT).read_text(encoding="utf-8")
+        section = agent.split("## Run independent work at the same time", 1)[1].split("\n## ", 1)[0]
+        instructions = (KIT / "copilot-instructions.md").read_text(encoding="utf-8")
+        hook = load(KIT / "com.github.copilot/hooks/session_start.py")
+        for name, text in (("agent", section), ("agreement", instructions),
+                           ("sessionStart", hook.agreement())):
+            for rule in rules:
+                self.assertIn(rule, flat(text).replace("Ask once", "ask once"), name)
+        self.assertIn("Name each one in the visible plan", flat(instructions))
+        self.assertIn("named in the visible plan", flat(section))
+
+        # The rule doesn't loosen what it sits beside.
+        self.assertIn("The order binds exit conditions, not the clock", flat(agent))
+        self.assertIn("sign-off still comes before code", flat(section))
+        self.assertIn('"Do Phase 1 and 2 together"', agent, "phases stay one at a time")
+        self.assertIn("Anything edited after the gates go green sends you back to stage 6", flat(agent))
+        self.assertIn("A gate run that overlapped an edit can find a red, but it can't clear the push",
+                      flat(section))
+        self.assertIn("no check first, no second question", flat(section))
+
+        # The lines that forced one thing at a time are gone or narrowed.
+        plan = agent.split("## Keep the plan visible", 1)[1].split("\n## ", 1)[0]
+        readme = (KIT / "README.md").read_text(encoding="utf-8")
+        for name, text in (("agent", plan), ("README", readme)):
+            self.assertNotIn("Exactly one step is in progress", flat(text), name)
+            self.assertIn("One step is in progress at a time, or two or three", flat(text), name)
+        self.assertNotIn("Run it last, after the docs are updated", flat(instructions))
+        self.assertIn("The run that counts comes last", flat(instructions))
+
+        for rule in ("Two or three independent tasks may run at once",
+                     "Remote or long-running work starts as soon as the pending change doesn't "
+                     "touch what that work runs",
+                     "docs/independent-work-runs-concurrently.md"):
+            self.assertIn(rule, flat(readme))
+        self.assertLess(readme.index("Independent work doesn't wait in line"),
+                        readme.index("### Seeing the plan"), "sits in the phase flow")
+
+        skill = {name: flat((KIT / "skills" / name / "SKILL.md").read_text(encoding="utf-8"))
+                 for name in ("implement-phase", "pre-push-gates", "docs-sync-check", "test-plan")}
+        self.assertIn("Code in progress doesn't hold work that doesn't run it",
+                      skill["implement-phase"])
+        self.assertIn("The run that clears the push starts after the last edit",
+                      skill["pre-push-gates"])
+        self.assertIn("it finishes before the final run starts", skill["docs-sync-check"])
+        self.assertIn("Nothing that reads that file runs alongside this check", skill["test-plan"])
+
+        adr = flat((KIT / "docs/independent-work-runs-concurrently.md").read_text(encoding="utf-8"))
+        # A public repo: the ADR paraphrases the report and rulings, quoting none of it.
+        for line in ("wouldn't start independent remote runs while unrelated local changes were "
+                     "pending",
+                     "Independent local tasks, though, should get limited parallelism",
+                     "The second ruling restores what the first set aside, so both halves are "
+                     "built"):
+            self.assertIn(line, adr)
+        self.assertNotIn("verbatim", adr)
+        self.assertNotIn("\n> ", (KIT / "docs/independent-work-runs-concurrently.md")
+                         .read_text(encoding="utf-8"), "no block quotes")
 
     def test_kit_markdown_has_no_broken_pointers(self):
         code, out = run(pointer_mod, "--repo", str(REPO), "zethus")

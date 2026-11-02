@@ -12,6 +12,8 @@ You carry a change from request to reviewable pull request through seven stages,
 stage has an exit condition. You don't move on until it is met, and you don't skip a stage because
 you were asked to hurry. The standing rules in `<kit root>/copilot-instructions.md` apply throughout.
 The skills linked below hold the procedure for each stage. Use them; don't improvise a replacement.
+The order binds exit conditions, not the clock:
+[independent work runs at the same time](#run-independent-work-at-the-same-time).
 
 ## The stages
 
@@ -27,7 +29,9 @@ The skills linked below hold the procedure for each stage. Use them; don't impro
 | 7 | PR | [zethus-pr-description](../../skills/zethus-pr-description/SKILL.md) | Branch pushed, PR opened against the integration branch (a stacked phase: the previous phase's branch), **not merged** |
 
 Docs comes before Gates so that the full build and test suite runs once, last, on the exact tree
-that is pushed. Anything edited after the gates go green sends you back to stage 6.
+that is pushed. That fixes which run counts, not what else may be running: the final run starts
+after the last edit, and [independent work](#run-independent-work-at-the-same-time) may overlap
+anything before it. Anything edited after the gates go green sends you back to stage 6.
 
 For stage 0, fetch the remote and find the integration branch: `branchModel.base` in
 `.github/zethus.config.json`, else `develop` if it exists, else the default branch. Create the task
@@ -71,6 +75,43 @@ Stopped at: Stage 2 · Spec — step 4 of 4: sign-off requested
 Next: Stage 3 · Implement — Phase 0, step 1: add the test that pins today's retry delay
 Why: waiting for your sign-off on the spec
 ```
+
+## Run independent work at the same time
+
+The stages order exit conditions. They don't make unrelated work wait in line, and uncommitted code
+is not by itself a reason to hold anything: what matters is whether the waiting work reads what is
+changing ([why](../../docs/independent-work-runs-concurrently.md)). None of this skips anything:
+sign-off still comes before code, one phase is built at a time, and the gates still come before the
+push.
+
+**Limited parallelism.** Two or three independent tasks may run at once when neither reads the
+other's output or the files the other is changing: docs while the local gates run, when the gates
+don't read docs; read-only research while a build runs. Check rather than assume: a Markdown lint
+in `run-local-gates.py --list` reads docs, so that gate doesn't pair with a docs edit. Each task is
+named in the visible plan ([rule 2](#keep-the-plan-visible)). **The final gate run still happens
+last, on the exact tree that is pushed.** A gate run that overlapped an edit can find a red, but it
+can't clear the push.
+
+**Remote or long-running work starts as soon as the pending change doesn't touch what that work
+runs.** Check, don't guess:
+
+1. Read the image or artifact build and the deploy definition: the Dockerfile, the image build
+   script, the deploy manifest, and which paths get copied into the image or onto the machines
+   that run it. A `COPY . .` includes every path its `.dockerignore` doesn't exclude.
+2. Compare them with the paths in `git status --short`.
+3. **Not touched:** start the work, with one line saying what you checked:
+   `the changed helper is local-only (not in the image's COPY paths); the remote job runs an unchanged image → starting the next runs.`
+4. **Touched:** it waits for the build or deploy that carries the change.
+5. **The definitions don't settle it:** don't start. Ask once, as an option list.
+
+**Re-judge.** Results collected while local tooling (a script that scores them, say) was still
+changing get re-judged with that tooling's final version before anyone relies on them, and the run
+log says so.
+
+**The person can unblock it.** If the person says a piece of work isn't affected, start it in
+parallel without re-litigating: no check first, no second question, and no ADR, since it's a call
+about this work and not a standing decision. The one line says it's on their word. Re-judge still
+applies.
 
 ## The person's questions come first
 
@@ -191,9 +232,11 @@ name, not a step.
    stage has one (stages 0 and 6; see above). The next phase
    starts a new set of steps at stage 3.
 2. **Update the list at stage entry and when the plan changes, not at every step.**
-   Exactly one step is in progress at a time, and the header line on every reply names it, so the
-   person can see where you are between updates without the list being rewritten each time a step
-   finishes. Tick the steps finished since the last update at the next update.
+   One step is in progress at a time, or two or three when they are
+   [independent](#run-independent-work-at-the-same-time) and each is named in the plan with its own
+   `▶`. The header line on every reply names what's in progress, so the person can see where you
+   are between updates without the list being rewritten each time a step finishes. Tick the steps
+   finished since the last update at the next update.
 3. **When the plan changes, change the list in the same turn.** A new finding, a failed approach, a
    decision the person made: add, drop or reword the steps, and say in the reply what changed and
    why. Don't drop a step silently. A dropped step stays visible with the reason.
@@ -223,6 +266,9 @@ Stage 3 · Implement — Phase 1, step 2 of 4: wire `retryLimit` into the retry 
 - [ ] Log the attempt number at WARN on each retry
 - [ ] Flag anything outside Phase 1's scope in the *As built* list
 ```
+
+Independent steps share the header, each still numbered:
+`Stage 5 · Docs — Phase 1, in parallel: step 2 of 4, update the README; step 3 of 4, early gate run`.
 
 ## How you behave at every turn
 
