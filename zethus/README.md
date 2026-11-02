@@ -244,6 +244,7 @@ them**; it needs repo mode.
 | Agent, `~/.copilot/agents/` | Yes ([docs][vsc-agents]) | Yes ([docs][cli-ref]) | Yes: a default location in the settings screen ([changelog][jb-agents] agrees) |
 | Skills, `~/.copilot/skills/` | Yes ([docs][vsc-skills]) | Yes ([docs][cli-skills]) | Yes: a default location in the settings screen ([docs][gh-skills] agree). Older builds: see bug #1517 below |
 | Instructions, `~/.copilot/instructions/*.instructions.md` | Yes ([docs][vsc-instructions]) | Yes ([docs][cli-instr]) | Yes: a default location in the settings screen. The docs still describe only `global-copilot-instructions.md` ([docs][jb-instr]) |
+| Hooks, `~/.copilot/hooks/` (`--with-mnemosyne`) | Not checked | Not checked | Yes: a default location in the settings screen |
 | JetBrains `global-copilot-instructions.md` (`--jetbrains-legacy` only) | — | — | Windows: `%LOCALAPPDATA%\github-copilot\intellij\`. macOS: `~/.config/github-copilot/intellij/`. **Linux: not documented**, so the installer skips it and says so ([docs][jb-instr]) |
 
 **The JetBrains evidence.** In September 2026, the IntelliJ Copilot settings page *Tools → GitHub
@@ -362,24 +363,30 @@ python mesmer-grimoire/zethus/install.py --user --with-mnemosyne --dry-run
 python mesmer-grimoire/zethus/install.py --user --with-mnemosyne
 python mesmer-grimoire/zethus/install.py --target path/to/your-repo --with-mnemosyne
 python mesmer-grimoire/zethus/install.py --user --with-mnemosyne --mnemosyne-repo ~/notes/memory
+python mesmer-grimoire/zethus/install.py --user --with-mnemosyne --mnemosyne-copilot-hooks-dir ~/my-hooks
 python mesmer-grimoire/zethus/install.py --user --uninstall --with-mnemosyne
 ```
 
 It doesn't repeat any of Mnemosyne's setup. It calls Mnemosyne's own installer,
-[`mnemosyne/install.py`](../mnemosyne/install.py), and passes on `--target`, `--dry-run`,
-`--uninstall` and `--mnemosyne-repo` (as `--repo`). That installer sets up:
+[`mnemosyne/install.py`](../mnemosyne/install.py), and passes on `--target` or `--user`,
+`--dry-run`, `--uninstall`, `--mnemosyne-repo` (as `--repo`) and `--mnemosyne-copilot-hooks-dir`
+(as `--copilot-hooks-dir`). That installer sets up:
 
 - the `mnemosyne-reflexion` package;
 - a local git memory repo at `~/repos/mnemosyne-local`, with no remote;
 - `MNEMOSYNE_REPO`, set persistently;
 - the Claude Code plugin;
 - with `--target`, the repo's Copilot hook files, `.github/hooks/mnemosyne.json` and its bridge
-  script, which you commit along with the kit.
+  script, which you commit along with the kit;
+- with `--user`, the same two files in `~/.copilot/hooks`, for every repo. The IntelliJ plugin
+  [reads that folder](#which-copilot-clients-read-the-user-level-files) and can add others;
+  `--mnemosyne-copilot-hooks-dir` writes to one of those instead. These files aren't committed, and
+  a repo that has its own copy doesn't fire twice.
 
 The [Mnemosyne README](../mnemosyne/README.md#install) has the details. Mnemosyne runs only after
 the kit installs cleanly, and the run's exit code is the worse of the two. `--force` isn't passed
-on, so an existing `MNEMOSYNE_REPO` pointing somewhere else stops the Mnemosyne step until you
-run its installer yourself with `--force`.
+on, so an existing `MNEMOSYNE_REPO` pointing somewhere else, or a hook file you edited, stops the
+Mnemosyne step until you run its installer yourself with `--force`.
 
 ### Configuration
 

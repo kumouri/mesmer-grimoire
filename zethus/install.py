@@ -55,9 +55,10 @@ you pass ``--force``. ``--uninstall`` removes only manifest files you haven't ed
 removes edited ones too), then the empty folders it made.
 
 **``--with-mnemosyne``** (either mode) then calls ``mnemosyne/install.py`` from the same clone,
-passing on ``--target``, ``--dry-run``, ``--uninstall`` and ``--mnemosyne-repo`` (as its
-``--repo``). That installer sets up the package, a local git memory repo, ``MNEMOSYNE_REPO`` and the
-hooks; its docstring says what goes where. It runs only after the Zethus step succeeds (an
+passing on ``--target`` or ``--user``, ``--dry-run``, ``--uninstall``, ``--mnemosyne-repo`` (as its
+``--repo``) and ``--mnemosyne-copilot-hooks-dir`` (as its ``--copilot-hooks-dir``). That installer
+sets up the package, a local git memory repo, ``MNEMOSYNE_REPO`` and the hooks, including, in user
+mode, Copilot's in ``~/.copilot/hooks``; its docstring says what goes where. It runs only after the Zethus step succeeds (an
 uninstall runs both), and the exit code is the worse of the two. Without the flag nothing about
 this installer changes.
 
@@ -413,9 +414,11 @@ MNEMOSYNE_INSTALLER = KIT.parent / "mnemosyne" / "install.py"
 def mnemosyne_argv(args) -> list[str]:
     """Zethus's flags, translated for mnemosyne/install.py. ``--force`` is deliberately not passed:
     there it would repoint ``MNEMOSYNE_REPO``, which deserves its own explicit run."""
-    argv = ["--target", args.target] if args.target else []
+    argv = ["--target", args.target] if args.target else ["--user"]
     if args.mnemosyne_repo:
         argv += ["--repo", args.mnemosyne_repo]
+    if args.mnemosyne_copilot_hooks_dir:
+        argv += ["--copilot-hooks-dir", args.mnemosyne_copilot_hooks_dir]
     if args.dry_run:
         argv.append("--dry-run")
     if args.uninstall:
@@ -459,14 +462,20 @@ def main(argv: list[str] | None = None) -> int:
                         "older plugin builds that don't read ~/.copilot/instructions")
     p.add_argument("--with-mnemosyne", action="store_true",
                    help="then run mnemosyne/install.py: the package, a local memory repo, "
-                        "MNEMOSYNE_REPO and its hooks (with --target, also that repo's Copilot hooks)")
+                        "MNEMOSYNE_REPO and its hooks (with --target, that repo's Copilot hooks; "
+                        "with --user, ~/.copilot/hooks)")
     p.add_argument("--mnemosyne-repo", metavar="PATH",
                    help="with --with-mnemosyne: the memory repo (default ~/repos/mnemosyne-local)")
+    p.add_argument("--mnemosyne-copilot-hooks-dir", metavar="PATH",
+                   help="with --with-mnemosyne: write the user-level Copilot hook files here "
+                        "instead of ~/.copilot/hooks")
     args = p.parse_args(argv)
     if not args.user and (args.uninstall or args.jetbrains_legacy):
         p.error("--uninstall and --jetbrains-legacy need --user (a repo install is removed with git)")
-    if args.mnemosyne_repo and not args.with_mnemosyne:
-        p.error("--mnemosyne-repo needs --with-mnemosyne")
+    if (args.mnemosyne_repo or args.mnemosyne_copilot_hooks_dir) and not args.with_mnemosyne:
+        p.error("--mnemosyne-repo and --mnemosyne-copilot-hooks-dir need --with-mnemosyne")
+    if args.mnemosyne_copilot_hooks_dir and args.uninstall:
+        p.error("--uninstall takes no --mnemosyne-copilot-hooks-dir (the manifest knows what was written)")
     if args.user:
         code = uninstall_user(args) if args.uninstall else install_user(args)
     else:

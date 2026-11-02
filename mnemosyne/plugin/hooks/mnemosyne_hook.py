@@ -25,6 +25,11 @@ stored as a lesson, nothing is asked, and no capture mode prints anything. The d
 in the engine (`mnemosyne.candidates`); `mnemosyne candidate list` and `mnemosyne doctor` read the
 results. MNEMOSYNE_CAPTURE=off turns capture off and leaves recall as it was.
 
+One event can arrive twice, when a host reads both a repo's .github/hooks and ~/.copilot/hooks. The
+engine claims each event once, and the run that loses the claim stops without recalling or syncing.
+The guard needs the spool, so with capture off each registration runs recall. Copies of this script
+(any path, any repo) all share the guard, because it lives in `mnemosyne.candidates`.
+
 There is no session-end mode: Claude Code discards SessionEnd hook output, so a "remember to
 /reflect" reminder there would never be seen. Any other mode (including a stale `session-end`
 from an older hooks.json) is a silent no-op.
@@ -55,19 +60,20 @@ def _mn():
 
 
 def _capture(mode, event, host):
-    """Shadow capture: record candidates and log the decision. Never raises, never prints."""
+    """Shadow capture: record candidates and log the decision. Never raises, never prints.
+    Returns True if another registration already handled this event."""
     try:
         from mnemosyne import candidates
-        candidates.capture_event(mode, event, host=host)
+        rec = candidates.capture_event(mode, event, host=host)
+        return bool(rec) and rec.get("decision") == "duplicate"
     except Exception:
-        pass  # fail-open: capture must never break a session or the recall beside it
+        return False  # fail-open: capture must never break a session or the recall beside it
 
 
 def do_prompt(event, host):
     mn = _mn()
-    if mn is None:
+    if mn is None or _capture("prompt", event, host):
         return 0
-    _capture("prompt", event, host)
     prompt = (event.get("prompt") or "").strip()
     if not prompt:
         return 0
@@ -84,9 +90,8 @@ def do_prompt(event, host):
 
 def do_session_start(event, host):
     mn = _mn()
-    if mn is None:
+    if mn is None or _capture("session-start", event, host):
         return 0
-    _capture("session-start", event, host)
     try:
         from mnemosyne import core, load_config, resolve_repo
         repo = resolve_repo(None)

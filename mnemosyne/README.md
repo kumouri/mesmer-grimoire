@@ -38,7 +38,7 @@ python mesmer-grimoire/mnemosyne/install.py --dry-run     # see the plan
 python mesmer-grimoire/mnemosyne/install.py
 ```
 
-It does five things:
+It does these things:
 
 1. **Package.** It pip-installs the package for the Python the hooks run, which is `python` on
    PATH unless you pass `--python`.
@@ -51,17 +51,29 @@ It does five things:
 4. **Claude Code plugin.** It copies `plugin/` into a local marketplace under `~/.mnemosyne/` and
    installs it with the `claude` CLI. A `mnemosyne` plugin you already installed from another
    marketplace is left alone, so the hooks don't fire twice.
-5. **Copilot hooks.** With `--target REPO`, it also writes `.github/hooks/mnemosyne.json` and a
-   copy of the bridge into that repo, for you to commit. The Copilot CLI runs that file; VS Code
-   and the cloud agent read it too, but that is unverified (spec §4.7). The step is skipped if the
-   repo's `.claude/settings.json` already runs the bridge, because the Copilot CLI would then fire
-   it twice.
+5. **Copilot hooks for one repo.** With `--target REPO`, it also writes
+   `.github/hooks/mnemosyne.json` and a copy of the bridge into that repo, for you to commit. The
+   Copilot CLI runs that file; VS Code and the cloud agent read it too, but that is unverified
+   (spec §4.7). The step is skipped if the repo's `.claude/settings.json` already runs the bridge,
+   because the Copilot CLI would then fire it twice.
+6. **Copilot hooks for every repo.** With `--user`, it writes the same two files to
+   `~/.copilot/hooks/`. `--copilot-hooks-dir PATH` writes them to a folder of your choosing
+   instead, such as an extra one you added in the IntelliJ Copilot plugin's settings. These commands
+   name the script by absolute path, so the file belongs to this machine: don't commit it. The
+   IntelliJ plugin reads `~/.copilot/hooks`; other hosts are unverified (spec §4.7).
+
+**Both hook files at once are safe.** A repo with its own `.github/hooks/mnemosyne.json` doesn't
+double-fire with the user-level file. The engine claims each event once, by session and content,
+and the second run logs `duplicate` and stops. With capture off nothing may be written, so the
+guard is off too, and each file runs recall.
 
 Re-running it is safe: finished steps print `same` or `keep`, and the package is refreshed from
 the clone. It checks everything before writing anything. A folder that isn't a memory repo is
 refused, and so is an existing `MNEMOSYNE_REPO` pointing somewhere else; `--force` repoints the
-variable. `--uninstall` reverses it all, using the record in `~/.mnemosyne/install-manifest.json`,
-and never removes the memory repo. The script's docstring has the full contract.
+variable. A file in the user-level hook folder that the installer didn't write is never
+overwritten. `--uninstall` reverses it all, using the record in
+`~/.mnemosyne/install-manifest.json`, and removes only what that record lists. It never removes
+the memory repo. The script's docstring has the full contract.
 
 Zethus users can run this as part of the Zethus install:
 `python mesmer-grimoire/zethus/install.py --user --with-mnemosyne` (see
@@ -269,7 +281,8 @@ candidate was worth keeping, before any of it is automated.
 
 - **Where it goes:** `memory/.capture/` in the memory repo. The directory ignores itself, so the
   spool is never committed. `candidates.jsonl` holds candidates and labels; `decisions.jsonl` holds
-  one line per hook run.
+  one line per hook run; a `fired` folder holds the short-lived markers that stop one event being
+  handled twice.
 - **What a candidate holds:** pointers only (signal, tool, repo-relative path, exit code, a short
   command head such as `npm test`), never tool output. The prompt signals keep a short excerpt of
   the user's words, with machine paths replaced by `<path>`. A candidate that carries a credential

@@ -231,6 +231,13 @@ credential shape anywhere in it drops it whole. Every hook run appends one decis
 what `mnemosyne doctor` reads. The detection lives in `mnemosyne.candidates`, and the plugin's
 `mnemosyne_hook.py` only feeds it the event.
 
+A host that reads two hook files runs the bridge twice for one event, and the installer can't
+prevent that: it can't know which repos commit their own copy. So the engine claims each event
+with an exclusive marker in `memory/.capture/fired/`, keyed on the session and the event's
+normalized content, and the second run logs `duplicate` and stops. A marker expires after a few
+seconds, so a real repeat counts again. The claim fails open, because a double-fire costs a noisy
+line and a lost event costs a signal. The module docstring has the details.
+
 For now it runs in **shadow mode**: candidates and decisions are recorded, but nothing becomes a
 lesson and nothing is asked. `candidate label` and `candidate stats` turn a week of that into each
 signal's count and precision, which decides what later phases may store automatically.

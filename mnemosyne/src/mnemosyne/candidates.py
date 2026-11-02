@@ -14,6 +14,16 @@ FILES   memory/.capture/ in the memory repo. The directory carries its own `.git
           decisions.jsonl   append-only: one line per hook invocation (`mnemosyne doctor` reads it),
                             rotated to decisions.1.jsonl past DECISION_LOG_MAX bytes
           state.json        tool failures awaiting a matching success, per session (signal S6)
+          fired/            one empty marker per recent hook event, the double-fire guard (below)
+GUARD   a host that reads two hook files (a repo's .github/hooks and ~/.copilot/hooks) runs the
+        bridge twice for one event. The first run claims the event with an O_EXCL marker; the other
+        logs decision "duplicate" and stops, and the bridge then skips its recall and sync too. It
+        lives here, not in the bridge, so a bridge copy committed to a repo before the guard existed
+        is covered for capture as well. The key is the session plus the event's normalized content,
+        never a host field name, so a Claude-format and a Copilot-format run of one event still
+        match. A marker lasts FIRE_WINDOW seconds, so a real repeat later on counts again. A failed
+        claim lets the event through: a double-fire is better than a lost signal. With capture off
+        nothing may be written, so the guard doesn't run there.
 WRITES  every line is one os.write on an O_APPEND descriptor, without the store lock: a hook must
         never wait on a store write. A torn line (a crash mid-write) is skipped on read.
 PRIVACY a candidate carries pointers (signal, path, tool, exit code, a short command head), never
@@ -28,6 +38,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -42,8 +53,12 @@ CAPTURE_DIR = ".capture"
 CANDIDATES = "candidates.jsonl"
 DECISIONS = "decisions.jsonl"
 STATE = "state.json"
+FIRED = "fired"
+DUPLICATE = "duplicate"       # the decision logged by the second run of one event
 DECISION_LOG_MAX = 1_000_000  # bytes; the previous log is kept as decisions.1.jsonl
 FAILURE_TTL = 3600            # seconds a tool failure waits for its matching success (S6)
+FIRE_WINDOW = 10              # seconds a second run counts as the same event, whether the host
+                              # runs its hook files together or one after the other
 MODES = ("session-start", "prompt", "post-tool", "stop", "pre-compact")
 VERDICTS = ("lesson", "noise")
 
@@ -443,6 +458,44 @@ def _save_state(repo: Path, st: dict):
     core.atomic_write_text(ensure_capture_dir(repo) / STATE, json.dumps(st))
 
 
+# ----------------------------------------------------------------------------- double-fire guard
+
+
+def fire_key(mode: str, ev: dict, root: Path) -> str:
+    """One event's identity across registrations: the session (the project, if the host sends
+    none) and the mode, with the fields that tell two real events apart. Normalized, so the tool's
+    name is left out: 1.0.88 of the Copilot CLI calls one tool `powershell` and `Bash` (spec §4.7.1)."""
+    parts = [mode, session_of(ev) or os.path.normcase(str(root)), str(ev.get("prompt") or ""),
+             tool_input(ev), tool_outcome(ev), bool(ev.get("stop_hook_active")),
+             str(ev.get("source") or ""), str(ev.get("trigger") or "")]
+    text = json.dumps(parts, sort_keys=True, default=str)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:32]
+
+
+def first_fire(repo: Path, mode: str, ev: dict, root: Path) -> bool:
+    """Claim this event. False if another run claimed it in the last FIRE_WINDOW seconds. Expired
+    markers go first, so the folder stays small and a later repeat claims afresh."""
+    try:
+        d = ensure_capture_dir(repo) / FIRED
+        d.mkdir(exist_ok=True)
+        cutoff = time.time() - FIRE_WINDOW
+        for entry in os.scandir(d):
+            try:
+                if entry.stat().st_mtime < cutoff:
+                    os.unlink(entry.path)
+            except OSError:
+                continue  # another run got there first
+    except OSError:
+        return True
+    try:
+        os.close(os.open(str(d / fire_key(mode, ev, root)), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    except FileExistsError:
+        return False
+    except OSError:
+        pass
+    return True
+
+
 # ----------------------------------------------------------------------------- the hook entry
 
 
@@ -464,6 +517,12 @@ def capture_event(mode: str, ev: dict, *, host=None, env=None, root=None):
     event = str(ev.get("hook_event_name") or mode)
     rec = {"ts": _now(), "mode": mode, "host": host, "event": event, "session": session,
            "context": ctx, "decision": "no-signal", "signals": [], "candidates": []}
+
+    if mode in MODES and not first_fire(repo, mode, ev, root):
+        rec.update(decision=DUPLICATE, detail="another registration already handled this event",
+                   ms=round((time.perf_counter() - t0) * 1000, 2))
+        log_decision(repo, rec)
+        return rec
 
     def add(signal, evidence):
         c = add_candidate(repo, signal, host=host, event=event, session=session, context=ctx,
