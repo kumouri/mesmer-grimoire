@@ -164,6 +164,7 @@ plan, this is a rule in the agent file rather than a script check: the kit has n
 | [`scripts/docs-pointer-check.py`](scripts/docs-pointer-check.py) | `.github/zethus/scripts/` | Fails on relative Markdown links that don't resolve, including case mismatches that only break on Linux. With `--sync-base`, it also lists docs whose described code changed (report-only). |
 | [`zethus.config.example.json`](zethus.config.example.json) | `.github/zethus.config.json` | Project facts: integration branch, gate commands, spec and ADR dirs, the doc-to-code map, the AI co-author trailer and commit signature. |
 | [`plugin.json`](plugin.json), [`com.github.copilot/hooks/`](com.github.copilot/hooks/session_start.py) | — | The [plugin](#install-the-plugin-default): its manifest, and the `sessionStart` hook that injects the working agreement and says where the scripts and templates are. |
+| [`agents/`](agents/zethus.agent.md), [`hooks/hooks.json`](hooks/hooks.json) | — | Generated copies of the agent and the hook registration at the plugin root, for IntelliJ ([why](#one-plugin-two-layouts)). |
 | [`install.py`](install.py) | — | Copies all of the above into place: into a repo (`--target`) or for your user account (`--user`, with `--uninstall` and `--migrate-to-plugin`). Never clobbers a file it didn't write, and writes nothing if there are conflicts. `--with-mnemosyne` also sets up [Mnemosyne](#add-mnemosyne-in-the-same-step). |
 
 The scripts are Python 3.10+ standard library only. There are no PowerShell twins: Python runs
@@ -200,8 +201,8 @@ copilot plugin install zethus@mesmer-grimoire
 - **VS Code:** add the same entry to `chat.plugins.marketplaces`, then install from the Extensions
   view. Its hooks are in preview, and organizations can turn them off.
 - **IntelliJ:** add the same entry under *Tools → GitHub Copilot → Customizations → Plugin
-  Marketplaces*. It takes GitHub shorthand, a git URI or a local repo. A shorthand and a URI for one
-  repo count as one marketplace, so adding both installs nothing twice.
+  Marketplaces*. It takes GitHub shorthand, a git URI or a local repo (as a `file:///` URI). A
+  shorthand and a URI for one repo count as one marketplace, so adding both installs nothing twice.
 
 Then pick the **zethus** agent, or invoke a skill as `/zethus:write-spec-minimum`. Set per-repo
 facts as in [Config for user-level use](#config-for-user-level-use). The same marketplace carries
@@ -230,11 +231,35 @@ same name, and the agreement would load twice, so the two never both act:
 - If it finds a user-mode copy, the hook injects only a line asking the model to tell you to
   migrate. That covers a plugin installed by VS Code or IntelliJ, which the installer may not see.
 
-**What was tested.** On Windows, with a temporary `COPILOT_HOME`: a local marketplace on Copilot CLI
-1.0.105 (`--no-auto-update`) and 1.0.106-2, then a GitHub marketplace on 1.0.106-2. The model quoted
-the kit root the hook announced, the **zethus** agent loaded, and it ran a bundled script from that
-root. Nothing has been run in VS Code or IntelliJ, so those steps rest on their docs and settings
-screens.
+#### One plugin, two layouts
+
+The Copilot CLI and IntelliJ look for a plugin's agent and hooks in places that don't overlap, so
+Zethus ships both:
+
+| Host | Reads the agent from | Reads hooks from |
+|---|---|---|
+| Copilot CLI (1.0.105, 1.0.106-2) | `com.github.copilot/agents/` only, because `plugin.json` declares the Agent Plugins 1.0 `$schema` | `com.github.copilot/hooks/hooks.json` only |
+| IntelliJ's Copilot language server (plugin 1.20.0, server 1.555.7) | `agents/` at the plugin root | `hooks.json`, else `hooks/hooks.json`, at the root |
+
+With only the first layout, IntelliJ listed the 22 skills but no agent and no hook. Neither host
+reads the other's place, so nothing loads or fires twice there. `plugin.json` can't point IntelliJ
+at `com.github.copilot/` instead: the 1.0 schema is closed, and the CLI ignores unknown keys and
+logs each one as an error. The files under `com.github.copilot/` are the canonical ones, and the
+ones `install.py` copies. [`scripts/sync_zethus_plugin_root.py`](../scripts/sync_zethus_plugin_root.py)
+writes the root copies from them. VS Code hasn't been checked against either layout: if it
+reads both places, it would load the agreement twice.
+
+**What was tested.** On Windows, with a temporary `COPILOT_HOME`:
+
+- **Copilot CLI:** a local marketplace on 1.0.105 (`--no-auto-update`) and 1.0.106-2, both from npm
+  copies. The model quoted the kit root the hook announced, the hook ran once per session, and the
+  **zethus** agent loaded. Before the root copies existed, a GitHub marketplace on 1.0.106-2 also
+  ran a bundled script from that root.
+- **IntelliJ:** its bundled language server, driven over stdio with a sandboxed home. It added a
+  local marketplace, installed **zethus** through its own install call, and listed the `zethus`
+  agent, the `SessionStart` hook and all 22 skills. It only lists the hook; nothing here ran the
+  hook inside the IDE.
+- **VS Code:** nothing has been run, so its steps rest on its docs and settings screens.
 
 ### Install with `install.py`
 
@@ -532,7 +557,7 @@ The formats were checked against GitHub's and VS Code's documentation in Septemb
 |---|---|---|
 | Repository instructions | `.github/copilot-instructions.md`, plain Markdown | [Adding repository custom instructions][gh-repo-instructions] · [support matrix][gh-instructions-support] |
 | Path-specific instructions | `.github/instructions/*.instructions.md` with `applyTo` | [VS Code custom instructions][vsc-instructions] |
-| Copilot plugin | Agent Plugins 1.0: `plugin.json`, `skills/`, `com.github.copilot/{agents,rules,hooks}/`; catalogue in `.github/plugin/marketplace.json` | [CLI plugin reference][cli-ref] · [VS Code agent plugins][vsc-plugins] · [Agent Plugins spec][ap-spec] |
+| Copilot plugin | Agent Plugins 1.0: `plugin.json`, `skills/`, `com.github.copilot/{agents,rules,hooks}/`, plus root `agents/` and `hooks/` for IntelliJ ([why](#one-plugin-two-layouts)); catalogue in `.github/plugin/marketplace.json` | [CLI plugin reference][cli-ref] · [VS Code agent plugins][vsc-plugins] · [Agent Plugins spec][ap-spec] |
 | Custom agent | `.github/agents/*.agent.md`: `name`, `description`, `tools` | [Custom agents configuration][gh-agents-config] · [Creating custom agents][gh-agents-create] · [VS Code custom agents][vsc-agents] |
 | Skills | `.github/skills/<name>/SKILL.md`: `name` (matches the folder), `description` | [About agent skills][gh-skills] · [Creating skills][gh-skills-create] · [VS Code agent skills][vsc-skills] |
 
@@ -713,6 +738,9 @@ Unlike the rest of this kit, these two skills also work unmodified under Claude 
   [`tests/test_zethus.py`](../tests/test_zethus.py). That file also enforces Copilot's frontmatter
   rules on every skill, the minimum ⊂ full spec contract, and that this kit's own Markdown has no
   broken pointers.
+- Edit the agent and the hook registration only under `com.github.copilot/`, then run
+  `python scripts/sync_zethus_plugin_root.py` to rewrite their root copies. `tests/test_copilot_plugins.py`
+  fails while the copies are stale.
 - When a Copilot format changes, update the table above along with the files that use it.
 
 ## License

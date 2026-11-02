@@ -85,6 +85,8 @@ EXAMPLE_DOCS = [
      "Zethus's skills and their worked examples run inside a consuming repo."),
     ("zethus/templates/*",
      "Templates are filled in inside a consuming repo; their paths are placeholders."),
+    ("zethus/agents/*",
+     "The root mirror of the agent, for hosts that read agents only at the plugin root."),
     ("zethus/com.github.copilot/agents/*",
      "The agent runs inside a consuming repo, from the plugin or its .github/agents/."),
     ("zethus/com.github.copilot/rules/*",
