@@ -27,8 +27,7 @@
 
 ## The ask
 
-Ceryce, Telegram, 2026-09-27 01:10 CT, from the todo that motivated both extensions (due
-2026-10-02, priority critical):
+Ceryce, Telegram, 2026-09-27 01:10 CT, from the todo that motivated both extensions:
 
 > "a copilot pipeline to modernize batch jobs that reuses as much of zethus as possible. So
 > basically just specialized skills to work with different DB backends, different batch job

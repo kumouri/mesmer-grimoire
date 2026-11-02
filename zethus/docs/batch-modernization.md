@@ -40,7 +40,7 @@ Ceryce, Telegram, 2026-09-27 01:10 CT:
 > first target are old spring-based JPA/JDBC batches and shell scripts (specifically ksh) that use
 > stored procedures, etc; first target DB and SQL Dialect are Oracle and PL/SQL."
 
-And from the todo behind it (2026-09-26, due 2026-10-02, priority critical — shared verbatim in
+And from the todo behind it (shared in
 [`modernization-shared.md`](modernization-shared.md#the-ask)): specialized skills per DB backend,
 batch job type and SQL dialect; business-rule recovery from code; a behaviour constitution; an
 overseer.
