@@ -896,6 +896,11 @@ class KitContract(unittest.TestCase):
         self.assertIn("## Keep moving, and never stop silently", instructions)
         self.assertIn("A check that passes is not a stopping point", instructions)
         self.assertIn("docs/never-stop-silently.md", (KIT / "README.md").read_text(encoding="utf-8"))
+        adr = (KIT / "docs/never-stop-silently.md").read_text(encoding="utf-8")
+        # A public repo: the ADR paraphrases the report, quoting none of it.
+        self.assertIn("Ceryce's report, paraphrased", adr)
+        self.assertNotIn("verbatim", adr)
+        self.assertNotIn("\n> ", adr, "no block quotes")
 
     def test_the_persons_questions_come_first(self):
         """A question mid-task becomes the task, answered fully before any offer to resume.
@@ -919,6 +924,11 @@ class KitContract(unittest.TestCase):
                      "Don't shrink the answer", "offer to resume"):
             self.assertIn(rule, instructions)
         self.assertIn("docs/questions-come-first.md", (KIT / "README.md").read_text(encoding="utf-8"))
+        adr = (KIT / "docs/questions-come-first.md").read_text(encoding="utf-8")
+        # A public repo: the ADR paraphrases the report, quoting none of it.
+        self.assertIn("Ceryce's report, paraphrased", adr)
+        self.assertNotIn("verbatim", adr)
+        self.assertNotIn("\n> ", adr, "no block quotes")
 
     def test_independent_work_runs_at_the_same_time(self):
         """The stages order exit conditions; they don't queue unrelated work.

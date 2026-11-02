@@ -17,12 +17,10 @@ fully, investigating if needed, and only then offer to resume.
 
 ## Context
 
-Ceryce's report, verbatim:
-
-> "It sticks way too hard to the task it's on; I was trying to diagnose wtf happened with it just
-> freezing there for 30+ minutes and every time I would ask something—reading its thoughts—it was
-> trying to figure out how to answer the question with the least effort possible so it could focus
-> on moving my original request forward."
+Ceryce's report, paraphrased: the agent held too tightly to the task in hand. While she was trying
+to find out why it had frozen for over thirty minutes, its visible reasoning showed it treating each
+of her questions as something to answer with the least effort possible, so it could get back to
+moving her original request forward.
 
 The kit gave the procedure a lot of weight: a stage table, exit conditions, a refusal table, rules
 against skipping. It said nothing about questions asked mid-task, so the model ranked them below
