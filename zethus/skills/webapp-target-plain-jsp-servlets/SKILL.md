@@ -5,6 +5,8 @@ description: Recover routes, container-managed authz, session lifetime, inline s
 
 # Web-app target reader: plain JSP + scriptlets/JSTL + servlets
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 Rank 3 of the ranked legacy web-app targets
 ([`../../docs/webapp-modernization.md`](../../docs/webapp-modernization.md#ranked-legacy-targets)),
 named in the ask as "anything using JSP still." The ranked list calls this "the most rule-dense
@@ -24,7 +26,7 @@ alongside the framework one.
 1. **Run the reader over `web.xml` and every `.jsp`/`.jspx`/`.java` file:**
 
    ```bash
-   python .github/zethus/scripts/jsp-servlet-reader.py path/to/web.xml path/to/*.jsp \
+   python <kit root>/scripts/jsp-servlet-reader.py path/to/web.xml path/to/*.jsp \
      --out rules/jsp-servlet.json --session-out session-state/jsp-servlet.json \
      --routes-out routes/jsp-servlet.json
    ```

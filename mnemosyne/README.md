@@ -28,6 +28,31 @@ plugin**, and an **MCP server** — all over the same engine.
 
 ## Install
 
+### GitHub Copilot: the plugin
+
+For VS Code, IntelliJ and the Copilot CLI, the plugin is the default way to get the hooks. Add the
+marketplace `kumouri/mesmer-grimoire#main` and install **mnemosyne** from it. Pin `#main`: the
+repo's default branch is `develop`, which would serve unreleased work.
+
+```bash
+copilot plugin marketplace add kumouri/mesmer-grimoire#main
+copilot plugin install mnemosyne@mesmer-grimoire
+```
+
+[Zethus's README](../zethus/README.md#install-the-plugin-default) has the VS Code and IntelliJ
+steps. A plugin can't install a Python package, so run the installer below as well: it sets up the
+package, the memory repo and `MNEMOSYNE_REPO`, and the hooks stay silent without them. On Copilot:
+
+- The plugin brings the `reflexion-memory` skill and every hook. The `/recall`, `/reflect` and
+  `/promote` commands are Claude Code's, so run the `mnemosyne` CLI instead.
+- **Recall doesn't reach the model from a hook yet.** The bridge prints plain text, which Copilot
+  drops (spec §4.7.1, E2), so it runs and its result is lost. Sync and shadow capture work. Until
+  Phase 2 changes the output shape, use the skill or `mnemosyne recall`.
+- `install.py --user` finds a plugin the Copilot CLI recorded and skips `~/.copilot/hooks`, and
+  `--migrate-to-plugin` removes hook files from an earlier `--user` run. `--target` still writes a
+  repo's files, for teammates and the cloud agent, which never loads a user's plugins. If two
+  registrations do fire, the guard below lets one through.
+
 ### One step: the installer
 
 From a clone, one command sets up everything the hooks need:
@@ -63,8 +88,9 @@ It does these things:
    IntelliJ plugin reads `~/.copilot/hooks`; other hosts are unverified (spec §4.7).
 
 **Both hook files at once are safe.** A repo with its own `.github/hooks/mnemosyne.json` doesn't
-double-fire with the user-level file. The engine claims each event once, by session and content,
-and the second run logs `duplicate` and stops. With capture off nothing may be written, so the
+double-fire with the user-level file. The same goes for the Copilot plugin alongside
+either file: every registration runs the same engine, which claims each event once, by session and
+content, and the second run logs `duplicate` and stops. With capture off nothing may be written, so the
 guard is off too, and each file runs recall.
 
 Re-running it is safe: finished steps print `same` or `keep`, and the package is refreshed from
@@ -114,12 +140,14 @@ mn.recall("migrating the ledger POST endpoint", stage="plan")
 ```
 
 **2. Claude Code plugin** — a skill + hooks (auto-recall on each prompt, sync on session start,
-and lessons capture in shadow mode, below) + `/recall`, `/reflect`, `/promote` commands. The repo
-has no marketplace of its own, so the installer above is the supported way in: it builds a local
-one and runs `claude plugin install mnemosyne@mesmer-grimoire-local`. By hand, put `plugin/` in a
-marketplace, install it from there, then set `MNEMOSYNE_REPO` to your memory repo. (The plugin's
-hooks import the `mnemosyne` package and its commands run the `mnemosyne` CLI, so install it as
-above first.)
+and lessons capture in shadow mode, below) + `/recall`, `/reflect`, `/promote` commands. The
+installer above is the supported way in: it builds a local marketplace and runs
+`claude plugin install mnemosyne@mesmer-grimoire-local`. By hand, add this repo's marketplace with
+`claude plugin marketplace add kumouri/mesmer-grimoire#main`, run
+`claude plugin install mnemosyne@mesmer-grimoire`, then set `MNEMOSYNE_REPO` to your memory repo.
+(The plugin's hooks import the `mnemosyne` package and its commands run the `mnemosyne` CLI, so
+install it as above first. The installer leaves a plugin from another marketplace alone, so the
+hooks never fire twice.)
 
 **3. MCP server** — the same operations as MCP tools for any MCP client (install with the `[mcp]`
 extra, as above). Its `promote` tool takes the same options as the CLI command: one or more ids, a

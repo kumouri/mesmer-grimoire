@@ -111,7 +111,7 @@ class InstallerCase(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.home = Path(self._tmp.name) / "home"
         self.home.mkdir()
-        env = {k: v for k, v in os.environ.items() if k != mi.ENV_NAME}
+        env = {k: v for k, v in os.environ.items() if k not in (mi.ENV_NAME, "COPILOT_HOME")}
         env.update(HOME=str(self.home), USERPROFILE=str(self.home), SHELL=self.shell,
                    GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.com",
                    GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.com")
@@ -640,6 +640,121 @@ class CopilotHooksForTheUser(InstallerCase):
         self.assertEqual(code, 0, out)
         self.assertTrue((target / ".github" / "hooks" / "mnemosyne.json").is_file())
         self.assertTrue((self.hooks / "mnemosyne.json").is_file())
+
+
+class CopilotPluginBesideTheHooks(InstallerCase):
+    def setUp(self):
+        super().setUp()
+        self.hooks = self.home / ".copilot" / "hooks"
+
+    def enable(self, folder=None):
+        folder = folder or self.home / ".copilot"
+        folder.mkdir(parents=True, exist_ok=True)
+        doc = {"enabledPlugins": {"mnemosyne@mesmer-grimoire": True}}
+        (folder / "settings.json").write_text(json.dumps(doc), encoding="utf-8")
+
+    def test_finds_the_plugin_in_settings_copilot_home_or_a_copy(self):
+        self.assertIsNone(mi.copilot_plugin())
+        self.enable(self.home / "elsewhere")
+        self.assertIsNone(mi.copilot_plugin())
+        os.environ["COPILOT_HOME"] = str(self.home / "elsewhere")
+        self.assertEqual(mi.copilot_plugin(), "mnemosyne@mesmer-grimoire")
+        del os.environ["COPILOT_HOME"]
+        copied = self.home / ".copilot" / "installed-plugins" / "other" / "mnemosyne"
+        copied.mkdir(parents=True)
+        (copied / "plugin.json").write_text("{}", encoding="utf-8")
+        self.assertEqual(mi.copilot_plugin(), "mnemosyne@other")
+
+    def test_a_disabled_plugin_or_bad_settings_is_not_the_plugin(self):
+        self.enable()
+        settings = self.home / ".copilot" / "settings.json"
+        for text in ('{"enabledPlugins": {"mnemosyne@x": false}}', "{not json", "[]"):
+            settings.write_text(text, encoding="utf-8")
+            self.assertIsNone(mi.copilot_plugin(), text)
+
+    def test_user_hooks_are_skipped_beside_the_plugin_and_the_rest_installs(self):
+        self.enable()
+        code, out = self.install("--user")
+        self.assertEqual(code, 0, out)
+        self.assertIn("mnemosyne@mesmer-grimoire carries them", out)
+        self.assertFalse(self.hooks.exists())
+        self.assertTrue((self.home / "repos" / "mnemosyne-local" / "memory").is_dir())
+
+    def test_force_writes_user_hooks_beside_the_plugin(self):
+        self.enable()
+        self.assertEqual(self.install("--user", "--force")[0], 0)
+        self.assertTrue((self.hooks / "mnemosyne.json").is_file())
+
+    def test_a_target_repo_still_gets_its_files_with_one_note(self):
+        self.enable()
+        target = self.home / "repo"
+        target.mkdir()
+        code, out = self.install("--target", str(target))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out.count("runs these hooks too"), 1)
+        self.assertTrue((target / ".github" / "hooks" / "mnemosyne.json").is_file())
+
+    def test_a_rerun_beside_the_plugin_offers_the_migration(self):
+        self.assertEqual(self.install("--user")[0], 0)
+        self.enable()
+        self.assertIn("--migrate-to-plugin", self.install("--user")[1])
+
+    def test_migration_removes_only_the_hook_files(self):
+        self.assertEqual(self.install("--user")[0], 0)
+        (self.hooks / "mine.json").write_text("{}", encoding="utf-8")
+        self.enable()
+        code, out = self.install("--migrate-to-plugin")
+        self.assertEqual(code, 0, out)
+        self.assertIn("takes over", out)
+        self.assertFalse((self.hooks / "mnemosyne.json").exists())
+        self.assertTrue((self.hooks / "mine.json").is_file())
+        manifest = mi.read_manifest()
+        self.assertNotIn("copilot_hooks", manifest)
+        self.assertIn("package", manifest, "the package and repo stay installed")
+
+    def test_migration_says_how_to_add_a_missing_plugin_and_is_safe_twice(self):
+        self.assertEqual(self.install("--user")[0], 0)
+        self.assertIn("copilot plugin marketplace add", self.install("--migrate-to-plugin")[1])
+        code, out = self.install("--migrate-to-plugin")
+        self.assertEqual(code, 0, out)
+        self.assertIn("no user-level Copilot hook files", out)
+
+    def test_migration_keeps_an_edited_file_until_forced(self):
+        self.assertEqual(self.install("--user")[0], 0)
+        edited = self.hooks / "mnemosyne.json"
+        edited.write_text("{}", encoding="utf-8")
+        code, out = self.install("--migrate-to-plugin")
+        self.assertEqual(code, 1, out)
+        self.assertTrue(edited.is_file())
+        self.assertEqual(self.install("--migrate-to-plugin", "--force")[0], 0)
+        self.assertFalse(edited.exists())
+
+    def test_migration_dry_run_touches_nothing(self):
+        self.assertEqual(self.install("--user")[0], 0)
+        code, out = self.install("--migrate-to-plugin", "--dry-run")
+        self.assertEqual(code, 0, out)
+        self.assertTrue((self.hooks / "mnemosyne.json").is_file())
+        self.assertIn("copilot_hooks", mi.read_manifest())
+
+    def test_uninstall_still_finds_what_migration_left(self):
+        self.assertEqual(self.install("--user")[0], 0)
+        (self.hooks / "mnemosyne.json").write_text("{}", encoding="utf-8")
+        self.assertEqual(self.install("--migrate-to-plugin")[0], 1)
+        self.assertEqual(self.install("--uninstall", "--force")[0], 0)
+        self.assertFalse((self.hooks / "mnemosyne.json").exists())
+
+    def test_migration_refuses_install_flags(self):
+        for argv in (("--uninstall",), ("--repo", "x"), ("--target", "."), ("--copilot-hooks-dir", "x")):
+            with self.assertRaises(SystemExit) as caught, redirect_stderr(io.StringIO()):
+                self.install("--migrate-to-plugin", *argv)
+            self.assertEqual(caught.exception.code, 2, argv)
+
+    def test_the_copilot_half_stays_out_of_the_claude_copy(self):
+        self.assertEqual(self.install()[0], 0)
+        copy = self.home / ".mnemosyne" / "claude-marketplace" / "plugins" / "mnemosyne"
+        self.assertTrue((copy / ".claude-plugin" / "plugin.json").is_file())
+        self.assertFalse((copy / "plugin.json").exists())
+        self.assertFalse((copy / "com.github.copilot").exists())
 
 
 if __name__ == "__main__":

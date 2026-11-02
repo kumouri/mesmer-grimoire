@@ -6,7 +6,7 @@
 | Date | 2026-11-01 |
 | Deciders | Ceryce Armstrong |
 | Source | Ceryce's report of using the kit, 2026-11-01 (below) |
-| Enforced where | *The person's questions come first* in [`../agents/zethus.agent.md`](../agents/zethus.agent.md); *Questions come first* in [`../copilot-instructions.md`](../copilot-instructions.md); `tests/test_zethus.py`. Convention only at runtime |
+| Enforced where | *The person's questions come first* in [`../com.github.copilot/agents/zethus.agent.md`](../com.github.copilot/agents/zethus.agent.md); *Questions come first* in [`../copilot-instructions.md`](../copilot-instructions.md); `tests/test_zethus.py`. Convention only at runtime |
 | Supersedes | — |
 | Superseded by | — |
 

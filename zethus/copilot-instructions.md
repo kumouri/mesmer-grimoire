@@ -31,7 +31,7 @@ or ask. Never guess one.
 - One task, one branch. Run parallel tasks in separate worktrees, never in one shared checkout.
   If `branchModel.style` is `rebase`, the task lives on one long-lived branch kept rebased onto
   the integration branch instead; phases are commit series on it, not new branches.
-- **Never work on a stale base.** Run `python .github/zethus/scripts/base-freshness.py` at the two
+- **Never work on a stale base.** Run `python <kit root>/scripts/base-freshness.py` at the two
   points staleness costs something, and only those: **Stage 0 (Orient)**, before any work, and
   **immediately before a push or PR** (`pre-push-gates`). If it reports STALE (more than
   `branchModel.maxBehind` commits behind, default 0), rebase before doing anything else. Neither
@@ -67,14 +67,14 @@ or ask. Never guess one.
   first, mark it **(Recommended)**, and give each option a one-line cost. Ask related decisions
   together, in one message.
 - A decision made in chat binds nothing until it is written down. Record it as an ADR
-  (`python .github/zethus/scripts/new-adr.py "…"`) in the same change.
+  (`python <kit root>/scripts/new-adr.py "…"`) in the same change.
 - If a question is still open, label it open. Never fill it in with a default you invented.
 
 ## Tests and gates
 
 - Tests prove the change *and* its refusals and failure paths, not only the happy path.
 - Before every push, run every gate CI would run, on the working tree:
-  `python .github/zethus/scripts/run-local-gates.py`. Run it last, after the docs are updated, so
+  `python <kit root>/scripts/run-local-gates.py`. Run it last, after the docs are updated, so
   one green run covers what you push. Fix anything red before pushing.
 - **A skipped gate is not a passed gate.** Never claim a check passed if you didn't run it; write
   "not run" and say why.
@@ -83,7 +83,7 @@ or ask. Never guess one.
 
 - Open the PR against the integration branch, or, for a phase stacked on an unmerged one, against
   that phase's branch. Its body carries evidence: the gate table, the tests
-  added, and what was *not* checked (template: `.github/zethus/templates/pr.md`).
+  added, and what was *not* checked (template: `<kit root>/templates/pr.md`).
 - Never merge your own PR. A person merges it, and only when CI is green on the exact head commit
   they reviewed. Red or pending CI is not green.
 - Use Conventional Commits: `type(scope): summary`. Every AI-assisted commit carries the AI

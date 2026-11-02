@@ -5,6 +5,8 @@ description: Write a full specification for a change that spans more than one PR
 
 # Write a full spec
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 A spec is where decisions are cheap. Every question settled here is one that won't come up
 halfway through a PR. The full template is for work big enough to need that. For a single-PR
 change, use [write-spec-minimum](../write-spec-minimum/SKILL.md). Its headings are a strict subset
@@ -13,9 +15,9 @@ of these, so a minimum spec can be promoted later by adding sections.
 ## Procedure
 
 1. **Create the file:**
-   `python .github/zethus/scripts/new-spec.py full "<title>" --owner "<who signs off>"`.
+   `python <kit root>/scripts/new-spec.py full "<title>" --owner "<who signs off>"`.
    It writes `docs/specs/<slug>.md` (or `spec.dir` from config) from
-   `.github/zethus/templates/spec-full.md`, with status `DRAFT`.
+   `<kit root>/templates/spec-full.md`, with status `DRAFT`.
 2. **The ask.** Paste the request verbatim, with its source and date. List which parts the spec
    answers and which it doesn't.
 3. **The problem, measured.** Give the evidence that this matters, from one snapshot, with sources.

@@ -5,6 +5,8 @@ description: Recover the scheduling contract -- frequency, dependency ordering, 
 
 # Batch-type reader: cron / scheduler wrappers
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 **Decided (2026-09-28, `docs/batch-modernization.md`):** this reader generalizes to any scheduler
 product, not only crontab — Control-M is the first one this kit reads directly, via
 [`control-m-reader.py`](../../scripts/control-m-reader.py). The reader's job is unchanged regardless
@@ -19,7 +21,7 @@ of scheduler: recover the dependency and calendar rules; only where those rules 
 2. **Run the reader:**
 
    ```bash
-   python .github/zethus/scripts/control-m-reader.py --export path/to/export.xml \
+   python <kit root>/scripts/control-m-reader.py --export path/to/export.xml \
      --target spring-batch-flow \
      --out rules/scheduling.json
    ```

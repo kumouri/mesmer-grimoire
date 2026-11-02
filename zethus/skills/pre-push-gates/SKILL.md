@@ -5,6 +5,8 @@ description: Run every lint, build and test gate CI would run, locally on the wo
 
 # Pre-push gates
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 CI's job is to show that a different machine agrees with yours. It shouldn't be where you first
 find out a gate is red. Every red found in CI after a push costs a round trip that a local run
 would have saved, and it tells the reviewer the author didn't check.
@@ -15,7 +17,7 @@ Run this stage last, after [docs-sync-check](../docs-sync-check/SKILL.md) and im
 the push, so one full run covers everything you push, docs and spec edits included. If you edit
 anything after it goes green, run it again.
 
-0. **Check the base is fresh:** `python .github/zethus/scripts/base-freshness.py`.
+0. **Check the base is fresh:** `python <kit root>/scripts/base-freshness.py`.
    Gates run on a stale base check a tree that won't be the one that merges, and the PR describes
    a diff against a base that has moved. Exit 1 (STALE) means stop: rebase onto `origin/<base>`
    first, then come back here. On a stack of phase branches, rebase the whole stack from its top
@@ -26,12 +28,12 @@ anything after it goes green, run it again.
    branch is created or rebased. The stages in between don't check, because staleness costs
    nothing until a diff leaves the machine; that makes this run the one that catches a base which
    moved while you were building, so don't skip it on the grounds that Stage 0 was green.
-1. **See what will run:** `python .github/zethus/scripts/run-local-gates.py --list`.
+1. **See what will run:** `python <kit root>/scripts/run-local-gates.py --list`.
    Gates come from `gates.steps` in `.github/zethus.config.json`, or else from the repo's build
    files (`package.json`, `Makefile`, `pyproject.toml`, Gradle, Maven, .NET, Go, Cargo). **Compare
    the list against the CI workflow.** If CI runs a gate the list doesn't have, add it to
    `gates.steps` now. A local run that skips a CI gate is a partial run.
-2. **Run them all:** `python .github/zethus/scripts/run-local-gates.py`.
+2. **Run them all:** `python <kit root>/scripts/run-local-gates.py`.
    The script checks the **working tree on disk**, uncommitted changes included, and its header
    says so. Commit after it goes green, not before, so what you push is what you checked.
 3. **Read the verdict line, not just the table:**

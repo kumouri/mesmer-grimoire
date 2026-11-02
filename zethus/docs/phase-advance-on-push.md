@@ -6,7 +6,7 @@
 | Date | 2026-10-23 |
 | Deciders | Ceryce Armstrong |
 | Source | Ceryce's ruling, 2026-10-22: "in integration branch mode PRs being merged is NOT required to move on to the next phase, only pushing to the PR is required" |
-| Enforced where | [`../skills/implement-phase/SKILL.md`](../skills/implement-phase/SKILL.md) (preconditions, step 6); the *Branch model* section of [`../agents/zethus.agent.md`](../agents/zethus.agent.md); [`../skills/zethus-pr-description/SKILL.md`](../skills/zethus-pr-description/SKILL.md); [`../copilot-instructions.md`](../copilot-instructions.md); [`../instructions/docs.instructions.md`](../instructions/docs.instructions.md) and the spec templates (status words); `tests/test_zethus.py` |
+| Enforced where | [`../skills/implement-phase/SKILL.md`](../skills/implement-phase/SKILL.md) (preconditions, step 6); the *Branch model* section of [`../com.github.copilot/agents/zethus.agent.md`](../com.github.copilot/agents/zethus.agent.md); [`../skills/zethus-pr-description/SKILL.md`](../skills/zethus-pr-description/SKILL.md); [`../copilot-instructions.md`](../copilot-instructions.md); [`../com.github.copilot/rules/zethus-docs.instructions.md`](../com.github.copilot/rules/zethus-docs.instructions.md) and the spec templates (status words); `tests/test_zethus.py` |
 | Supersedes | the `branch-per-change` precondition "every earlier phase has merged" |
 | Superseded by | — |
 

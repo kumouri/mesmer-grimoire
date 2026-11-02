@@ -5,6 +5,8 @@ description: Classify every recovered HttpSession / ActionForm session-scope / @
 
 # Session state → stateless, and the auth shim
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 Ceryce's requirement, first-class in this build: session state isn't a footnote of the constitution,
 it's a design decision made explicitly, per attribute, before a flow cuts over. See
 [`../../docs/webapp-modernization.md`](../../docs/webapp-modernization.md) for the SESSION STATE ->
@@ -62,7 +64,7 @@ everything else the modernization touches.
 4. **Before the flow may be marked migrated,** run:
 
    ```bash
-   python .github/zethus/scripts/overseer-gate.py session-state \
+   python <kit root>/scripts/overseer-gate.py session-state \
      --session-ledger session-state/struts.json session-state/spring-mvc.json \
      --new-source path/to/NewController.java
    ```

@@ -5,6 +5,8 @@ description: Recover business rules from Oracle 12c-era PL/SQL — packages, tri
 
 # Dialect reader: Oracle PL/SQL
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 The first SQL-dialect reader `recover-business-rules` ships with (see
 [`../../docs/batch-modernization.md`](../../docs/batch-modernization.md#pluggable-axis-2--db-backend-and-sql-dialect-skill-family)
 — DB2/SQL PL, T-SQL and PL/pgSQL are named seams, not built yet). It reads packages, triggers and
@@ -19,7 +21,7 @@ must be configured (`modernization.hlaDoc` in the Zethus config) and declare a d
 stored-procedure disposition. Check it first:
 
 ```bash
-python .github/zethus/scripts/hla-input-check.py
+python <kit root>/scripts/hla-input-check.py
 ```
 
 Exit 0 prints the default (`keep`, `wrap`, or `port`). Exit 1 means **stop and ask for the HLA** —
@@ -33,7 +35,7 @@ behaviour-preservation risk the constitution exists to name.
 1. **Run the DDL intake:**
 
    ```bash
-   python .github/zethus/scripts/plsql-ddl-intake.py \
+   python <kit root>/scripts/plsql-ddl-intake.py \
      --repo-source path/to/ddl-repo \
      [--extract-source path/to/live-extract --extract-date YYYY-MM-DD] \
      --out rules/plsql-intake.json

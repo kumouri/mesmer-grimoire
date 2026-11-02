@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "mnemosyne",
+  "version": "0.5.0",
+  "description": "Reflexion memory for GitHub Copilot: sync on session start, and lessons capture in shadow mode, over a git-backed store. Needs the mnemosyne package: see its README.",
+  "author": {
+    "name": "Ceryce Armstrong",
+    "url": "https://github.com/kumouri"
+  },
+  "homepage": "https://github.com/kumouri/mesmer-grimoire/tree/main/mnemosyne",
+  "repository": "https://github.com/kumouri/mesmer-grimoire",
+  "license": "Apache-2.0",
+  "keywords": [
+    "reflexion",
+    "memory",
+    "agent-memory",
+    "lessons",
+    "recall"
+  ]
+}
