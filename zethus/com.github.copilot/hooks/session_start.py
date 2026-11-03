@@ -41,12 +41,20 @@ def user_copy() -> bool:
     return (Path.home() / ".copilot" / "instructions" / "zethus.instructions.md").is_file()
 
 
+def version() -> str:
+    """The installed plugin's version, so a stale install is visible in the session."""
+    try:
+        return str(json.loads((ROOT / "plugin.json").read_text(encoding="utf-8"))["version"])
+    except Exception:
+        return "unknown"
+
+
 def agreement() -> str:
     root = ROOT.as_posix()
     text = (ROOT / "copilot-instructions.md").read_text(encoding="utf-8")
     text = text.replace("<kit root>", root).replace("`.github/skills/`", f"`{root}/skills/`")
     return (f"{text}\n\n## Where the Zethus kit is\n\n"
-            f"Zethus kit root: `{root}`. Scripts: `{root}/scripts/`. Templates: `{root}/templates/`. "
+            f"Zethus kit root: `{root}`. Plugin version: {version()}. Scripts: `{root}/scripts/`. Templates: `{root}/templates/`. "
             "Wherever a skill or the agent writes `<kit root>`, use this path. Config is the first "
             "found of `.github/zethus.config.json`, `$ZETHUS_CONFIG`, `.copilot/zethus.config.json`, "
             "`.claude/amphion.config.json` and `~/.copilot/zethus/config.json`.")

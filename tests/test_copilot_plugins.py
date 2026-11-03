@@ -105,7 +105,7 @@ class PluginLayout(unittest.TestCase):
         or hook until the root mirror existed. See scripts/sync_zethus_plugin_root.py."""
         for root in (ZETHUS / "com.github.copilot", ZETHUS):
             self.assertEqual([p.name for p in root.glob("agents/*.agent.md")], ["zethus.agent.md"], root)
-            self.assertEqual(set(read_json(root / "hooks" / "hooks.json")["hooks"]), {"sessionStart"}, root)
+            self.assertEqual(set(read_json(root / "hooks" / "hooks.json")["hooks"]), {"sessionStart", "userPromptSubmitted", "agentStop"}, root)
         self.assertFalse((ZETHUS / "hooks.json").exists(), "the language server reads it before hooks/")
         self.assertEqual([p.name for p in (ZETHUS / "hooks").iterdir()], ["hooks.json"], "one script, in one place")
 
