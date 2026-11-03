@@ -6,7 +6,7 @@
 | Date | 2026-11-01 |
 | Deciders | Ceryce Armstrong |
 | Source | Ceryce's report of using the kit, 2026-11-01 (below) |
-| Enforced where | *Hand off to the next stage, and never stop silently* and *How you behave at every turn* in [`../com.github.copilot/agents/zethus.agent.md`](../com.github.copilot/agents/zethus.agent.md); *Keep moving, and never stop silently* in [`../copilot-instructions.md`](../copilot-instructions.md); the **Next** line closing every stage skill, including *On sign-off* in [`../skills/write-spec-full/SKILL.md`](../skills/write-spec-full/SKILL.md) and [`../skills/write-spec-minimum/SKILL.md`](../skills/write-spec-minimum/SKILL.md); `tests/test_zethus.py`. Convention only at runtime: no hook or script checks it (see *Why no hook*) |
+| Enforced where | The `agentStop` / `userPromptSubmitted` hook [`../com.github.copilot/hooks/stop_guard.py`](../com.github.copilot/hooks/stop_guard.py) (see *Enforcement*); *Hand off to the next stage, and never stop silently* and *How you behave at every turn* in [`../com.github.copilot/agents/zethus.agent.md`](../com.github.copilot/agents/zethus.agent.md); *Keep moving, and never stop silently* in [`../copilot-instructions.md`](../copilot-instructions.md); the **Next** line closing every stage skill, including *On sign-off* in [`../skills/write-spec-full/SKILL.md`](../skills/write-spec-full/SKILL.md) and [`../skills/write-spec-minimum/SKILL.md`](../skills/write-spec-minimum/SKILL.md); `tests/test_zethus.py`. The first version was convention only; the hook was added after a recurrence (below) |
 | Supersedes | — |
 | Superseded by | — |
 
@@ -47,20 +47,62 @@ instructions or scripts control. This record doesn't claim a fix for it. It fixe
 does own, at the point where the stall happened, and makes any turn that does end say why. Whether
 the missing handoff contributed to the stall can't be shown from the files.
 
-### Why no hook
+### Why no hook (superseded by *Enforcement* below)
 
 A hook that forces a status line at phase boundaries was considered and not added:
 
 - **It wouldn't have fired.** The turn never ended, so neither `agentStop` nor `sessionStart`
   runs. A stop hook catches a turn that ends silently, not one that never ends.
-- **Copilot's `agentStop` isn't known to block.** Whether it can hold a turn open is marked
-  unverified in the [lessons-capture spec](../../docs/lessons-capture-spec.md) (§4.7, channel 2).
+- **Copilot's `agentStop` wasn't known to block.** It has since been checked: it can (see
+  *Enforcement*).
 - **The other events don't help.** `sessionStart`'s `additionalContext` reaches the start of a
   session, which the standing instructions already reach on every request, and a
   `userPromptSubmitted` hook's output is dropped (same spec, §3.1).
 
 The rule is held the way the plan rule is ([plan update cadence](plan-update-cadence.md)): in the
 agent file, in the working agreement, in each skill's closing line, and pinned by tests.
+
+## Recurrence, 2026-11-03: stopped between Phase 0 and Phase 1
+
+Ceryce's report, paraphrased: two days after the rule above, a session ended its turn after Phase 0
+with a short update saying the phase was committed, had no errors and had passed the local gates.
+Phase 1 was never started, and nothing in the turn was a listed stop. The plan allowed it to go
+on: the work it could do was waiting, and no approval or open question was in the way.
+
+What the files show, and what they can't:
+
+| Question | Finding |
+|---|---|
+| Was the rule in the text the model saw? | On the machine checked, the installed plugin was the version that already carried it, in the agent file and in both plugin layouts. A different machine's install can't be seen from the repo, and the session didn't announce its plugin version, so a stale install would have been invisible. It now announces it (`sessionStart`) |
+| Was anything in code enforcing it? | No. The record above declined a hook; the rule was prose only. The kit has no plan-state file for a hook to read: `_session_state.py` and `_ledger.py` are the web-app session inventory and the rule ledger, not a session plan |
+| Did the wording leave a gap? | Yes. The stop table had one row about the end (*the PR is open*) and said nothing about a turn that ends after a commit or green gates but before the push, and nothing treated a progress update as a non-stop. It also had no general rule for the two real walls (an approval, or a question with no citation) or for presenting all of them together |
+
+Which of these was *the* cause can't be told from here: no transcript of the session is in the
+repo. The prose was present on the checked install, so the likeliest causes are the missing
+enforcement and the wording gap; both are closed below, and the version line closes the third.
+
+## Enforcement: the stop guard hook
+
+[`stop_guard.py`](../com.github.copilot/hooks/stop_guard.py) is registered for two events in the
+plugin's hook file:
+
+- **`agentStop`** (Copilot CLI: checked that it can block, and that a block's reason arrives as a
+  queued message the model acts on). It reads the last assistant message from the transcript. If it
+  is a Zethus turn (it opens with the `Stage N ·` header) and does not end with `Stopped at:` and a
+  `Why:` that names a real wall, the hook refuses the stop and states the next action. After two
+  refusals in a session it lets the turn end, so it cannot trap one.
+- **`userPromptSubmitted`**: the fallback for a host whose stop event can't block. If the previous
+  turn ended without a real stop, the next prompt carries a reminder to continue first.
+
+Limits, stated plainly:
+
+- The hook cannot see the plan. The kit keeps it in the host's todo tool, which a hook can't read,
+  so the test is on the closing block, not on whether a phase is unfinished. A model can still write
+  a `Why:` that names a wall it hasn't reached; the hook only catches the progress-report ending.
+- The transcript's shape isn't verified on every host. A transcript it can't read means allow.
+- IntelliJ's Copilot server may not run `agentStop` at all; the same registration is mirrored to
+  its root and is simply inert there if so. Repo-mode and user-mode `install.py` copies carry the
+  text rules but no hook, because the kit's hooks ship only in the plugin.
 
 ## Options considered
 

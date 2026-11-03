@@ -8,6 +8,22 @@
         "powershell": "python \"${PLUGIN_ROOT}/com.github.copilot/hooks/session_start.py\"",
         "timeoutSec": 10
       }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "python3 \"${PLUGIN_ROOT}/com.github.copilot/hooks/stop_guard.py\" prompt",
+        "powershell": "python \"${PLUGIN_ROOT}/com.github.copilot/hooks/stop_guard.py\" prompt",
+        "timeoutSec": 10
+      }
+    ],
+    "agentStop": [
+      {
+        "type": "command",
+        "bash": "python3 \"${PLUGIN_ROOT}/com.github.copilot/hooks/stop_guard.py\" stop",
+        "powershell": "python \"${PLUGIN_ROOT}/com.github.copilot/hooks/stop_guard.py\" stop",
+        "timeoutSec": 10
+      }
     ]
   }
 }

@@ -51,7 +51,7 @@ red. The run that clears the push starts after the last edit, on the exact tree 
 
 4. **Paste the table into the PR's *Evidence* section,** unedited.
 
-Next, in the same turn once the verdict lets you push: commit, push, and open the PR with
+A green verdict is progress, not a report to hand over and wait on. Next, in the same turn once the verdict lets you push: commit, push, and open the PR with
 [zethus-pr-description](../zethus-pr-description/SKILL.md).
 
 ## Rules

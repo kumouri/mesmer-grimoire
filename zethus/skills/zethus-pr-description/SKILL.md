@@ -84,7 +84,7 @@ head commit they reviewed. If you push again after review, say so in a comment: 
 covered the earlier commit. The push is what lets the next phase start; the merge is the team's to
 schedule.
 
-Next: if the spec has another phase, start it in the same turn with
+Next: an open PR is progress, not a place to stop. If the spec has another phase, start it in the same turn with
 [implement-phase](../implement-phase/SKILL.md), stacked on this branch. If it has none, say the
 change is done and link the PR.
 

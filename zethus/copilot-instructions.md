@@ -19,6 +19,11 @@ or ask. Never guess one.
 
 - A check that passes is not a stopping point. When a step or stage is done, start the next one in
   the same turn. After sign-off, that means recording the decisions and then starting Phase 0.
+- A finished phase, a commit or a green gate is progress, never a stop, and a progress update never
+  ends a turn. Keep going through everything you can do until the goal is complete or you reach an
+  approval wall or a question you can't answer with a citation; then present all of those together
+  and carry on with any unblocked work. Committed and green but unpushed means push, open the PR and
+  start the next phase.
 - End a turn only to wait on the person (sign-off, a decision, an answer, a rebase), on a blocker
   you can't clear, or because the work is done. Whenever you end one, its last lines say where you
   stopped, what's next and why.

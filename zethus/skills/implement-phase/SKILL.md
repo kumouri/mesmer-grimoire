@@ -56,7 +56,7 @@ procedure keeps each phase small and keeps its deviations visible.
    shows the exact shape. In `rebase` style the phase is a contiguous commit series on the
    long-lived branch, not a branch: name the phase in each
    subject (`feat(retry): phase 1 — …`), don't interleave commits from two phases, and start the
-   next phase only once this one is committed, green on the gates, and pushed to the PR.
+   next phase only once this one is committed, green on the gates, and pushed to the PR. Committing is not the end of a phase: the gates, the push and the PR follow in the same turn.
 6. **Update the spec** in the same branch. Mark the phase `in review (PR #n)`, and any earlier
    phase whose PR has merged since `merged (PR #n)`; add an **As built** list with every deviation
    and its reason. The status names both halves, leaving out an empty one:

@@ -40,9 +40,13 @@ merges, only on green. One narrow exemption is written down too. A change with n
 It doesn't stop between stages. When one stage's exit condition is met, it starts the next in the
 same turn, and every stage's skill names that next action. That includes the step after sign-off,
 where recording the ADRs and checking those doc edits finish Stage 2 and Phase 0 starts. It ends a
-turn only at a listed stop: sign-off or a decision requested, a stale base, a failure it couldn't
-resolve, a refusal, a question answered, or the change done. Each time, it ends with where it
-stopped, what's next and why ([never stop silently](docs/never-stop-silently.md)).
+turn only at a listed stop: an approval wall (sign-off, a decision, a merge), a question it can't
+answer with a citation, a stale base, a failure it couldn't resolve, a refusal, a question answered,
+or the goal complete. A finished phase, a commit or a green gate is progress, not a stop: it keeps
+going through everything it can do, gathers every wall it reached and presents them together, and
+carries on with the unblocked work meanwhile. Each time it does stop, it ends with where it
+stopped, what's next and why, and a plugin hook refuses a turn that ends without that
+([never stop silently](docs/never-stop-silently.md)).
 
 Your questions come first. Ask something mid-task, above all about the agent's own behaviour, and
 answering it becomes the current task: answered fully, investigated if needed, before the agent
@@ -163,7 +167,7 @@ plan, this is a rule in the agent file rather than a script check: the kit has n
 | [`scripts/new-spec.py`](scripts/new-spec.py) | `.github/zethus/scripts/` | `new-spec.py full\|minimum "Title"` creates `docs/specs/<slug>.md` as `DRAFT`. |
 | [`scripts/docs-pointer-check.py`](scripts/docs-pointer-check.py) | `.github/zethus/scripts/` | Fails on relative Markdown links that don't resolve, including case mismatches that only break on Linux. With `--sync-base`, it also lists docs whose described code changed (report-only). |
 | [`zethus.config.example.json`](zethus.config.example.json) | `.github/zethus.config.json` | Project facts: integration branch, gate commands, spec and ADR dirs, the doc-to-code map, the AI co-author trailer and commit signature. |
-| [`plugin.json`](plugin.json), [`com.github.copilot/hooks/`](com.github.copilot/hooks/session_start.py) | — | The [plugin](#install-the-plugin-default): its manifest, and the `sessionStart` hook that injects the working agreement and says where the scripts and templates are. |
+| [`plugin.json`](plugin.json), [`com.github.copilot/hooks/`](com.github.copilot/hooks/session_start.py) | — | The [plugin](#install-the-plugin-default): its manifest, the `sessionStart` hook that injects the working agreement and says where the scripts and templates are (and the plugin version), and the [`agentStop` / `userPromptSubmitted` stop guard](docs/never-stop-silently.md#enforcement-the-stop-guard-hook) that refuses a turn ending at a progress point. |
 | [`agents/`](agents/zethus.agent.md), [`hooks/hooks.json`](hooks/hooks.json) | — | Generated copies of the agent and the hook registration at the plugin root, for IntelliJ ([why](#one-plugin-two-layouts)). |
 | [`install.py`](install.py) | — | Copies all of the above into place: into a repo (`--target`) or for your user account (`--user`, with `--uninstall` and `--migrate-to-plugin`). Never clobbers a file it didn't write, and writes nothing if there are conflicts. `--with-mnemosyne` also sets up [Mnemosyne](#add-mnemosyne-in-the-same-step). |
 
