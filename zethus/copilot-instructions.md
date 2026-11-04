@@ -46,6 +46,17 @@ or ask. Never guess one.
   run log says so.
 - If the person says a piece of work isn't affected, start it in parallel without re-litigating.
 
+## Local gates are green before every push
+
+- Every local gate, SonarQube included, is green before a phase pushes, whatever the phase plan
+  says. A red gate is fixed in the phase being pushed, without stopping to ask, even when the plan
+  put its remediation later. Keep the fix as small as turns it green, and say in the phase's report
+  that it was pulled forward and why. Exception: an approved `push-red` ruling in the spec.
+- When planning, a phase that remediates something a local gate checks is named in the spec's
+  **Gate remediation** section and put to the person at sign-off as its own decision: limited
+  remediation in phase 0, a push with that gate red, a different phase order, or an equivalent.
+  Record the answer in the spec.
+
 ## Start from a fresh base
 
 - Branch from the **integration branch**: `branchModel.base` in config; otherwise `develop` if it

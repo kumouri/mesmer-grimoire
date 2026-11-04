@@ -22,6 +22,13 @@ Modes (the one argument):
 - ``prompt`` (``userPromptSubmitted``): the fallback for a host whose stop event can't block. If
   the previous turn ended without a real stop, say so in ``additionalContext`` on the next prompt.
 
+It also refuses a stop that asks leave to move a failing local gate's remediation into the current
+phase (a Stage 3+ turn whose closing lines pair a gate or its tool with fix/remediation, a phase move
+and a request for authorization). Every local gate is green before a phase pushes, whatever the plan
+says, so there is nothing to ask: the fix is pulled forward. The planning stop (Stage 2) is exempt:
+asking for that ruling there is the point. That is the one stop whose reason is allowed to be a wall
+and is still refused, because the wall is not real.
+
 Not known: the transcript's exact shape on every host. An unreadable or unrecognised transcript
 means *allow*. Fail-open: any error prints nothing and exits 0.
 """
@@ -42,6 +49,15 @@ WHY_RE = re.compile(r"^\s*(?:\*\*)?Why:\s*(?P<why>.+)$", re.IGNORECASE | re.MULT
 NEXT_RE = re.compile(r"^\s*(?:\*\*)?Next:\s*(?P<next>.+)$", re.IGNORECASE | re.MULTILINE)
 # The reasons the agent file lists for ending a turn. A Why that only reports progress
 # ("committed", "gates green", "phase done") names none of these.
+STAGE_RE = re.compile(r"^\s*(?:\*\*)?Stage (\d)\b", re.IGNORECASE)
+# A closing block asking leave to move a gate's remediation into the phase being pushed. All four
+# kinds of word must appear, so a stop about anything else (a sign-off, a merge) is untouched.
+GATE_ASK = (re.compile(r"\b(gates?|sonar\w*|lint\w*|quality)\b"),
+            re.compile(r"\b(remediat\w*|fix(?:es|ing)?|findings?|issues?|violations?)\b"),
+            re.compile(r"\b(phase 0|earlier phase|this phase|current phase|pull(?:ing|ed)? (?:it )?forward"
+                       r"|mov(?:e|es|ed|ing))\b"),
+            re.compile(r"\b(authori[sz]\w*|approv\w*|permission|may i|should i|ok to|okay to|go-ahead"
+                       r"|go ahead)\b"))
 WALLS = ("sign-off", "sign off", "signoff", "approval", "approve", "decision", "option", "answer",
          "question", "citation", "cite", "stale", "rebase", "fetch", "refus", "stuck", "merge",
          "waiting for your", "waiting on you", "change is done", "work is done", "goal is complete",
@@ -100,6 +116,23 @@ def is_real_stop(reply: str) -> bool:
     return bool(STOPPED_RE.search(tail) and why and any(w in why.group("why").lower() for w in WALLS))
 
 
+def stage_of(reply: str) -> int | None:
+    for line in reply.splitlines()[:6]:
+        m = STAGE_RE.match(line)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def asks_to_defer_gate_fix(reply: str) -> bool:
+    """A Stage 3+ turn whose closing lines ask leave to move a failing gate's fix into this phase."""
+    stage = stage_of(reply)
+    if stage is None or stage < 3:
+        return False
+    tail = " ".join(reply.strip().splitlines()[-25:]).lower()
+    return all(rx.search(tail) for rx in GATE_ASK)
+
+
 def next_action(reply: str) -> str:
     found = NEXT_RE.findall(reply)
     return found[-1].strip() if found else "the next stage or phase in your plan"
@@ -112,7 +145,10 @@ def refusals_file(event: dict) -> Path:
 
 def refuse(event: dict, reply: str) -> str:
     """The block decision, or ``""`` to let the turn end."""
-    if not is_zethus_turn(reply) or is_real_stop(reply):
+    if not is_zethus_turn(reply):
+        return ""
+    gate_ask = asks_to_defer_gate_fix(reply)
+    if is_real_stop(reply) and not gate_ask:
         return ""
     counter = refusals_file(event)
     try:
@@ -122,6 +158,15 @@ def refuse(event: dict, reply: str) -> str:
     if seen >= MAX_REFUSALS:
         return ""
     counter.write_text(str(seen + 1), encoding="utf-8")
+    if gate_ask:
+        reason = ("Zethus: don't ask leave to move a failing gate's remediation into this phase. Every "
+                  "local gate is green before a phase pushes, whatever the phase plan says, so fix the "
+                  "failing gate now, in this phase, with the smallest change that turns it green, then "
+                  "re-run `run-local-gates` and push. Say in the phase's report that the fix was pulled "
+                  "forward and why. The one exception is a `push-red` ruling already approved in the "
+                  "spec's Gate remediation section; the gate script says when one applies. "
+                  f"(Refusal {seen + 1} of {MAX_REFUSALS}; after that the turn is let through.)")
+        return json.dumps({"decision": "block", "reason": reason})
     reason = (f"Zethus: that turn ended at a progress point, not a stop. A finished phase, a commit or "
               f"a passing gate never ends a turn. Next action: {next_action(reply)}. Do it now, in this "
               "turn, and keep going through everything you can do until the session's goal is complete "
@@ -135,7 +180,17 @@ def refuse(event: dict, reply: str) -> str:
 def remind(event: dict) -> str:
     """For the next prompt: ``additionalContext`` if the last turn ended without a real stop."""
     reply = last_reply(event)
-    if not reply or not is_zethus_turn(reply) or is_real_stop(reply):
+    if not reply or not is_zethus_turn(reply):
+        return ""
+    if asks_to_defer_gate_fix(reply):
+        text = ("Zethus: your last turn asked leave to move a failing gate's remediation into the phase. "
+                "Don't wait for it: fix the failing gate in the phase being pushed, as small a fix as "
+                "turns it green, re-run `run-local-gates`, and say in the phase's report that the fix "
+                "was pulled forward. Unless this message is a question, do that first.")
+        return json.dumps({"additionalContext": text,
+                           "hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                                                  "additionalContext": text}})
+    if is_real_stop(reply):
         return ""
     text = ("Zethus: your last turn ended at a progress point, not a listed stop. Unless this message "
             f"is a question (answer that first and say plainly that you stopped early), continue with "

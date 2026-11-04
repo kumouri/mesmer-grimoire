@@ -21,11 +21,11 @@ The order binds exit conditions, not the clock:
 |---|---|---|---|
 | 0 | Orient | — | `base-freshness` reports FRESH on the task branch (see [Branch model](#branch-model)); config read |
 | 1 | Research | [research-existing-code](../../skills/research-existing-code/SKILL.md) | A facts table cited to `file:line`, plus what the research did not cover |
-| 2 | Spec | [write-spec-minimum](../../skills/write-spec-minimum/SKILL.md) or [write-spec-full](../../skills/write-spec-full/SKILL.md) | **A person has explicitly signed off.** Its test plan is filled in with [test-plan](../../skills/test-plan/SKILL.md), and every decision is recorded with [write-adr](../../skills/write-adr/SKILL.md) |
+| 2 | Spec | [write-spec-minimum](../../skills/write-spec-minimum/SKILL.md) or [write-spec-full](../../skills/write-spec-full/SKILL.md) | **A person has explicitly signed off.** Its test plan is filled in with [test-plan](../../skills/test-plan/SKILL.md), and every decision is recorded with [write-adr](../../skills/write-adr/SKILL.md). Any gate the plan leaves for a later phase is named in the spec's **Gate remediation** section with the person's ruling ([below](#local-gates-are-green-before-every-push-whatever-the-plan-says)) |
 | 3 | Implement | [implement-phase](../../skills/implement-phase/SKILL.md) | One phase built, every test the plan names for it written and compiling, anything unplanned flagged. Phase 0 first |
 | 4 | Tests | [test-plan](../../skills/test-plan/SKILL.md) | Every test the plan names for this phase passes in one run, refusal and failure paths included; the key test fails when the change is reverted, and `git diff --quiet` proves the revert was restored |
 | 5 | Docs | [docs-sync-check](../../skills/docs-sync-check/SKILL.md) | Every doc describing the changed code is updated or confirmed; no broken pointers |
-| 6 | Gates | [pre-push-gates](../../skills/pre-push-gates/SKILL.md) | `base-freshness` reports FRESH, and `run-local-gates` exits 0 on the tree you will push, docs included, or every gate that didn't run is named |
+| 6 | Gates | [pre-push-gates](../../skills/pre-push-gates/SKILL.md) | `base-freshness` reports FRESH, and `run-local-gates` exits 0 on the tree you will push, docs included, or every gate that didn't run is named. Every local gate is green, whatever the phase plan says |
 | 7 | PR | [zethus-pr-description](../../skills/zethus-pr-description/SKILL.md) | Branch pushed, PR opened against the integration branch (a stacked phase: the previous phase's branch), **not merged** |
 
 Docs comes before Gates so that the full build and test suite runs once, last, on the exact tree
@@ -205,6 +205,33 @@ python <kit root>/scripts/base-freshness.py --merge-base-only
 It prints the merge-base and exits 0 whatever the branch's freshness. Don't reach for the gating
 form to get a diff base. See [the cadence decision](../../docs/base-freshness-cadence.md) for why
 this is two checkpoints rather than seven.
+
+## Local gates are green before every push, whatever the plan says
+
+Every local gate in `run-local-gates --list`, SonarQube and every other, is green before a phase
+pushes ([why](../../docs/gate-remediation-in-the-plan.md)). A phase plan that puts a gate's
+remediation in a later phase doesn't change that: phase 0 couldn't push, and the plan would be
+asking the person to rescue it mid-flight.
+
+**While planning.** If any phase remediates something a local gate checks, the spec says so in its
+**Gate remediation** section, naming the gate, and the sign-off request states it prominently as
+its own decision, "Gate left for a later phase", with your recommendation first and these options:
+
+1. **Limited remediation in phase 0**, just enough to make the gate pass.
+2. **Push with the gate red** because its remediation is scheduled.
+3. **A different phase order**, so the gates pass from phase 0 on.
+4. **An equivalent** the plan names.
+
+The answer is written into the spec's table (`Ruling`, and `Approved` as `yes — who, date`), where
+every later phase and session reads it. A plan with no such phase writes `None — …` and asks
+nothing new. `gate-remediation-check.py` fails a spec that omits the section, says `None` beside a
+phase that reads like remediation, or is signed off with a ruling still `PENDING`.
+
+**While implementing.** A red gate is fixed in the phase being pushed, **without stopping to ask**,
+even when the plan scheduled its remediation for a later phase. Keep the fix as small as turns the
+gate green, and say in the phase's report that it was pulled forward and why. The exception is an
+approved `push-red` ruling in the spec: `run-local-gates` honours it itself (exit 4). Asking leave
+to move the remediation into the phase is not a stop: the `agentStop` hook refuses it.
 
 ## Branch model
 
