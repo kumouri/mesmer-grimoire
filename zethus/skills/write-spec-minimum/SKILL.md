@@ -31,14 +31,23 @@ true:
    shows the current behaviour", which ships green. Phase 1 changes the behaviour and flips the
    test.
 6. **Test plan.** At least one test for the change, and one for its failure or refusal path.
-7. **Out of scope.** At least one line, even for a small change.
-8. **Open questions.** At most one, with a **recommended** answer. If there are more, you need the
+7. **Gate remediation.** If a phase remediates something a local gate checks (SonarQube findings,
+   lint, types), fill in the spec's **Gate remediation** section and ask for a ruling at sign-off,
+   as its own decision labelled "Gate left for a later phase": limited remediation in phase 0,
+   push with the gate red, a different phase order, or an equivalent you name; recommend one. If no
+   phase does, write `None — …` and ask nothing new. Run
+   `python <kit root>/scripts/gate-remediation-check.py <spec>` before asking.
+8. **Out of scope.** At least one line, even for a small change.
+9. **Open questions.** At most one, with a **recommended** answer. If there are more, you need the
    full spec.
-9. **Stop and ask for sign-off.** Ask the open question, if there is one, as a short option list
-   with your recommendation first and marked **(Recommended)**.
+10. **Stop and ask for sign-off.** Ask the open question, if there is one, as a short option list
+   with your recommendation first and marked **(Recommended)**; if step 7 applies, that ruling goes
+   in the same list, first.
 
 On sign-off, record the decision with [write-adr](../write-adr/SKILL.md), if there was one, and
-set the status to `SIGNED-OFF`.
+record the gate-remediation ruling in the spec's table (`Approved` as `yes — who, date`) so a later
+phase and session can read it. Set the status to `SIGNED-OFF`, then run `gate-remediation-check.py`
+on the spec: it fails while a ruling is still `PENDING`.
 
 **Next:** in the same turn, start Phase 0 with [implement-phase](../implement-phase/SKILL.md).
 Write its steps, then begin the first one. These records, and any check you run over them

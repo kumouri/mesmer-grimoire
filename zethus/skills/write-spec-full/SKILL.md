@@ -34,6 +34,15 @@ of these, so a minimum spec can be promoted later by adding sections.
 7. **Phases.** Put the smallest useful step first. **Phase 0 changes no behaviour**: it
    instruments, logs, measures or reports, so it is safe to ship alone. Give each later phase what
    it is gated on: Phase 0 data (the default window is one week), or a named decision.
+   **Gate remediation.** If any phase remediates something a local gate checks (SonarQube
+   findings, lint, types), the plan can't leave that in the phase list: phase 0 couldn't push past
+   a red gate. Fill in the spec's **Gate remediation** section, naming each such gate, and in the
+   sign-off request put it first, as its own decision labelled "Gate left for a later phase":
+   (1) **limited remediation in phase 0** to make the gate pass, (2) **push with the gate red**
+   because its remediation is scheduled, (3) **a different phase order** so the gates pass from
+   phase 0 on, or (4) an equivalent you name. Recommend one, with its cost. If no phase does, write
+   `None — …` and ask nothing new. Run `python <kit root>/scripts/gate-remediation-check.py <spec>`
+   before asking.
 8. **Test plan.** Fill it in with [test-plan](../test-plan/SKILL.md).
 9. **Rollout and rollback** per phase, and **Before and after**: the headline metric, its baseline,
    and how "after" will be measured.
@@ -50,7 +59,10 @@ of these, so a minimum spec can be promoted later by adding sections.
 
 - Record each answered question as an ADR with [write-adr](../write-adr/SKILL.md). In the spec,
   edit the question in place to `DECIDED (date, ADR id)`. Never delete it.
-- Set the status to `SIGNED-OFF`. It becomes `PARTIAL(merged: …; in review: …)` as phases are
+- Record the answer to the gate-remediation question in the spec's **Gate remediation** table
+  (`Ruling`, and `Approved` as `yes — who, date`), so a later phase and a later session can read it.
+- Set the status to `SIGNED-OFF`, then run `gate-remediation-check.py` on the spec: it fails while a
+  ruling is still `PENDING`. The status becomes `PARTIAL(merged: …; in review: …)` as phases are
   pushed and merged, and `BUILT` once the last one merges. A pushed phase is in review, not built.
 - **Next:** in the same turn, start Phase 0 with [implement-phase](../implement-phase/SKILL.md).
   Write its steps, then begin the first one. These records, and any check you run over them

@@ -52,6 +52,15 @@ Your questions come first. Ask something mid-task, above all about the agent's o
 answering it becomes the current task: answered fully, investigated if needed, before the agent
 offers to resume ([questions come first](docs/questions-come-first.md)).
 
+Every local gate is green before a phase pushes, whatever the phase plan says. A red gate (SonarQube
+included) is fixed in the phase being pushed, without stopping to ask, even if the plan scheduled
+its remediation for a later phase; the fix is kept as small as turns it green, and the phase's
+report says it was pulled forward. A plan that schedules such a remediation phase says so in its
+**Gate remediation** section and asks for a ruling at sign-off: limited remediation in phase 0, a
+push with that gate red, a different phase order, or an equivalent. The ruling is recorded in the
+spec, `run-local-gates` honours it, and the stop hook refuses a stop that asks leave to move the fix
+([gate remediation in the plan](docs/gate-remediation-in-the-plan.md)).
+
 Each expensive check runs once per phase. Docs comes before Gates, so the full build and test suite
 runs once, last, on the exact tree that is pushed, docs included. The phase's tests run once, in
 Stage 4. Implement exits once they're written and compiling, and the mutation check proves its
@@ -161,7 +170,8 @@ plan, this is a rule in the agent file rather than a script check: the kit has n
 | [`templates/spec-full.md`](templates/spec-full.md) · [`spec-minimum.md`](templates/spec-minimum.md) | `.github/zethus/templates/` | Both spec shapes. The minimum spec's headings are a strict subset of the full spec's, so promoting one only adds sections. A test enforces this. |
 | [`templates/adr.md`](templates/adr.md) | `.github/zethus/templates/` | The ADR record: a field table (including *Enforced where*), decision, context, options, consequences. |
 | [`templates/pr.md`](templates/pr.md) | `.github/zethus/templates/` | The PR body: What · Why · Changes · Evidence · What was not checked · deferrals · decisions · docs · AI assistance. |
-| [`scripts/run-local-gates.py`](scripts/run-local-gates.py) | `.github/zethus/scripts/` | Discovers and runs lint/build/test, then prints a PASS/FAIL/SKIP table and an explicit verdict. Prefers a repo's `mvnw`/`gradlew` wrapper; on Windows a bare `mvn` or `./mvnw` resolves to `mvn.cmd`/`mvnw.cmd` through `PATHEXT`. Exit codes: `0` full green · `1` red · `3` green but incomplete · `2` nothing to run. |
+| [`scripts/run-local-gates.py`](scripts/run-local-gates.py) | `.github/zethus/scripts/` | Discovers and runs lint/build/test, then prints a PASS/FAIL/SKIP table and an explicit verdict. Prefers a repo's `mvnw`/`gradlew` wrapper; on Windows a bare `mvn` or `./mvnw` resolves to `mvn.cmd`/`mvnw.cmd` through `PATHEXT`. Exit codes: `0` full green · `1` red · `3` green but incomplete · `4` green except a gate the signed-off spec lets stay red (`push-red`) · `2` nothing to run. |
+| [`scripts/gate-remediation-check.py`](scripts/gate-remediation-check.py) | `.github/zethus/scripts/` | Checks a spec's **Gate remediation** section: present (`None — …` counts), not `None` beside a phase that reads like gate remediation, rulings readable, none `PENDING` once the spec is signed off. [`scripts/_gate_rulings.py`](scripts/_gate_rulings.py) is the parser `run-local-gates` shares. Exit `1` on problems. |
 | [`scripts/base-freshness.py`](scripts/base-freshness.py) | `.github/zethus/scripts/` | Fetches, counts the commits in `HEAD..origin/<base>`, and stops the stage if there are more than `branchModel.maxBehind`. Prints the merge-base to diff against, and whether the branch was rewritten since its last push. The agent runs it at **two** points: Stage 0 (Orient) and immediately before the push (`pre-push-gates`) — see [Branch models](#branch-models). `--merge-base-only` prints the merge-base alone and always exits 0, for a stage that needs a diff base and must not be stopped. Exit codes: `0` fresh · `1` stale, rebase first · `2` usage error · `3` no answer (the fetch failed). |
 | [`scripts/new-adr.py`](scripts/new-adr.py) | `.github/zethus/scripts/` | Creates `docs/adr/YYYY-MM-DD-slug.md` and adds its row to the ADR index. Ids are keyed by date, so parallel branches never collide. |
 | [`scripts/new-spec.py`](scripts/new-spec.py) | `.github/zethus/scripts/` | `new-spec.py full\|minimum "Title"` creates `docs/specs/<slug>.md` as `DRAFT`. |

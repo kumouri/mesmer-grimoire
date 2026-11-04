@@ -69,6 +69,26 @@ procedure keeps each phase small and keeps its deviations visible.
    collected while local tooling was still changing get re-judged with its final version, and the
    run log says so ([why](../../docs/independent-work-runs-concurrently.md)).
 
+## Every local gate is green before this phase pushes
+
+Whatever the phase plan says. Before the push, `run-local-gates` must be green on every gate,
+SonarQube and every other local gate included ([why](../../docs/gate-remediation-in-the-plan.md)).
+If a gate is red:
+
+1. **Fix it in this phase, without stopping to ask,** even when the plan put that gate's
+   remediation in a later phase. A later phase's name is not a waiver.
+2. **Keep the fix as small as turns the gate green:** only the findings or failures that gate
+   reports, not the later phase's whole remediation. Leave the rest for that phase.
+3. **Say it in this phase's report** (the *As built* list and the PR): the gate, that its fix was
+   pulled forward from the later phase, and why (the gate would have blocked the push).
+4. **The one exception** is a `push-red` ruling already approved in the spec's *Gate remediation*
+   table. `run-local-gates` honours it itself (exit 4, naming the spec). If it exits 1, no ruling
+   covers that gate, so fix it.
+
+Don't ask the person for leave to move remediation into the phase, and don't end the turn on it:
+the `agentStop` hook refuses that stop. If the smallest fix is a real design choice between
+options, that is an ordinary decision (step 4's table), not a request to move the phase.
+
 ## Done when
 
 Every test the plan names for this phase is written and compiles (build the tests without running

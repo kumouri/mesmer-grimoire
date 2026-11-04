@@ -94,6 +94,11 @@ plugin's hook file:
 - **`userPromptSubmitted`**: the fallback for a host whose stop event can't block. If the previous
   turn ended without a real stop, the next prompt carries a reminder to continue first.
 
+It also refuses a Stage 3+ stop that asks leave to move a failing local gate's remediation into the
+phase being pushed, even though a decision looks like a wall: [every local gate is green before a
+push](gate-remediation-in-the-plan.md), so there is nothing to ask. The Stage 2 planning stop is
+exempt, since asking for that ruling there is the point.
+
 Limits, stated plainly:
 
 - The hook cannot see the plan. The kit keeps it in the host's todo tool, which a hook can't read,

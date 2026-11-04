@@ -45,7 +45,8 @@ red. The run that clears the push starts after the last edit, on the exact tree 
    | Exit | Verdict | What you do |
    |---|---|---|
    | 0 | `GREEN — every gate ran and passed` | Push. |
-   | 1 | `RED — fix before pushing: …` | Fix it. The failing gate's output tail is printed below the table. Don't push. |
+   | 1 | `RED — fix before pushing: …` | Fix it **in this phase**, with the smallest change that turns it green, even if the plan scheduled that gate's remediation for a later phase, and without asking first. Say in the phase's report that it was pulled forward and why. The failing gate's output tail is printed below the table. Don't push. |
+   | 4 | `GREEN except gate(s) the approved plan lets stay red` | The person approved a `push-red` ruling for those gates in the spec's *Gate remediation* table. Push, and say in the PR which gates are red and where the ruling is. |
    | 3 | `GREEN on what ran, but N gate(s) NOT checked` | Install the missing toolchain and re-run. If that's genuinely impossible, push, and list those gates under *What was not checked* in the PR. |
    | 2 | No gates found / usage error | Configure `gates.steps`. No gates is not a green run. |
 
@@ -56,6 +57,9 @@ A green verdict is progress, not a report to hand over and wait on. Next, in the
 
 ## Rules
 
+- **Every local gate is green before a phase pushes, whatever the phase plan says,** unless the
+  signed-off spec records an approved `push-red` ruling for that gate
+  ([why](../../docs/gate-remediation-in-the-plan.md)).
 - **Never report a gate as passed if you didn't run it.** Write "not run", with the reason.
 - **Don't weaken a gate to get green:** no skipped tests, loosened lint, or `--no-verify`. If a gate
   is wrong, fixing it is a separate decision for a person, recorded as an ADR.

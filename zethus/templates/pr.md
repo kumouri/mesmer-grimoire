@@ -26,6 +26,12 @@ The gates you ran on this exact tree, and what they said. Paste the `run-local-g
 - **Tests added or changed:** what each one proves, including failure and refusal paths.
 - **Measured:** any before/after number, with its source and when it was taken.
 
+## Gates pulled forward
+
+A gate that was red in this phase and fixed here although the plan put its remediation in a later
+phase: the gate, what the smallest fix was, and why (it would have blocked the push). Or a gate
+pushed red under a `push-red` ruling: the gate and the spec that records it. Delete if neither.
+
 ## What was not checked
 
 Gates that were skipped or manual, environments not exercised, and anything verified only by
