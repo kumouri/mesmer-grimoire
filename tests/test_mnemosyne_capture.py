@@ -4,7 +4,7 @@ The capture hooks detect signals and append candidates to memory/.capture/, log 
 invocation, and do nothing else: no lesson is stored, nothing is asked, no capture mode prints.
 Event payloads below use the field names observed on real Claude Code, Copilot CLI and Codex
 installs (spec §4.7.1), and every guard is driven with its variable set the way the host sets it.
-Offline: the only subprocesses are the hook bridge itself and local git commands.
+Offline: the only subprocesses are the hook bridge, local git commands and the spool race's writers.
 """
 from __future__ import annotations
 
@@ -404,6 +404,155 @@ class CandidateCli(_Project):
         self.assertTrue(1 <= len(kept) < 6)  # the current log and one rotation; older ones go
         self.assertEqual(kept[-1]["mode"], "pre-compact")
 
+    def test_doctor_counts_lines_written_past_a_busy_lock(self):
+        self.capture("stop", self.ev(stop_hook_active=False))
+        cd.log_decision(self.root, {"mode": "stop", "decision": "nothing-pending", "contended": True})
+        self.assertEqual(cd.doctor(self.root)["contended"], 1)
+        self.assertIn("1 line(s) written past a busy lock", self.run_cli("doctor")[1])
+
+
+# Run as a process by the tests below: wait for `go`, then write through the real engine calls.
+SPOOL_WRITER = r"""
+import os, sys, time
+sys.path.insert(0, sys.argv[1])
+from pathlib import Path
+from mnemosyne import candidates as cd
+repo, tag, lines, cap = Path(sys.argv[2]), sys.argv[3], int(sys.argv[4]), int(sys.argv[5])
+cd.DECISION_LOG_MAX = cap
+Path(repo, "ready-" + tag).touch()
+while not Path(repo, "go").exists():
+    time.sleep(0.0005)
+for i in range(lines):
+    cd.add_candidate(repo, "S4", session=f"{tag}-{i}")
+    cd.log_decision(repo, {"decision": "x", "session": f"{tag}-{i}", "note": "café " * 40})
+"""
+
+
+class SpoolConcurrency(unittest.TestCase):
+    """The races are between processes, so `race` starts real ones. A lost line is a failure."""
+
+    WRITERS = 8
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.root = Path(self._td.name)
+        (self.root / "memory").mkdir()
+        cd.ensure_capture_dir(self.root)
+
+    def race(self, lines, cap=cd.DECISION_LOG_MAX):
+        """Start the writers, hold them until all are up, release them together."""
+        (self.root / "go").unlink(missing_ok=True)
+        for ready in self.root.glob("ready-*"):
+            ready.unlink()
+        tags = [f"w{n}" for n in range(self.WRITERS)]
+        runs = [subprocess.Popen([sys.executable, "-c", SPOOL_WRITER, str(MNEMOSYNE_SRC), str(self.root),
+                                  tag, str(lines), str(cap)]) for tag in tags]
+        deadline = time.time() + 60
+        while len(list(self.root.glob("ready-*"))) < len(tags) and time.time() < deadline:
+            time.sleep(0.005)
+        (self.root / "go").touch()
+        for run in runs:
+            self.assertEqual(run.wait(timeout=120), 0)
+        return tags
+
+    def test_concurrent_writers_lose_no_line_in_either_file(self):
+        tags = self.race(lines=100)
+        expected = sorted(f"{tag}-{i}" for tag in tags for i in range(100))
+        self.assertEqual(sorted(c["session"] for c in cd.candidates(self.root)), expected)
+        self.assertEqual(sorted(d["session"] for d in cd.decisions(self.root)), expected)
+
+    def test_writers_racing_a_rotation_keep_the_rotated_log(self):
+        """Two runs past the limit once both rotated: the second moved a near-empty log over the
+        full one it had just kept. One rotation here, so every line must survive it."""
+        log = cd.capture_dir(self.root) / cd.DECISIONS
+        for attempt in range(3):
+            seeded = [f"old-{attempt}-{i}" for i in range(300)]
+            (cd.capture_dir(self.root) / "decisions.1.jsonl").unlink(missing_ok=True)
+            log.write_text("".join(json.dumps({"session": s}) + "\n" for s in seeded), encoding="utf-8")
+            cap = log.stat().st_size - 1
+            tags = self.race(lines=1, cap=cap)
+            kept = [d["session"] for d in cd.decisions(self.root)]
+            self.assertEqual(sorted(kept), sorted(seeded + [f"{tag}-0" for tag in tags]))
+            self.assertTrue((cd.capture_dir(self.root) / "decisions.1.jsonl").exists())
+
+    def full_log(self):
+        d = cd.capture_dir(self.root)
+        (d / cd.DECISIONS).write_text('{"session":"full"}\n' * 20, encoding="utf-8")
+        return d, d / cd.DECISIONS, d / "decisions.1.jsonl"
+
+    def test_a_run_that_lost_the_rotation_does_not_rotate_again(self):
+        """The interleaving that clobbered the kept log: this run saw a full log, then a rival
+        rotated before this run got as far as the lock."""
+        d, log, kept = self.full_log()
+        real = core._try_os_lock
+
+        def rival_rotates_first(fd):
+            if not kept.exists():
+                os.replace(log, kept)
+                log.write_text('{"session":"after"}\n', encoding="utf-8")
+            return real(fd)
+
+        with mock.patch.object(cd, "DECISION_LOG_MAX", 100), \
+                mock.patch.object(core, "_try_os_lock", side_effect=rival_rotates_first):
+            cd.log_decision(self.root, {"session": "mine"})
+        sessions = [r["session"] for r in cd.decisions(self.root)]
+        self.assertEqual(sessions, ["full"] * 20 + ["after", "mine"])
+
+    def test_a_run_that_cannot_lock_leaves_the_rotation_to_the_next(self):
+        d, log, kept = self.full_log()
+        holder = os.open(str(d / cd.ROTATE_LOCK), os.O_RDWR | os.O_CREAT)
+        self.addCleanup(os.close, holder)
+        self.assertTrue(core._try_os_lock(holder))
+        with mock.patch.object(cd, "DECISION_LOG_MAX", 100):
+            cd.log_decision(self.root, {"session": "mine"})
+            self.assertFalse(kept.exists())
+            core._os_unlock(holder)
+            cd.log_decision(self.root, {"session": "next"})
+        self.assertTrue(kept.exists())
+        self.assertEqual([r["session"] for r in cd.decisions(self.root)], ["full"] * 20 + ["mine", "next"])
+
+    def test_a_line_is_written_whole_and_unconverted(self):
+        path = cd.capture_dir(self.root) / cd.DECISIONS
+        cd.log_decision(self.root, {"note": "café"})
+        cd.log_decision(self.root, {"note": "x" * 70_000})
+        raw = path.read_bytes()
+        self.assertEqual(raw.count(b"\n"), 2)
+        self.assertNotIn(b"\r", raw)
+        self.assertEqual(cd.decisions(self.root)[0]["note"], "café")
+
+    def test_a_reader_never_blocks_an_append(self):
+        path = cd.capture_dir(self.root) / cd.DECISIONS
+        cd.log_decision(self.root, {"session": "a"})
+        with open(path, encoding="utf-8") as reader:
+            cd.log_decision(self.root, {"session": "b"})
+            self.assertIn('"a"', reader.read())
+        self.assertEqual([d["session"] for d in cd.decisions(self.root)], ["a", "b"])
+
+    def test_a_torn_multibyte_line_is_skipped_on_read(self):
+        path = cd.capture_dir(self.root) / cd.DECISIONS
+        path.write_bytes(b'{"session":"a"}\n{"session":"caf\xc3\n{"session":"b"}\n')
+        self.assertEqual([d["session"] for d in cd.decisions(self.root)], ["a", "b"])
+
+    @unittest.skipIf(os.name == "nt", "Windows appends take no lock: the kernel picks the offset")
+    def test_a_held_lock_delays_a_write_but_never_drops_it(self):
+        path = cd.capture_dir(self.root) / cd.DECISIONS
+        holder = os.open(f"{path}.lock", os.O_RDWR | os.O_CREAT)
+        self.addCleanup(os.close, holder)
+        self.assertTrue(core._try_os_lock(holder))
+        with mock.patch.object(cd, "SPOOL_LOCK_WAIT", 0.05):
+            t0 = time.perf_counter()
+            cd.log_decision(self.root, {"session": "a"})
+            waited = time.perf_counter() - t0
+        self.assertLess(waited, 1)
+        self.assertEqual([(d["session"], d["contended"]) for d in cd.decisions(self.root)], [("a", True)])
+
+    @unittest.skipIf(os.name == "nt", "Windows appends take no lock: the kernel picks the offset")
+    def test_a_filesystem_without_locks_still_gets_the_line(self):
+        with mock.patch.object(core, "_try_os_lock", side_effect=OSError("no locks here")):
+            cd.log_decision(self.root, {"session": "a"})
+        self.assertEqual([d["session"] for d in cd.decisions(self.root)], ["a"])
+
 
 class DoubleFire(_Project):
     """A repo's .github/hooks/mnemosyne.json and the user-level ~/.copilot/hooks copy both present:
@@ -464,9 +613,7 @@ class DoubleFire(_Project):
         for run in runs:
             self.assertEqual(run.wait(timeout=60), 0)
         self.assertEqual(self.signals(), ["S4"])       # only the claim's winner writes the spool
-        # Not an exact count: O_APPEND on Windows is seek-then-write, so runs racing on the decision
-        # log can lose a line there. Two winners would still show up as two candidates above.
-        self.assertLessEqual(self.verdicts().count("candidate"), 1)
+        self.assertEqual(sorted(self.verdicts()), ["candidate"] + ["duplicate"] * 5)  # and all logged
 
     def test_the_second_run_prints_no_recall_and_syncs_nothing(self):
         bridge = self.bridge()

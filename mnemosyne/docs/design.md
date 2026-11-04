@@ -226,7 +226,10 @@ hook parses a transcript or calls a model.
 
 The spool lives in `memory/.capture/`, a directory whose own `.gitignore` is `*`, so it can't be
 committed even from a memory repo scaffolded before it existed. Writes are single appends with no
-store lock, so a hook never waits on a save. A candidate carries pointers rather than text, and a
+store lock, so a hook never waits on a save. Concurrent hooks lose no line: Windows appends through
+a handle where the kernel picks the offset, and POSIX adds a short lock on a sidecar file for
+filesystems where `O_APPEND` isn't atomic. If that lock stays busy the line is written anyway and
+marked, so `mnemosyne doctor` can count it. A candidate carries pointers rather than text, and a
 credential shape anywhere in it drops it whole. Every hook run appends one decision line, which is
 what `mnemosyne doctor` reads. The detection lives in `mnemosyne.candidates`, and the plugin's
 `mnemosyne_hook.py` only feeds it the event.

@@ -328,7 +328,7 @@ candidate was worth keeping, before any of it is automated.
 - **Reviewing it:** `mnemosyne candidate list` shows what was recorded. Label each candidate with
   `mnemosyne candidate label <id> lesson|noise`, then `mnemosyne candidate stats` shows each
   signal's count and precision. `mnemosyne doctor` shows the hooks' recent decisions, so a hook
-  that fails open never fails silently.
+  that fails open never fails silently, and counts any line written past a busy lock.
 - **Other hosts:** the same `mnemosyne_hook.py` reads each host's field names, as observed on real
   Claude Code, Copilot CLI and Codex installs. A host-specific registration can pass `--host <name>`
   after the mode. The spec's §4.7 has the per-host matrix, and what was and wasn't verified.
