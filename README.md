@@ -44,7 +44,7 @@ stones set themselves. Pipeline + diagram: [amphion/docs/pipeline.md](amphion/do
 | [`skills/`](skills/) | Standalone custom Skills not tied to an engine or package. |
 | [`hooks/`](hooks/) | Standalone Claude Code hooks. |
 | [`commands/`](commands/) | Standalone custom slash commands. |
-| [`zethus/`](zethus/) | GitHub Copilot process kit — enforcing agent, ten skills, templates, scripts. |
+| [`zethus/`](zethus/) | GitHub Copilot process kit — enforcing agent, ten core skills plus optional extensions, templates, scripts. |
 | [`.github/plugin/`](.github/plugin/marketplace.json) | Copilot plugin catalogue (Zethus, Mnemosyne). Add `kumouri/mesmer-grimoire#main`. |
 | [`.claude-plugin/`](.claude-plugin/marketplace.json) | Claude Code plugin catalogue (Amphion, Mnemosyne). |
 | [`agents/`](agents/) | Custom subagent definitions. |
@@ -60,7 +60,7 @@ Each directory has its own README describing conventions and what belongs there.
 any repository's `.github/`, or once per user into `~/.copilot/` so it follows you into every repo
 without touching any of them. One custom agent walks every change through research → spec →
 sign-off → phased implementation (Phase 0 changes no behaviour) → tests → local gates → a PR with
-evidence, and refuses to skip a stage; ten standalone skills, spec/ADR/PR templates, and stdlib
+evidence, and refuses to skip a stage; ten core skills (plus optional extensions), spec/ADR/PR templates, and stdlib
 scripts (`run-local-gates`, `new-adr`, `new-spec`, `docs-pointer-check`) carry the procedures.
 
 ## 🧪 CI
