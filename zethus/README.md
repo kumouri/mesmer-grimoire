@@ -812,6 +812,9 @@ checklist at the end of each skill lists the live checks to do first.
   [`tests/test_zethus.py`](../tests/test_zethus.py). That file also enforces Copilot's frontmatter
   rules on every skill, the minimum ⊂ full spec contract, and that this kit's own Markdown has no
   broken pointers.
+- Quote any frontmatter `description:` that contains a colon followed by a space. The Copilot CLI
+  drops the whole agent or skill on that, with only a log line to show for it;
+  [`tests/test_frontmatter.py`](../tests/test_frontmatter.py) parses every agent, mirror and skill.
 - Edit the agent and the hook registration only under `com.github.copilot/`, then run
   `python scripts/sync_zethus_plugin_root.py` to rewrite their root copies. `tests/test_copilot_plugins.py`
   fails while the copies are stale.
