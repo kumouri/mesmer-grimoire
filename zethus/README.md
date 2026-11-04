@@ -193,7 +193,8 @@ and so for the cloud agent, which never loads a user's plugins.
 ### Install the plugin (default)
 
 Add the marketplace `kumouri/mesmer-grimoire#main`, then install **zethus** from it. Pin `#main`:
-the repo's default branch is `develop`, which would serve unreleased work.
+the repo's default branch is `develop`, which would serve unreleased work. If `#main` doesn't list
+**zethus**, the plugin hasn't reached `main` in a release yet; use `#develop` until it has.
 
 ```bash
 copilot plugin marketplace add kumouri/mesmer-grimoire#main
@@ -229,11 +230,45 @@ same name, and the agreement would load twice, so the two never both act:
   installs anyway.
 - `install.py --user --migrate-to-plugin` removes an earlier user-mode copy. It removes what
   `--uninstall` removes, keeps your own files, and exits 1 if an edited skill stays and still
-  shadows the plugin (`--force` removes edited files too).
+  shadows the plugin (`--force` removes edited files too). **It keeps
+  `~/.copilot/agents/zethus.agent.md`:** it can only see a plugin the Copilot CLI recorded, and
+  IntelliJ lists a custom agent from that folder or from a plugin installed *in IntelliJ*, never
+  from the CLI's plugin install. Deleting the file on an IntelliJ machine made the agent vanish
+  from the dropdown. If the agent then shows twice, run it again with `--drop-agent`.
 - In a repo with the kit in `.github/zethus/`, the plugin's hook prints nothing: the repo's copy is
   in charge there.
 - If it finds a user-mode copy, the hook injects only a line asking the model to tell you to
   migrate. That covers a plugin installed by VS Code or IntelliJ, which the installer may not see.
+
+#### What each install gives, on each host
+
+"Plugin" means installed in that host: the Copilot CLI, VS Code and IntelliJ each keep their own
+plugin list, and installing in one does not install in another. `install.py --user` and
+`--target` need no plugin support.
+
+| Install | Copilot CLI | VS Code | IntelliJ |
+|---|---|---|---|
+| **Plugin, installed in that host** | Agent, skills, working agreement, `sessionStart` hook (with the version line), `agentStop` and `userPromptSubmitted` stop guard | Same, hooks in preview | Agent, skills and hooks listed; hooks not yet seen running |
+| **`install.py --user`** (no plugin) | Agent, skills, working agreement. No hooks, so no version line and no stop guard | Same | Same, from `~/.copilot/agents`, `skills` and `instructions` |
+| **`install.py --target`** (repo) | Same as `--user`, for that repo, committed | Same | Same |
+| **Plugin in the CLI only, plus `--migrate-to-plugin`** | Everything the plugin gives | Nothing, unless also installed there | Agent only, because the migration keeps the user-level agent; skills and agreement are gone until the plugin is added in IntelliJ |
+
+The `agentStop` guard and the `Plugin version:` line in the session announcement come **only** from
+a plugin install, because only a plugin carries `hooks.json`. `install.py` never writes hooks for
+Zethus.
+
+**A machine on the non-plugin install gets the current prompts** (the agent, skills and working
+agreement) by pulling the clone and re-running the installer; it updates the files it wrote,
+leaves edited ones and asks for `--force` to overwrite them:
+
+```bash
+git pull
+python zethus/install.py --user            # or: --target path/to/repo --force
+```
+
+Restart the IDE afterwards. Moving to the plugin on IntelliJ: add the marketplace and install
+**zethus** in IntelliJ first (*Tools → GitHub Copilot → Customizations → Plugin Marketplaces*),
+confirm the agent is in the dropdown, and only then run `--migrate-to-plugin`.
 
 #### One plugin, two layouts
 

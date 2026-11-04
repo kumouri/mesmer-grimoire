@@ -13,6 +13,7 @@ loads a user's plugins, and for user mode where a plugin can't be used.
     python zethus/install.py --user --jetbrains-legacy             # + JetBrains' older global file
     python zethus/install.py --user --with-mnemosyne               # + Mnemosyne (memory + hooks)
     python zethus/install.py --user --migrate-to-plugin            # drop --user's copy for the plugin
+                                                                   # (keeps the agent: add --drop-agent)
 
 **Repo mode** (``--target``) — what goes where, all under the target's ``.github/``:
 
@@ -64,8 +65,11 @@ removes edited ones too), then the empty folders it made.
 name, so a user-mode copy would shadow the plugin. ``--user`` finds a plugin the Copilot CLI
 recorded (``enabledPlugins`` in ``settings.json``, or a copy under ``installed-plugins/``, in
 ``~/.copilot`` and ``$COPILOT_HOME``), writes nothing and says so; ``--force`` installs anyway.
-``--user --migrate-to-plugin`` removes a prior user-mode copy, as ``--uninstall`` does, and prints
-the commands that add the plugin if it can't find one. Edited files stay and still shadow, so they
+``--user --migrate-to-plugin`` removes a prior user-mode copy, as ``--uninstall`` does, except the
+agent file in ``~/.copilot/agents/`` (``--drop-agent`` removes that too): the script sees only a
+plugin the CLI recorded, and IntelliJ lists the agent from that folder or from a plugin installed
+in IntelliJ itself, so removing it could leave IntelliJ with no Zethus agent. It prints the commands
+that add the plugin if it can't find one. Edited files stay and still shadow, so they
 are named and the exit code is 1. A repo install beside the plugin only gets a note: the committed
 copy wins in that repo, and the plugin's hook stays quiet there. A plugin that VS Code or IntelliJ
 installed itself may not be recorded where this looks; the plugin's hook catches that case and
@@ -435,18 +439,26 @@ def install_user(args) -> int:
     return 0
 
 
-def uninstall_user(args) -> int:
+def uninstall_user(args, keep_agents: bool = False) -> int:
+    """Remove what ``--user`` wrote. ``keep_agents`` (a migration) leaves the agent files and the
+    manifest entries for them, so a later ``--uninstall`` still finds them."""
     manifest = read_manifest()
     if not manifest:
         print(f"uninstall: no Zethus user install found ({show(manifest_path())} is missing)")
         return 1
     kept = 0
     roots = prune_roots()
+    agents_dir = (copilot_home() / "agents").as_posix() + "/"
+    held: dict[str, str] = {}
     for key, recorded in sorted(manifest.items()):
         path = Path(key)
         have = current_hash(path)
         if have is None:
             print(f"gone      {show(path)}")
+            continue
+        if keep_agents and key.startswith(agents_dir):
+            held[key] = recorded
+            print(f"keep      {show(path)}  (the agent stays: IntelliJ may not have the plugin)")
             continue
         if have != recorded and not args.force:
             kept += 1
@@ -456,6 +468,12 @@ def uninstall_user(args) -> int:
         if not args.dry_run:
             path.unlink()
             prune(path.parent, roots)
+    if held:
+        if args.dry_run:
+            print("dry run: nothing removed")
+            return 0
+        write_manifest(held)
+        return 0
     print(f"remove    {show(manifest_path())}")
     if args.dry_run:
         print("dry run: nothing removed")
@@ -469,8 +487,9 @@ def uninstall_user(args) -> int:
 
 def migrate_to_plugin(args) -> int:
     """Remove the user-mode copy so the plugin's skills load. Safe to run twice."""
+    keep_agents = not args.drop_agent
     if read_manifest():
-        uninstall_user(args)
+        uninstall_user(args, keep_agents=keep_agents)
     else:
         print(f"migrate: no user-mode copy to remove ({show(manifest_path())} is missing)")
     plugin = find_plugin()
@@ -481,6 +500,11 @@ def migrate_to_plugin(args) -> int:
               "  (in VS Code or IntelliJ, add the same marketplace entry in the plugin settings)")
     else:
         print(f"migrate: Copilot plugin {plugin} takes over.")
+    if keep_agents and (copilot_home() / "agents" / "zethus.agent.md").is_file():
+        print("migrate: the zethus agent file stays in " + show(copilot_home() / "agents") + ". "
+              "The Copilot CLI plugin install is invisible to IntelliJ, which lists the agent only "
+              "from this folder or from a plugin installed in IntelliJ itself. If the agent shows "
+              "twice, re-run with --drop-agent.")
     left = [] if args.dry_run else [s.name for s in sorted((KIT / "skills").iterdir()) if s.is_dir()
                                     and (copilot_home() / "skills" / s.name / "SKILL.md").exists()]
     if left:
@@ -549,6 +573,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--migrate-to-plugin", action="store_true",
                    help="with --user: remove the user-mode copy so the Copilot plugin's skills "
                         "aren't shadowed (--force removes edited files too)")
+    p.add_argument("--drop-agent", action="store_true",
+                   help="with --migrate-to-plugin: also remove the user-level agent file, which a "
+                        "migration keeps for IntelliJ")
     p.add_argument("--with-mnemosyne", action="store_true",
                    help="then run mnemosyne/install.py: the package, a local memory repo, "
                         "MNEMOSYNE_REPO and its hooks (with --target, that repo's Copilot hooks; "
@@ -562,6 +589,8 @@ def main(argv: list[str] | None = None) -> int:
     if not args.user and (args.uninstall or args.jetbrains_legacy or args.migrate_to_plugin):
         p.error("--uninstall, --jetbrains-legacy and --migrate-to-plugin need --user (a repo install "
                 "is removed with git)")
+    if args.drop_agent and not args.migrate_to_plugin:
+        p.error("--drop-agent needs --migrate-to-plugin (--uninstall already removes the agent)")
     if args.migrate_to_plugin and args.uninstall:
         p.error("--migrate-to-plugin already uninstalls the user-mode copy; use one or the other")
     if (args.mnemosyne_repo or args.mnemosyne_copilot_hooks_dir) and not args.with_mnemosyne:

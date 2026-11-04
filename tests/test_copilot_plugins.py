@@ -307,10 +307,47 @@ class InstallerBesidePlugin(unittest.TestCase):
         self.assertEqual(list((self.copilot / "instructions").iterdir()), [])
         self.assertTrue(mine.is_file())
 
+    def test_migration_keeps_the_agent_intellij_reads(self):
+        self.assertEqual(self.run_install("--user")[0], 0)
+        agent = self.copilot / "agents" / "zethus.agent.md"
+        self.enable(self.copilot)
+        code, out = self.run_install("--user", "--migrate-to-plugin")
+        self.assertEqual(code, 0, out)
+        self.assertTrue(agent.is_file(), "IntelliJ lists the agent from here")
+        self.assertIn("IntelliJ", out)
+        self.assertFalse((self.copilot / "skills" / "test-plan").exists(), "skills still go: they shadow")
+        self.assertEqual(list(zi.read_manifest()), [agent.as_posix()])
+        code, out = self.run_install("--user", "--migrate-to-plugin")
+        self.assertEqual(code, 0, out)
+        self.assertTrue(agent.is_file())
+        code, out = self.run_install("--user", "--uninstall")
+        self.assertEqual(code, 0, out)
+        self.assertFalse(agent.exists(), "a later --uninstall still owns the kept agent")
+        self.assertFalse(zi.manifest_path().exists())
+
+    def test_migration_drop_agent_removes_it_too(self):
+        self.assertEqual(self.run_install("--user")[0], 0)
+        self.enable(self.copilot)
+        code, out = self.run_install("--user", "--migrate-to-plugin", "--drop-agent")
+        self.assertEqual(code, 0, out)
+        self.assertFalse((self.copilot / "agents" / "zethus.agent.md").exists())
+        self.assertFalse(zi.manifest_path().exists())
+
+    def test_migration_dry_run_keeps_the_agent_in_the_plan(self):
+        self.assertEqual(self.run_install("--user")[0], 0)
+        code, out = self.run_install("--user", "--migrate-to-plugin", "--dry-run")
+        self.assertEqual(code, 0, out)
+        self.assertIn("keep      ~/.copilot/agents/zethus.agent.md", out)
+
+    def test_drop_agent_needs_a_migration(self):
+        code, out = self.run_install("--user", "--drop-agent")
+        self.assertEqual(code, 2, out)
+
     def test_migration_says_how_to_add_a_missing_plugin_and_is_safe_twice(self):
         self.assertEqual(self.run_install("--user")[0], 0)
         self.assertIn("copilot plugin marketplace add kumouri/mesmer-grimoire#main",
                       self.run_install("--user", "--migrate-to-plugin")[1])
+        self.assertEqual(self.run_install("--user", "--migrate-to-plugin", "--drop-agent")[0], 0)
         code, out = self.run_install("--user", "--migrate-to-plugin")
         self.assertEqual(code, 0, out)
         self.assertIn("no user-mode copy to remove", out)
