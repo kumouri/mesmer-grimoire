@@ -51,6 +51,8 @@ stopped, what's next and why, and a plugin hook refuses a turn that ends without
 Your questions come first. Ask something mid-task, above all about the agent's own behaviour, and
 answering it becomes the current task: answered fully, investigated if needed, before the agent
 offers to resume ([questions come first](docs/questions-come-first.md)).
+It asks every decision with the harness's own question tool, never for an exact phrase
+([ask with the question tool](docs/ask-with-the-question-tool.md)).
 
 Every local gate is green before a phase pushes, whatever the phase plan says. A red gate (SonarQube
 included) is fixed in the phase being pushed, without stopping to ask, even if the plan scheduled
@@ -778,8 +780,8 @@ Unlike the rest of this kit, these two skills also work unmodified under Claude 
 Five optional, standalone skills that drive the tools a team already runs, from the terminal.
 Like the Jira pair above, none is part of the core ten, and they install the same way, alongside
 them. Each is PowerShell-first with labelled bash equivalents, reads its credentials from the
-environment only and never prints them, and shows every write in full and waits for a yes before it
-runs. The skill names carry a `-cli` suffix on purpose: a personal skill of the plain tool name
+environment only and never prints them, and shows every write in full and waits for a picked go-ahead
+([question tool](docs/ask-with-the-question-tool.md)) before it runs. The skill names carry a `-cli` suffix on purpose: a personal skill of the plain tool name
 (`~/.copilot/skills/jira`, say) silently beats a plugin skill of the same name, and a differing file
 there stops `install.py --user`.
 

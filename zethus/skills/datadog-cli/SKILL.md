@@ -249,7 +249,7 @@ applies separately to the command itself:
 1. State exactly what will run and its effect: which monitor/event, what scope, what time window
    (for a downtime), what message/tags. For #13, show the full JSON payload file content as the
    preview — that file is the "dry run" artifact.
-2. Wait for the user to say yes in this turn. A prior general instruction (e.g. "keep the noisy
+2. Get the user's go-ahead in this turn. Ask it with the harness's question tool ([why](../../docs/ask-with-the-question-tool.md)): two options, "Run it" (describe the exact effect) and "Don't run it" (nothing changes), neither preselected. Only a picked "Run it" runs it; a dismissed picker, no answer or a run with no one to ask means don't. With no question tool, ask a numbered list that accepts the number or any clear wording, never an exact phrase. A prior general instruction (e.g. "keep the noisy
    monitor quiet") does not count as standing authorization for a specific mute action today.
 3. If they decline or don't respond, don't run it — report back that it's pending.
 4. Only then issue the mutating call, and report back what it returned (event ID, downtime ID) so

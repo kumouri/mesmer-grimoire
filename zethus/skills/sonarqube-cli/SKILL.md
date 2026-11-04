@@ -171,8 +171,8 @@ separately to the command itself:
 
 1. **Always construct and print the exact command first** — method, endpoint, and the full `-d` JSON
    body — without executing it. Show this to the user as the proposed action.
-2. **Wait for explicit confirmation** ("yes", "do it", "go ahead" — not silence, not a topic change)
-   before running the real command.
+2. **Wait for explicit confirmation** (a picked "Run it", or any clear "yes" / "do it" / "go ahead" — not silence, not a topic change)
+   before running the real command. Ask it with the harness's question tool ([why](../../docs/ask-with-the-question-tool.md)): two options, "Run it" (describe the exact effect) and "Don't run it" (nothing changes), neither preselected. Only a picked "Run it" runs it; a dismissed picker, no answer or a run with no one to ask means don't. With no question tool, ask a numbered list that accepts the number or any clear wording, never an exact phrase.
 3. **Never chain a mutation off a read in the same turn** without that pause, even if the read made
    the next step obvious. "I found issue X, transitioning it to resolved" without a stop is the
    failure mode this rule exists to prevent.

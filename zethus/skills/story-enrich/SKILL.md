@@ -87,11 +87,10 @@ diff is fine) so the reviewer sees exactly what changed rather than re-reading t
 This skill never updates, comments on, or edits a field on a real Jira issue. It produces the
 proposed update and the diff, and stops.
 
-**Only an explicit "update it" / "post this" / "approved", said after being shown the diff, counts
-as approval.** Silence or a question doesn't. Once approved, write back using whichever access was
+**Only an explicit approval, given after being shown the diff, counts as approval:** a picked "Update it" on the question tool, or any clear "update it" / "post this" / "approved" (no exact phrase is required). Silence or a question doesn't. Once approved, write back using whichever access was
 detected in Step 1 — MCP, CLI, or REST — one issue at a time, and report what was written (which
 fields or comment, on which key). A CLI write also follows the confirmation steps in
-[jira-cli](../jira-cli/SKILL.md), which state the exact command and wait for a yes: that is on top
+[jira-cli](../jira-cli/SKILL.md), which state the exact command and get a picked go-ahead: that is on top
 of the approval above, never in place of it. If access is pasted-input only, hand the person the proposed
 update to paste in themselves; that's not a lesser outcome, it's the guardrail working as intended.
 

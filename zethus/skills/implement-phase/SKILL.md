@@ -45,7 +45,7 @@ procedure keeps each phase small and keeps its deviations visible.
    | Situation | Action |
    |---|---|
    | Needed for this phase to work, obvious, small, and reversible | Do it, and list it under **As built** |
-   | Needed, but it's a real choice between options | **Stop.** Ask as an option list with a recommendation, then record an ADR |
+   | Needed, but it's a real choice between options | **Stop.** Ask with the question tool, recommendation first, then record an ADR |
    | Not needed for this phase | Leave it. Note it for the PR's *Noticed but out of scope* |
    | It invalidates the spec's design | **Stop.** Amend the spec and get sign-off again |
 
@@ -65,7 +65,7 @@ procedure keeps each phase small and keeps its deviations visible.
 7. **Code in progress doesn't hold work that doesn't run it.** A deployed run, a remote job or a
    long-running task starts as soon as this phase's pending change doesn't touch what it runs.
    Check the image or artifact build and the deploy definition instead of guessing, say in one
-   line what you checked, and if they don't settle it, ask once, as an option list. Results
+   line what you checked, and if they don't settle it, ask once, with the question tool. Results
    collected while local tooling was still changing get re-judged with its final version, and the
    run log says so ([why](../../docs/independent-work-runs-concurrently.md)).
 
