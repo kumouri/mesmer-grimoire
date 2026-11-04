@@ -19,7 +19,11 @@ Try these in order, and use the first that works:
    is a fact about the session, not something a script can detect. Use it read-only: fetch the
    story's title, description, acceptance criteria, and key.
 2. **A CLI or REST access**, detected with `python <kit root>/scripts/jira-access.py`. Exit `0`
-   names a `jira`/`acli` CLI or a REST token; use it read-only, the same way.
+   names a `jira`/`acli` CLI or a REST token; use it read-only, the same way. For a `jira` CLI,
+   [jira-cli](../jira-cli/SKILL.md) has the setup and auth check, the read commands and their
+   output flags: run its setup first and use only its read commands here. The script can't tell
+   which tool a `jira` binary is, and that skill's commands are for `ankitpokhrel/jira-cli`, so if
+   they aren't recognised, treat the CLI as unavailable and go on to REST or pasted text.
 3. **Pasted text.** If neither is available, ask the person to paste the story's title,
    description, acceptance criteria, and key (if it has one). This is a normal path, not a
    fallback to apologize for — plenty of repos have no Jira access wired up at all.
@@ -86,7 +90,9 @@ proposed update and the diff, and stops.
 **Only an explicit "update it" / "post this" / "approved", said after being shown the diff, counts
 as approval.** Silence or a question doesn't. Once approved, write back using whichever access was
 detected in Step 1 — MCP, CLI, or REST — one issue at a time, and report what was written (which
-fields or comment, on which key). If access is pasted-input only, hand the person the proposed
+fields or comment, on which key). A CLI write also follows the confirmation steps in
+[jira-cli](../jira-cli/SKILL.md), which state the exact command and wait for a yes: that is on top
+of the approval above, never in place of it. If access is pasted-input only, hand the person the proposed
 update to paste in themselves; that's not a lesser outcome, it's the guardrail working as intended.
 
 ## Anti-patterns

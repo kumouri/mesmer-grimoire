@@ -85,8 +85,12 @@ Three tiers, tried in order, documented in
 
 1. **An Atlassian/Jira MCP tool**, if the session has one. Only the calling agent can see its own
    tool list, so this tier is checked by the skill itself, in prose — no script can see it.
-2. **A CLI on `PATH`** — `acli` or `jira` (go-jira) by default, overridable via `jira.cli` in
-   config.
+2. **A CLI on `PATH`** — `acli` or `jira` by default, overridable via `jira.cli` in config. Detection
+   sees only the file name, and both go-jira and `ankitpokhrel/jira-cli` install a `jira` binary, so
+   it can't say which one it found. The [`jira-cli`](../skills/jira-cli/SKILL.md) skill documents
+   the second and has the setup check that tells them apart. Both story skills defer to it for
+   every command, and its per-command confirmation is added to their approval step, not a
+   replacement for it.
 3. **REST, via an environment token** — `JIRA_BASE_URL`, `JIRA_EMAIL`, and one of
    `JIRA_API_TOKEN`/`JIRA_TOKEN` by default, overridable via `jira.baseUrlEnv`, `jira.emailEnv`,
    `jira.tokenEnvVars`.

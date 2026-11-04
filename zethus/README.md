@@ -2,8 +2,8 @@
 
 **A development process for GitHub Copilot, in a form Copilot can follow and enforce.** One custom
 agent runs every change through research → spec → sign-off → phased implementation → tests → docs →
-local gates → a PR with evidence, and refuses to skip a stage. Ten standalone skills hold one procedure
-each. Four Markdown templates and five stdlib Python scripts do the mechanical parts. Install it as a
+local gates → a PR with evidence, and refuses to skip a stage. Ten core skills hold one procedure
+each, and optional extension skills (modernization, Jira, CLI tools) add more. Four Markdown templates and five stdlib Python scripts do the mechanical parts. Install it as a
 Copilot plugin from this repo's marketplace, so it follows you into every repo without changing any
 of them, or copy it into a repository's `.github/` folder for a whole team and the cloud agent.
 Nothing in it is specific to one organization.
@@ -280,7 +280,7 @@ Zethus ships both:
 | Copilot CLI (1.0.105, 1.0.106-2) | `com.github.copilot/agents/` only, because `plugin.json` declares the Agent Plugins 1.0 `$schema` | `com.github.copilot/hooks/hooks.json` only |
 | IntelliJ's Copilot language server (plugin 1.20.0, server 1.555.7) | `agents/` at the plugin root | `hooks.json`, else `hooks/hooks.json`, at the root |
 
-With only the first layout, IntelliJ listed the 22 skills but no agent and no hook. Neither host
+With only the first layout, IntelliJ listed the 27 skills but no agent and no hook. Neither host
 reads the other's place, so nothing loads or fires twice there. `plugin.json` can't point IntelliJ
 at `com.github.copilot/` instead: the 1.0 schema is closed, and the CLI ignores unknown keys and
 logs each one as an error. The files under `com.github.copilot/` are the canonical ones, and the
@@ -296,7 +296,7 @@ reads both places, it would load the agreement twice.
   ran a bundled script from that root.
 - **IntelliJ:** its bundled language server, driven over stdio with a sandboxed home. It added a
   local marketplace, installed **zethus** through its own install call, and listed the `zethus`
-  agent, the `SessionStart` hook and all 22 skills. It only lists the hook; nothing here ran the
+  agent, the `SessionStart` hook and all 27 skills. It only lists the hook; nothing here ran the
   hook inside the IDE.
 - **VS Code:** nothing has been run, so its steps rest on its docs and settings screens.
 
@@ -752,7 +752,7 @@ guardrail.
 |---|---|---|
 | [`skills/spec-to-stories`](skills/spec-to-stories/SKILL.md) | `.github/skills/` | Turns a Markdown spec into one Jira-ready story per file plus an index, each INVEST-checked with a self-check table and a flag on any failing criterion; groups stories into epics when the spec has phases |
 | [`skills/story-enrich`](skills/story-enrich/SKILL.md) | `.github/skills/` | Researches an existing Jira story against the real codebase (via `research-existing-code`, cited to `file:line`) and proposes a human-relevant enrichment plus a diff against the original |
-| [`scripts/jira-access.py`](scripts/jira-access.py) | `.github/zethus/scripts/` | Detects a `jira`/`acli` CLI or a REST token in the environment. An available Jira/Atlassian MCP tool is checked by the skill itself, not this script. Exit codes: `0` CLI or REST found · `1` neither, degrade to pasted input · `2` usage error |
+| [`scripts/jira-access.py`](scripts/jira-access.py) | `.github/zethus/scripts/` | Detects a `jira`/`acli` CLI or a REST token in the environment. It sees only the file name, so it can't tell go-jira from `jira-cli`, the tool [`skills/jira-cli`](skills/jira-cli/SKILL.md) documents. An available Jira/Atlassian MCP tool is checked by the skill itself, not this script. Exit codes: `0` CLI or REST found · `1` neither, degrade to pasted input · `2` usage error |
 | [`templates/story.md`](templates/story.md) | `.github/zethus/templates/` | One story: user story statement, context, acceptance criteria, out of scope, dependencies, INVEST self-check |
 | [`templates/stories-index.md`](templates/stories-index.md) | `.github/zethus/templates/` | The index a batch of stories is listed under, grouped by epic when the spec has phases |
 
@@ -762,6 +762,31 @@ New config keys, all optional (see [`zethus.config.example.json`](zethus.config.
 Unlike the rest of this kit, these two skills also work unmodified under Claude Code — the
 `SKILL.md` format is shared between the two harnesses, see
 [`docs/jira-skills.md`](docs/jira-skills.md#harness).
+
+## CLI tool skills
+
+Five optional, standalone skills that drive the tools a team already runs, from the terminal.
+Like the Jira pair above, none is part of the core ten, and they install the same way, alongside
+them. Each is PowerShell-first with labelled bash equivalents, reads its credentials from the
+environment only and never prints them, and shows every write in full and waits for a yes before it
+runs. The skill names carry a `-cli` suffix on purpose: a personal skill of the plain tool name
+(`~/.copilot/skills/jira`, say) silently beats a plugin skill of the same name, and a differing file
+there stops `install.py --user`.
+
+| Piece | Installs to | Purpose |
+|---|---|---|
+| [`skills/jira-cli`](skills/jira-cli/SKILL.md) | `.github/skills/` | Jira Cloud or Data Center through `ankitpokhrel/jira-cli`: JQL search, view, create, edit, transition, comment, assign, worklog, epics and sprints. [`story-enrich`](skills/story-enrich/SKILL.md) and [`spec-to-stories`](skills/spec-to-stories/SKILL.md) use it when they reach Jira |
+| [`skills/confluence-cli`](skills/confluence-cli/SKILL.md) | `.github/skills/` | Confluence through `cfl`, with a PowerShell REST fallback for the two things `cfl` lacks (comments, labels): CQL search, pages, attachments, spaces |
+| [`skills/datadog-cli`](skills/datadog-cli/SKILL.md) | `.github/skills/` | Datadog through the official Pup CLI: logs (with a cursor-paginated REST fallback), metrics, monitors, events, APM spans, dashboards, downtimes |
+| [`skills/jenkins-cli`](skills/jenkins-cli/SKILL.md) | `.github/skills/` | Jenkins or CloudBees CI through `jenkins-cli.jar` and the JSON API: jobs, builds, console logs, queue, nodes, plus CloudBees RBAC, service accounts and CasC bundle reload |
+| [`skills/sonarqube-cli`](skills/sonarqube-cli/SKILL.md) | `.github/skills/` | SonarQube Server or Cloud: `sonar-scanner` to analyse, the official `sonar` CLI to read projects, quality gates, issues, hotspots and measures |
+
+**Not run live.** The commands were carried over from reviewed research notes. Nobody has run them
+against a live Jira, Confluence, Datadog, Jenkins or SonarQube instance. Their checks are
+structural, in [`tests/test_zethus_tool_skills.py`](../tests/test_zethus_tool_skills.py): valid
+frontmatter, a description under the 1024-character limit that silently drops a longer one, the
+safety rules still present, and every PowerShell block passing PowerShell's own parser. The
+checklist at the end of each skill lists the live checks to do first.
 
 ## Maintaining this kit
 
