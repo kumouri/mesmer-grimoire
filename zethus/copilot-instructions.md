@@ -40,7 +40,7 @@ or ask. Never guess one.
   script, deploy manifest, which paths get copied into the image or onto the machines that run
   it) instead of guessing, and start it with one line saying what you checked:
   `the changed helper is local-only (not in the image's COPY paths); the remote job runs an unchanged image → starting the next runs.`
-  If the definitions don't settle it, don't start: ask once, as an option list.
+  If the definitions don't settle it, don't start: ask once, with the question tool.
 - **Re-judge.** Results collected while local tooling (a script that scores them, say) was still
   changing get re-judged with that tooling's final version before anyone relies on them, and the
   run log says so.
@@ -97,9 +97,16 @@ or ask. Never guess one.
 
 ## Decisions
 
-- When you need a decision, ask it as a short numbered list of options. Put your recommendation
-  first, mark it **(Recommended)**, and give each option a one-line cost. Ask related decisions
-  together, in one message.
+- When you need a decision, **ask it with the harness's question tool** so it arrives as a picker:
+  `ask_user` in the Copilot CLI, `vscode/askQuestions` in VS Code, `AskUserQuestion` in Claude Code,
+  `request_user_input` in Codex, the equivalent anywhere else ([why](docs/ask-with-the-question-tool.md)).
+  Put related decisions in one call. Each option gets a plain label and a description of what it
+  means and costs, with your recommendation first, marked **(Recommended)**. Prose is for a truly
+  open question. With no question tool in this session, ask a short numbered list and accept the
+  number or any clear wording. Never ask the person to type an exact phrase.
+- A choice guarding something destructive or irreversible stays an explicit choice: its options say
+  what happens, none is preselected, and no answer (a dismissed picker, silence, a run with no one
+  to ask) means don't.
 - A decision made in chat binds nothing until it is written down. Record it as an ADR
   (`python <kit root>/scripts/new-adr.py "…"`) in the same change.
 - If a question is still open, label it open. Never fill it in with a default you invented.

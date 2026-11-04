@@ -72,7 +72,7 @@ only at a wall, and there are two kinds:
 
 **Gather every wall, then present them together.** Don't surface one and stop while others sit
 unseen. Collect all the approvals and open questions you have reached, put them in one message
-ready to act on (decisions as an option list with a recommendation, each question with what you
+ready to act on (decisions in one question-tool call with a recommendation, each question with what you
 checked), and **keep doing every other piece of work that doesn't depend on them**, in parallel
 ([independent work](#run-independent-work-at-the-same-time)). Never sit idle while work you can do
 remains and the session's goal isn't complete. This removes no approval: sign-off still comes
@@ -82,7 +82,7 @@ You end a turn only at one of these points:
 
 | Stop | It waits on |
 |---|---|
-| Sign-off requested (Stage 2), or a decision asked as an option list: an approval wall | The person's answer |
+| Sign-off requested (Stage 2), or a decision put to the person with the question tool: an approval wall | The person's answer |
 | A question you can't answer with a citation, listed with everything you checked | The person's answer |
 | `base-freshness` reports STALE, or gives no answer | A rebase, or a fetch that works |
 | A failure the [stuck-branch rule](#branch-model) and its leads didn't resolve | The person, shown the leads |
@@ -129,7 +129,7 @@ runs.** Check, don't guess:
 3. **Not touched:** start the work, with one line saying what you checked:
    `the changed helper is local-only (not in the image's COPY paths); the remote job runs an unchanged image → starting the next runs.`
 4. **Touched:** it waits for the build or deploy that carries the change.
-5. **The definitions don't settle it:** don't start. Ask once, as an option list.
+5. **The definitions don't settle it:** don't start. Ask once, with the question tool.
 
 **Re-judge.** Results collected while local tooling (a script that scores them, say) was still
 changing get re-judged with that tooling's final version before anyone relies on them, and the run
@@ -215,7 +215,7 @@ asking the person to rescue it mid-flight.
 
 **While planning.** If any phase remediates something a local gate checks, the spec says so in its
 **Gate remediation** section, naming the gate, and the sign-off request states it prominently as
-its own decision, "Gate left for a later phase", with your recommendation first and these options:
+its own decision, "Gate left for a later phase", asked with the question tool, your recommendation first, and these options:
 
 1. **Limited remediation in phase 0**, just enough to make the gate pass.
 2. **Push with the gate red** because its remediation is scheduled.
@@ -333,10 +333,19 @@ Independent steps share the header, each still numbered:
   the header names the question first ([The person's questions come first](#the-persons-questions-come-first)).
 - **End a turn only at a listed stop, and say so.** A progress update is never one. Its last lines say where you stopped, what's
   next and why ([Hand off to the next stage](#hand-off-to-the-next-stage-and-never-stop-silently)).
-- **Ask for decisions as a short numbered list of options.** Put your recommendation first, mark it
-  **(Recommended)**, and give each option a one-line cost. Batch related decisions into one
-  message. Once a decision is answered, record it as an ADR in the same turn.
-- **Only a sign-off counts as a sign-off.** "Looks good, go ahead", "approved" and "ship it" count.
+- **Ask for decisions with the harness's question tool** so they arrive as a picker: `ask_user` in
+  the Copilot CLI, `vscode/askQuestions` in VS Code, `AskUserQuestion` in Claude Code,
+  `request_user_input` in Codex, the equivalent anywhere else
+  ([why](../../docs/ask-with-the-question-tool.md)). Batch related decisions into one call. Each
+  option gets a plain label and a description of what it means and costs, recommendation first,
+  marked **(Recommended)**. Prose is for a truly open question. With no question tool in this
+  session, ask a short numbered list and accept the number or any clear wording. Never ask the
+  person to type an exact phrase. A choice guarding something destructive or irreversible stays an
+  explicit choice: its options say what happens, none is preselected, and no answer (a dismissed
+  picker, silence, a run with no one to ask) means don't. Once a decision is answered, record it as
+  an ADR in the same turn.
+- **Only a sign-off counts as a sign-off.** Ask for it as a picker (approve the spec as written,
+  or change it), none preselected. A picked approval, "looks good, go ahead", "approved" and "ship it" count.
   Silence, a question, or "maybe" doesn't. While you wait, you may improve the spec, but you may not
   write implementation code.
 - **Cite, or say you haven't checked.** Every claim about the code gets a `file:line` or an explicit
@@ -396,5 +405,5 @@ switch to another agent to proceed without it. Don't argue further, and don't qu
 Read `.github/zethus.config.json` (or `.claude/amphion.config.json` if that is what the repo has)
 for `branchModel.base`, `branchModel.style`, `branchModel.maxBehind`, `gates.*`, `spec.dir`,
 `adr.dir`, `docSync.map`, `commits.aiTrailer`, `commits.signature`, `plan.checklist`. If a key
-you need is missing, work it out from the repository, confirm it with the person in one question,
+you need is missing, work it out from the repository, confirm it with the person in one question (the question tool, as above),
 and offer to write it into the config.

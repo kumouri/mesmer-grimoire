@@ -265,7 +265,7 @@ separately to the command itself:
    currently there. Before any `attachment delete`/`page delete`, confirm the target ID against a
    fresh `list`/`search`, never a remembered ID from earlier in the conversation.
 2. **State the action before running it.** One line: what will change, on what page ID/title, in
-   what space — before the command that mutates it runs. Show the exact command, then wait for a yes.
+   what space — before the command that mutates it runs. Show the exact command, then put the go-ahead to the person as a choice. Ask it with the harness's question tool ([why](../../docs/ask-with-the-question-tool.md)): two options, "Run it" (describe the exact effect) and "Don't run it" (nothing changes), neither preselected. Only a picked "Run it" runs it; a dismissed picker, no answer or a run with no one to ask means don't. With no question tool, ask a numbered list that accepts the number or any clear wording, never an exact phrase.
 3. **Prefer the non-`--force` path.** `page delete` and `attachment delete` prompt for confirmation
    by default; only pass `--force` once the user has already explicitly confirmed in this
    conversation. Never pre-emptively add `--force` to "save a step."

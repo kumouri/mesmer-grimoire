@@ -84,8 +84,8 @@ help.
 This skill never creates, updates, or comments on anything in Jira. It writes Markdown files and
 stops.
 
-**Only an explicit "create these" / "go ahead" / "approved", said after being shown the drafts,
-counts as approval.** Silence, a question, or "looks reasonable so far" doesn't. "Just push them,
+**Only an explicit approval, given after being shown the drafts, counts:** a picked "Create these" on
+the question tool, or any clear "go ahead" / "approved" (no exact phrase is required). Silence, a question, or "looks reasonable so far" doesn't. "Just push them,
 I trust it" gets the same answer zethus-pr-description gives to "just push it, CI will tell us": decline,
 and show the drafts first — approval covers what was actually shown, not what might have been meant.
 
@@ -93,7 +93,7 @@ If, after approval, the batch is to be created in Jira: check whether an Atlassi
 available in this session first (only the calling agent can see its own tool list); otherwise run
 `python <kit root>/scripts/jira-access.py` to check for a CLI or a REST token. For a `jira` CLI,
 follow [jira-cli](../jira-cli/SKILL.md): its setup and auth check first, then its create command,
-which states the exact command and waits for a yes for each issue. That is on top of the approval
+which states the exact command and gets a picked go-ahead for each issue. That is on top of the approval
 above, never in place of it. The script can't tell which tool a `jira` binary is, and that skill's
 commands are for `ankitpokhrel/jira-cli`, so if they aren't recognised, use REST or hand over the
 drafts. Create issues one at a time, report each created key back, and stop and ask again before

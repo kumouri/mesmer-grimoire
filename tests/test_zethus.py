@@ -951,7 +951,7 @@ class KitContract(unittest.TestCase):
                  "which paths get copied into the image or onto the machines that run it",
                  "the changed helper is local-only (not in the image's COPY paths); the remote "
                  "job runs an unchanged image → starting the next runs.",
-                 "ask once, as an option list",
+                 "ask once, with the question tool",
                  "re-judged with that tooling's final version before anyone relies on them, and "
                  "the run log says so",
                  "isn't affected",

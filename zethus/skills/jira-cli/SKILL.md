@@ -124,7 +124,7 @@ paging through it:
 **Before running anything in this section, state in plain language exactly what it will change**
 (issue key, field, old → new value) **and get an explicit go-ahead in the same turn.** This CLI has
 no built-in `--dry-run` flag, so that confirmation step is on this skill, not the tool: state the
-intended command verbatim, wait for a yes, then run it — never run first and ask forgiveness. This is
+intended command verbatim, get the go-ahead, then run it — never run first and ask forgiveness. Ask it with the harness's question tool ([why](../../docs/ask-with-the-question-tool.md)): two options, "Run it" (describe the exact effect) and "Don't run it" (nothing changes), neither preselected. Only a picked "Run it" runs it; a dismissed picker, no answer or a run with no one to ask means don't. With no question tool, ask a numbered list that accepts the number or any clear wording, never an exact phrase. This is
 in addition to, not instead of, Copilot's own shell-command approval prompt — the command itself will
 still need to clear that separately.
 
