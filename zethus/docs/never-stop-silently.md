@@ -42,7 +42,9 @@ files and runs local `git` commands, and exits.
 
 Copilot showing "processing" for over thirty minutes with no output means the host still held the
 turn. By her account both checks had returned, so no kit process was running, and nothing in the
-kit runs in the background. A model or CLI that stops emitting mid-turn is outside anything
+kit runs in the background (*correction, 2026-11-06: true of the kit's own scripts, but a session can
+start a command that runs in the background, and the kit had no rule for waiting on one; see the
+[addendum](#addendum-2026-11-06-waiting-on-a-background-command)*). A model or CLI that stops emitting mid-turn is outside anything
 instructions or scripts control. This record doesn't claim a fix for it. It fixes the gap the kit
 does own, at the point where the stall happened, and makes any turn that does end say why. Whether
 the missing handoff contributed to the stall can't be shown from the files.
@@ -108,6 +110,47 @@ Limits, stated plainly:
 - IntelliJ's Copilot server may not run `agentStop` at all; the same registration is mirrored to
   its root and is simply inert there if so. Repo-mode and user-mode `install.py` copies carry the
   text rules but no hook, because the kit's hooks ship only in the plugin.
+
+## Addendum, 2026-11-06: waiting on a background command
+
+Ceryce's report, paraphrased: in a Copilot CLI session the model started an install that takes a few
+minutes as a background shell. It then spent its reasoning working out how to wait: it believed it had
+no wait tool, could not ask the person, and considered reading the shell's output as a silent wait.
+It got there, but with effort and some risk each time, because the kit said nothing.
+
+The gap: a command still running in the background is not a listed stop, so ending the turn is
+silent, yet the kit never said how to wait. The stop table, the stage hand-offs and the independent
+work rules all assumed the work was in the foreground.
+
+What changed, adding to the decision above and replacing none of it:
+
+| Where | Change |
+|---|---|
+| The agent file, in *Hand off to the next stage* | When a command runs in the background and its result is needed, block on the harness's output read with a long delay (on the Copilot CLI, `read_powershell` with the shell's id; the tool describes a delay of 120 seconds or more as right for waiting, and documents no cap), repeat until it exits, don't narrate each read, don't end the turn, don't start work that depends on the result |
+| The stop table | A new row: the command outlived the wait bound (the one the person gave, else 30 minutes of waiting). The stop block says it is still running in the background, how long was waited, what it waits on and what is next |
+| [`stop_guard.py`](../com.github.copilot/hooks/stop_guard.py) | See below |
+| The working agreement | The short form of the rule |
+
+**Can the guard fire on a turn that is legitimately waiting?** Not while it waits: the model is inside
+a tool call, and `agentStop` runs when a turn ends. It could fire on the report after the bound runs
+out, because the guard's wall words did not include a running command, so that honest stop would have
+been refused as a progress report. The guard now accepts a `Stopped at:` block whose `Why:` says the
+command is still running in the background **and** whose closing lines give a duration waited
+("waited 30 minutes"). It is deliberately narrow:
+
+- "Waiting on the background install" with no duration is still refused, which is the silent stop
+  the rule exists to prevent. Its refusal now says to block on the output read, not to start the next
+  phase, since the next phase may read the result.
+- The guard can't see the bound or check the duration against it, only that a duration is stated, so
+  a model can still write one it didn't wait. That is the same limit as a `Why:` naming a wall it
+  hasn't reached (see the limits above), and the same bounded refusals apply.
+
+The next-prompt reminder gets the same distinction: a turn that ended to wait on a background command
+is told to resume the wait first.
+
+Declined: a "sleep" or poll loop run as a command, since it holds the shell and hides the real
+command's output; and asking the person whether to keep waiting, since a wait is not a decision and
+the person can't be asked in a headless run.
 
 ## Options considered
 

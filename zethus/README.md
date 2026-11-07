@@ -46,7 +46,9 @@ or the goal complete. A finished phase, a commit or a green gate is progress, no
 going through everything it can do, gathers every wall it reached and presents them together, and
 carries on with the unblocked work meanwhile. Each time it does stop, it ends with where it
 stopped, what's next and why, and a plugin hook refuses a turn that ends without that
-([never stop silently](docs/never-stop-silently.md)).
+([never stop silently](docs/never-stop-silently.md)). A command still running in the background
+is not a stop either: it waits by blocking on the harness's output read until the command exits,
+and only reports past a stated bound ([how](docs/never-stop-silently.md#addendum-2026-11-06-waiting-on-a-background-command)).
 
 Your questions come first. Ask something mid-task, above all about the agent's own behaviour, and
 answering it becomes the current task: answered fully, investigated if needed, before the agent
