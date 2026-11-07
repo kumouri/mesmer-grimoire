@@ -3,7 +3,7 @@
 **A development process for GitHub Copilot, in a form Copilot can follow and enforce.** One custom
 agent runs every change through research → spec → sign-off → phased implementation → tests → docs →
 local gates → a PR with evidence, and refuses to skip a stage. Ten core skills hold one procedure
-each, and optional extension skills (modernization, Jira, CLI tools) add more. Four Markdown templates and five stdlib Python scripts do the mechanical parts. Install it as a
+each, and optional extension skills (modernization, Jira, CLI tools, session review) add more. Four Markdown templates and five stdlib Python scripts do the mechanical parts. Install it as a
 Copilot plugin from this repo's marketplace, so it follows you into every repo without changing any
 of them, or copy it into a repository's `.github/` folder for a whole team and the cloud agent.
 Nothing in it is specific to one organization.
@@ -294,7 +294,7 @@ Zethus ships both:
 | Copilot CLI (1.0.105, 1.0.106-2) | `com.github.copilot/agents/` only, because `plugin.json` declares the Agent Plugins 1.0 `$schema` | `com.github.copilot/hooks/hooks.json` only |
 | IntelliJ's Copilot language server (plugin 1.20.0, server 1.555.7) | `agents/` at the plugin root | `hooks.json`, else `hooks/hooks.json`, at the root |
 
-With only the first layout, IntelliJ listed the 27 skills but no agent and no hook. Neither host
+With only the first layout, IntelliJ listed the 28 skills but no agent and no hook. Neither host
 reads the other's place, so nothing loads or fires twice there. `plugin.json` can't point IntelliJ
 at `com.github.copilot/` instead: the 1.0 schema is closed, and the CLI ignores unknown keys and
 logs each one as an error. The files under `com.github.copilot/` are the canonical ones, and the
@@ -310,7 +310,7 @@ reads both places, it would load the agreement twice.
   ran a bundled script from that root.
 - **IntelliJ:** its bundled language server, driven over stdio with a sandboxed home. It added a
   local marketplace, installed **zethus** through its own install call, and listed the `zethus`
-  agent, the `SessionStart` hook and all 27 skills. It only lists the hook; nothing here ran the
+  agent, the `SessionStart` hook and all 28 skills. It only lists the hook; nothing here ran the
   hook inside the IDE.
 - **VS Code:** nothing has been run, so its steps rest on its docs and settings screens.
 
@@ -801,6 +801,28 @@ structural, in [`tests/test_zethus_tool_skills.py`](../tests/test_zethus_tool_sk
 frontmatter, a description under the 1024-character limit that silently drops a longer one, the
 safety rules still present, and every PowerShell block passing PowerShell's own parser. The
 checklist at the end of each skill lists the live checks to do first.
+
+## Session review
+
+One optional, standalone skill, for use in a workplace where transcripts can't leave. It lists your
+local agent sessions, scans the ones you select, pairs each ask with what the agent did, and writes a
+short report of failure patterns. It installs the same way as the rest, through all three routes.
+
+A script writes the report, from fixed wording, integers, dates and "Session N" labels, and refuses
+to write anything else. Nothing from a transcript reaches it, tool names included, so it can be shown
+to someone who must learn nothing about the work. A session it can't parse shows as "could not read",
+never as clean. [The guarantee](docs/session-review-guarantee.md) says how this works, what it can't
+catch, and which session stores were checked against a real session.
+
+| Piece | Installs to | Purpose |
+|---|---|---|
+| [`skills/session-review`](skills/session-review/SKILL.md) | `.github/skills/` | The procedure: list, select with the question tool, scan, hand over the file as written |
+| [`scripts/session-review.py`](scripts/session-review.py) | `.github/zethus/scripts/` | `list` (on-screen only) and `scan --select ...`. Reads read-only, no network, spawns nothing, writes one file, by default outside any git working tree. Exit codes: `0` listed or written · `1` refused · `2` usage error |
+
+New config keys, all optional defaults a flag can also set (see
+[`zethus.config.example.json`](zethus.config.example.json)): `sessionReview.listLimit`,
+`sessionReview.maxSessions`, `sessionReview.maxReportLines`, `sessionReview.maxTableRows`,
+`sessionReview.stallMinutes`.
 
 ## Maintaining this kit
 

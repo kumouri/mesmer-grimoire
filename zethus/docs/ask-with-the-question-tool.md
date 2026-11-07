@@ -57,7 +57,8 @@ A confirm step that exists for safety keeps its safety when it becomes a picker:
 
 Converted gates: the mutation confirmations in `confluence-cli`, `datadog-cli`, `jenkins-cli`,
 `jira-cli` and `sonarqube-cli`; the per-issue creation in `spec-to-stories`; the write-back in
-`story-enrich`; the Stage 2 spec sign-off; the "Gate left for a later phase" ruling.
+`story-enrich`; the Stage 2 spec sign-off; the "Gate left for a later phase" ruling; the session
+selection in `session-review`, where no answer scans nothing.
 
 ## Options considered
 
