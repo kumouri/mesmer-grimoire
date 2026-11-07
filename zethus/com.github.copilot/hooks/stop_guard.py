@@ -29,6 +29,13 @@ says, so there is nothing to ask: the fix is pulled forward. The planning stop (
 asking for that ruling there is the point. That is the one stop whose reason is allowed to be a wall
 and is still refused, because the wall is not real.
 
+A turn that is legitimately waiting on a background command is not a turn that ended: the model is
+inside a tool call (the output read), so this hook never sees it. What the hook can see is the report
+after the wait bound ran out. That ends the turn at a real stop only if its ``Why:`` says the command is
+still running in the background *and* the closing lines give how long was waited ("waited 30
+minutes"). "Waiting on the background install" with no duration is the silent stop, and is refused
+with a reason that says to block on the output read instead.
+
 Not known: the transcript's exact shape on every host. An unreadable or unrecognised transcript
 means *allow*. Fail-open: any error prints nothing and exits 0.
 """
@@ -58,6 +65,12 @@ GATE_ASK = (re.compile(r"\b(gates?|sonar\w*|lint\w*|quality)\b"),
                        r"|mov(?:e|es|ed|ing))\b"),
             re.compile(r"\b(authori[sz]\w*|approv\w*|permission|may i|should i|ok to|okay to|go-ahead"
                        r"|go ahead)\b"))
+# A background command that outlived the wait bound is a stop only with its duration on the page.
+BACKGROUND_RE = re.compile(r"\b(in the background|background (?:command|job|shell|install|build|task)"
+                           r"|shellid|read_powershell|read_bash)\b")
+BACKGROUND_WHY_RE = re.compile(r"\b(?:still running|in the background|background)\b")
+WAITED_RE = re.compile(r"\bwaited\b[^.\n]{0,40}?\b\d+(?:\.\d+)?\s*"
+                       r"(?:s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?)\b")
 WALLS = ("sign-off", "sign off", "signoff", "approval", "approve", "decision", "option", "answer",
          "question", "citation", "cite", "stale", "rebase", "fetch", "refus", "stuck", "merge",
          "waiting for your", "waiting on you", "change is done", "work is done", "goal is complete",
@@ -110,10 +123,23 @@ def is_zethus_turn(reply: str) -> bool:
     return any(HEADER_RE.match(line) for line in reply.splitlines()[:6])
 
 
+def closing_lines(reply: str) -> str:
+    return "\n".join(reply.strip().splitlines()[-12:])
+
+
 def is_real_stop(reply: str) -> bool:
-    tail = "\n".join(reply.strip().splitlines()[-12:])
+    tail = closing_lines(reply)
     why = WHY_RE.search(tail)
-    return bool(STOPPED_RE.search(tail) and why and any(w in why.group("why").lower() for w in WALLS))
+    if not (STOPPED_RE.search(tail) and why):
+        return False
+    reason = why.group("why").lower()
+    return any(w in reason for w in WALLS) or bool(
+        BACKGROUND_WHY_RE.search(reason) and WAITED_RE.search(tail.lower()))
+
+
+def waits_on_background(reply: str) -> bool:
+    """The closing lines are about a command still running in the background (a stop or a bare wait)."""
+    return bool(BACKGROUND_RE.search(closing_lines(reply).lower()))
 
 
 def stage_of(reply: str) -> int | None:
@@ -167,6 +193,15 @@ def refuse(event: dict, reply: str) -> str:
                   "spec's Gate remediation section; the gate script says when one applies. "
                   f"(Refusal {seen + 1} of {MAX_REFUSALS}; after that the turn is let through.)")
         return json.dumps({"decision": "block", "reason": reason})
+    if waits_on_background(reply):
+        reason = ("Zethus: a command running in the background is not a stop. Don't end the turn to wait "
+                  "for it: block on the harness's output read for it (`read_powershell` with its shellId "
+                  "and a long delay on the Copilot CLI), again and again until it exits, with no "
+                  "narration per wait, then carry on. If it has outlived the wait bound, close with the "
+                  "Stopped at / Next / Why block, saying the command is still running in the background "
+                  "and how long you waited. "
+                  f"(Refusal {seen + 1} of {MAX_REFUSALS}; after that the turn is let through.)")
+        return json.dumps({"decision": "block", "reason": reason})
     reason = (f"Zethus: that turn ended at a progress point, not a stop. A finished phase, a commit or "
               f"a passing gate never ends a turn. Next action: {next_action(reply)}. Do it now, in this "
               "turn, and keep going through everything you can do until the session's goal is complete "
@@ -192,6 +227,14 @@ def remind(event: dict) -> str:
                                                   "additionalContext": text}})
     if is_real_stop(reply):
         return ""
+    if waits_on_background(reply):
+        text = ("Zethus: your last turn ended to wait on a background command, which is not a stop. Unless "
+                "this message is a question, resume the wait first: block on the harness's output read "
+                "for it (`read_powershell` with its shellId and a long delay on the Copilot CLI) until it "
+                "exits, then carry on.")
+        return json.dumps({"additionalContext": text,
+                           "hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                                                  "additionalContext": text}})
     text = ("Zethus: your last turn ended at a progress point, not a listed stop. Unless this message "
             f"is a question (answer that first and say plainly that you stopped early), continue with "
             f"{next_action(reply)} before anything else, and keep going until the goal is complete or "

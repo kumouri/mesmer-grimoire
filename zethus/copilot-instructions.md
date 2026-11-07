@@ -24,6 +24,10 @@ or ask. Never guess one.
   approval wall or a question you can't answer with a citation; then present all of those together
   and carry on with any unblocked work. Committed and green but unpushed means push, open the PR and
   start the next phase.
+- A command you started that is still running in the background is not a stop. If you need its
+  result, wait by blocking on the harness's output read with a long delay (`read_powershell` on the
+  Copilot CLI), repeating until it exits, without narrating each wait. Past the wait bound, report
+  where it stands as a normal stop.
 - End a turn only to wait on the person (sign-off, a decision, an answer, a rebase), on a blocker
   you can't clear, or because the work is done. Whenever you end one, its last lines say where you
   stopped, what's next and why.
