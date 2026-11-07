@@ -27,8 +27,7 @@
 
 ## The ask
 
-Ceryce, Telegram, 2026-09-27 01:10 CT, from the todo that motivated both extensions (due
-2026-10-02, priority critical):
+Ceryce, Telegram, 2026-09-27 01:10 CT, from the todo that motivated both extensions:
 
 > "a copilot pipeline to modernize batch jobs that reuses as much of zethus as possible. So
 > basically just specialized skills to work with different DB backends, different batch job
@@ -48,7 +47,7 @@ Ceryce, Telegram, 2026-09-27 01:10 CT, from the todo that motivated both extensi
 
 | # | Fact | Where | How verified |
 |---|---|---|---|
-| F1 | Zethus's agent runs every change through a fixed seven-stage table (Orient, Research, Spec, Implement, Tests, Gates, Docs, PR), each with a named skill and an exit condition | `agents/zethus.agent.md:14-25` | read the stage table |
+| F1 | Zethus's agent runs every change through a fixed seven-stage table (Orient, Research, Spec, Implement, Tests, Docs, Gates, PR), each with a named skill and an exit condition | `com.github.copilot/agents/zethus.agent.md:14-25` | read the stage table |
 | F2 | A skill is a plain `SKILL.md` with only `name` and `description` frontmatter — no schema for a skill's own inputs or outputs beyond what its prose says | `skills/research-existing-code/SKILL.md:1-4` (representative of all ten) | read the frontmatter of all ten skill files |
 | F3 | `research-existing-code` already requires every claim cited to `file:line`, every negative claim backed by the search that proved it, and an explicit "what this did not cover" section | `skills/research-existing-code/SKILL.md:12-44` | read the procedure |
 | F4 | Config already has a documented resolution order (`.github/zethus.config.json` → `$ZETHUS_CONFIG` → `.copilot/zethus.config.json` → `.claude/amphion.config.json` → `~/.copilot/zethus/config.json` → discovery) and shares key names with Amphion | `README.md:229-282` | read the config table |
@@ -60,7 +59,7 @@ Ceryce, Telegram, 2026-09-27 01:10 CT, from the todo that motivated both extensi
 **What this did not cover:** the scripts' internals beyond what their docstrings and the README
 table describe (`run-local-gates.py`'s per-toolchain discovery logic was not read line-by-line);
 Amphion's skills, beyond the parts of the Zethus README that describe the shared vocabulary; any
-code outside `claude-grimoire`. The parked research on shipping Zethus as a Copilot plugin
+code outside `mesmer-grimoire`. The parked research on shipping Zethus as a Copilot plugin
 (`2026-09-24-copilot-plugin-packaging.md`, not part of this repo) was read for compatibility only.
 
 ## Design
@@ -179,7 +178,7 @@ clients aren't excluded, just not what v1 is built and gated against.
 | *(added 2026-09-28, web-app v1)* Alongside the golden-master check | Every HTTP-shaped fixture has the fields a replay needs, and none looks like it captured real user data | proceed | list the gaps, refuse |
 
 This reuses `base-freshness.py`'s pattern exactly: stdlib Python, one purpose, an exit code the
-agent's refusal table can act on (`agents/zethus.agent.md:96-109` already has the shape for this —
+agent's refusal table can act on (`com.github.copilot/agents/zethus.agent.md:96-109` already has the shape for this —
 "decline, and say why" — this just adds these rows). The credential row is a standing safety check
 rather than a stage boundary: **v1's job stops at detection** — flagging the credential and
 refusing to use it — not at remediation; reporting it to security and rotating it are left to the
@@ -206,16 +205,16 @@ missing fixture id), that gap is the spec for the second `.agent.md`.
 | 3 · Implement | `implement-phase`'s Phase 0 rule, its classification table for unplanned work | Phase 0 is redefined, for this work only, as "golden masters exist for every constitution row" |
 | 4 · Tests | `test-plan`'s mutation check | Golden-master fixtures generated from the legacy system, not authored |
 | — | — | **Overseer gate:** every constitution row has a fixture, before Tests reports done |
-| 5 · Gates | `run-local-gates.py`, `gates.steps` | A `characterization-suite` gate step, same mechanism, new command |
-| 6 · Docs | `docs-sync-check`, `docSync.map` | The constitution is a doc under the map: code changing without the constitution updating is exactly what `--sync-base` already flags (F5) |
-| 7 · PR | `pr-description`'s evidence sections | Evidence adds: rule-ledger coverage, constitution diff, golden-master pass table |
+| 5 · Docs | `docs-sync-check`, `docSync.map` | The constitution is a doc under the map: code changing without the constitution updating is exactly what `--sync-base` already flags (F5) |
+| 6 · Gates | `run-local-gates.py`, `gates.steps` | A `characterization-suite` gate step, same mechanism, new command |
+| 7 · PR | `zethus-pr-description`'s evidence sections | Evidence adds: rule-ledger coverage, constitution diff, golden-master pass table |
 
 ### What's new vs. reused
 
 | Reused unchanged | New |
 |---|---|
 | Seven-stage pipeline, refusal model, sign-off rule | `recover-business-rules` skill |
-| `write-spec-full` / `write-adr` / `test-plan` / `pr-description` procedures | `templates/constitution.md` |
+| `write-spec-full` / `write-adr` / `test-plan` / `zethus-pr-description` procedures | `templates/constitution.md` |
 | `run-local-gates.py`, `base-freshness.py`, config resolution order | Overseer stage-gate script(s) (three new exit-condition checks) |
 | `docs-sync-check` + `docSync.map` | A confidence vocabulary (High/Medium/Low) for recovered rules |
 | Branch models, PR template, gate mechanism | Per-stack characterization-test shape (specified per consuming spec) |

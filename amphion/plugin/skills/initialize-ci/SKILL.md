@@ -162,7 +162,7 @@ test/lint). Write only `.github/workflows/ci.yml` (or the agreed names).
   what the workflow does + the local command to reproduce it). Add only with
   consent; keep terse; don't duplicate this skill's logic. If the repo already
   documents its CI, correct that text in place rather than adding a second
-  description of the same thing — see the `sync-claude-md` skill.
+  description of the same thing.
 
 ## Unsupported stacks
 

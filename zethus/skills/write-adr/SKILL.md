@@ -5,6 +5,8 @@ description: Record a decision as an Architecture Decision Record — one impera
 
 # Write an ADR
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 A decision made in conversation binds nobody. It gets forgotten, then asked again, and sometimes
 answered differently the second time. It counts as a decision only once it is recorded somewhere
 tracked, in the same change that acts on it.
@@ -12,7 +14,7 @@ tracked, in the same change that acts on it.
 ## Procedure
 
 1. **Create the record:**
-   `python .github/zethus/scripts/new-adr.py "<decision as a short title>" --deciders "<who>"`.
+   `python <kit root>/scripts/new-adr.py "<decision as a short title>" --deciders "<who>"`.
    This writes `docs/adr/<YYYY-MM-DD>-<slug>.md` (or `adr.dir` from config) and adds a row to that
    directory's `README.md` index. The id is keyed to the date, not numbered, so two branches
    adding ADRs at the same time never collide.

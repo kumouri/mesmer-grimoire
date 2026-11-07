@@ -1,2 +1,4 @@
 local.jsonl
 usage.local.json
+.*.tmp
+.store.lock

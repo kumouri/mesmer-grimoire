@@ -1,0 +1,29 @@
+{
+  "name": "mesmer-grimoire",
+  "owner": {
+    "name": "Ceryce Armstrong",
+    "url": "https://github.com/kumouri"
+  },
+  "metadata": {
+    "description": "Ceryce Armstrong's GitHub Copilot plugins. Add it pinned: kumouri/mesmer-grimoire#main.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "zethus",
+      "source": "./zethus",
+      "version": "0.11.0",
+      "description": "A development process for GitHub Copilot that it follows and enforces: research, spec, sign-off, phased implementation, tests, docs, local gates and an evidence PR.",
+      "license": "Apache-2.0",
+      "repository": "https://github.com/kumouri/mesmer-grimoire"
+    },
+    {
+      "name": "mnemosyne",
+      "source": "./mnemosyne/plugin",
+      "version": "0.5.0",
+      "description": "Reflexion memory for GitHub Copilot: sync on session start, and lessons capture in shadow mode, over a git-backed store. Needs the mnemosyne package: see its README.",
+      "license": "Apache-2.0",
+      "repository": "https://github.com/kumouri/mesmer-grimoire"
+    }
+  ]
+}

@@ -64,7 +64,16 @@
           "description": "file:line or url anchors backing the lesson."
         },
         "reflection_of": {"type": "string", "description": "For episodic lessons: the event/feedback that triggered the reflection (what went wrong)."},
-        "stage": {"type": "string", "description": "Lifecycle stage this lesson was learned in (provenance; config.stages)."}
+        "stage": {"type": "string", "description": "Lifecycle stage this lesson was learned in (provenance; config.stages)."},
+        "exported_to": {
+          "type": "object",
+          "description": "On a kept local original: where its promoted or exported copy went. `sync` retires the original once that copy is merged.",
+          "properties": {
+            "tier": {"type": "string", "description": "'shared' for this repo, else a store tier label."},
+            "remote_id": {"type": "string", "description": "The copy's id in that tier."}
+          }
+        },
+        "exported_from": {"type": "string", "description": "On a promoted or exported copy whose id differs: the local id it came from."}
       }
     },
     "confidence": {
@@ -84,19 +93,19 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["state"],
-      "description": "Promotion/governance state. New lessons start 'local' (per-developer, gitignored). 'proposed' = a PR is open. 'approved' = merged into the shared store.",
+      "description": "Promotion/governance state. New lessons start 'local' (per-developer, gitignored). 'proposed' = a review PR is open (the kept local original carries this). 'approved' = the copy on the review branch; merging that PR into the default branch is the approval.",
       "properties": {
         "state": {"type": "string", "enum": ["local", "proposed", "approved"]},
         "approved_by": {"type": "string"},
         "pr": {"type": "string", "description": "PR url/number that promoted it."}
       }
     },
-    "author": {"type": "string", "description": "Who captured the lesson."},
+    "author": {"type": "string", "description": "Who captured the lesson: $MNEMOSYNE_AUTHOR, else 'unknown'. Never the OS login name."},
     "created": {"type": "string", "format": "date", "description": "ISO date captured."},
     "updated": {"type": "string", "format": "date", "description": "ISO date last changed."},
     "uses": {"type": "integer", "minimum": 0, "default": 0, "description": "Baseline recall count as authored/seeded. Live recall usage is tracked in the gitignored memory/usage.local.json sidecar so reads never churn this committed file; stats/prune merge the two."},
     "reinforced": {"type": "integer", "minimum": 0, "default": 0, "description": "How many times a near-duplicate capture reinforced this lesson instead of adding a new record. High reinforced = repeatedly re-learned; can earn higher confidence and protects against pruning."},
     "last_used": {"type": "string", "format": "date", "description": "ISO date this lesson was last reinforced (set by dedup-on-capture). A recency signal used by prune."},
-    "retired_reason": {"type": "string", "description": "If status=retired by `mnemosyne prune`, the machine-written reason. The record is KEPT for audit, never deleted."}
+    "retired_reason": {"type": "string", "description": "If status=retired (by `mnemosyne prune`, or by `sync` once a promoted copy merged), the machine-written reason. The record is KEPT for audit, never deleted."}
   }
 }

@@ -47,7 +47,7 @@ Therefore:
 What this guard deliberately does NOT flag
 ==========================================
 Ceryce's name, her ``@kumouri`` handle, and the portfolio attribution lines in
-``README.md`` and ``CLAUDE.md`` are **deliberate attribution** -- this is her
+``README.md`` and ``AGENTS.md`` are **deliberate attribution** -- this is her
 signed portfolio repo and the signature is the point. No rule targets them, by
 design: a rule against the author's own name in her own portfolio would be
 nothing but false positives, and "fixing" it would be the wrong repair. Her
@@ -101,7 +101,11 @@ EXAMPLE_DOMAINS = {"example.com", "example.org", "example.net", "example.edu"}
 # The one GitHub org this project actually lives under. Not a secret: it is on
 # the repo's own URL. Pinning it turns a dead-link defect into a CI failure.
 CANONICAL_ORG = "kumouri"
-REPO_SLUG = "claude-grimoire"
+REPO_SLUG = "mesmer-grimoire"
+# Former names of this repo. GitHub redirects them today, but a redirect is
+# only as durable as nobody reusing the old name -- and a link to the old name
+# advertises a repo that no longer exists. Any URL still using one is stale.
+RETIRED_SLUGS = ("claude-grimoire",)
 
 # --------------------------------------------------------------------------
 # Allowlist -- deliberate attribution that a rule would otherwise flag
@@ -159,10 +163,14 @@ POSIX_HOME_PATH = re.compile(r"(?<![A-Za-z0-9._-])/(?:home|Users)/(" + _SEG + r"
 # Requires a single-letter segment, so /mnt/data and /mnt/storage do not match.
 WSL_MOUNT_PATH = re.compile(r"(?<![A-Za-z0-9._-])(/mnt/[a-z]/)(?![a-z0-9])", re.IGNORECASE)
 
-# Rule 5 -- this project's own GitHub URL under the wrong org. Catches the
-# dead-link defect where published package metadata points at a nonexistent org.
+# Rule 5 -- this project's own GitHub URL under the wrong org, or under a
+# retired repo name. Catches the dead-link defect where published package
+# metadata points at a nonexistent org or at the repo's pre-rename slug.
 REPO_URL_ORG = re.compile(
-    r"github\.com[:/]([A-Za-z0-9_.-]+)/" + re.escape(REPO_SLUG), re.IGNORECASE
+    r"github\.com[:/]([A-Za-z0-9_.-]+)/("
+    + "|".join(re.escape(s) for s in (REPO_SLUG, *RETIRED_SLUGS))
+    + r")(?![A-Za-z0-9_-])",
+    re.IGNORECASE,
 )
 
 # Rule 6 -- email addresses. Personal contact details are identifiers; the
@@ -207,7 +215,13 @@ def scan_line(line: str):
         )
 
     for m in REPO_URL_ORG.finditer(line):
-        if m.group(1).lower() != CANONICAL_ORG:
+        if m.group(2).lower() != REPO_SLUG:
+            yield m.group(0), (
+                "Retired repo name: this project was renamed to "
+                f"github.com/{CANONICAL_ORG}/{REPO_SLUG}. The old URL only "
+                "works while GitHub's redirect holds."
+            )
+        elif m.group(1).lower() != CANONICAL_ORG:
             yield m.group(0), (
                 "Wrong GitHub org for this project: it lives at "
                 f"github.com/{CANONICAL_ORG}/{REPO_SLUG}. Published package "

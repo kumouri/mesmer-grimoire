@@ -5,6 +5,8 @@ description: Recover routes, action/form mappings, validation, session-scoped Ac
 
 # Web-app target reader: Struts 1.x / 2.x
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 Rank 1 of the ranked legacy web-app targets
 ([`../../docs/webapp-modernization.md`](../../docs/webapp-modernization.md#ranked-legacy-targets)).
 Built for this build's own FIRST REAL TARGET SHAPE — not an edge case, the primary one this reader
@@ -19,7 +21,7 @@ for any JSP view either framework renders.
 1. **Run the reader over every `struts-config.xml` / `struts.xml`:**
 
    ```bash
-   python .github/zethus/scripts/struts-reader.py path/to/struts-config.xml \
+   python <kit root>/scripts/struts-reader.py path/to/struts-config.xml \
      --java path/to/SomeController.java [more java files...] \
      --out rules/struts.json --session-out session-state/struts.json \
      --routes-out routes/struts.json

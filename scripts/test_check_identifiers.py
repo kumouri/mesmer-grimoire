@@ -87,10 +87,22 @@ class TestOtherAbsolutePaths(unittest.TestCase):
 class TestRepoOrg(unittest.TestCase):
     def test_wrong_org_fires(self):
         for line in (
-            "https://github.com/someoneelse/claude-grimoire",
-            "git@github.com:someoneelse/claude-grimoire.git",
+            "https://github.com/someoneelse/mesmer-grimoire",
+            "git@github.com:someoneelse/mesmer-grimoire.git",
         ):
             self.assertTrue(matches(line), line)
+
+    def test_retired_slug_fires_even_under_the_canonical_org(self):
+        for slug in ci.RETIRED_SLUGS:
+            for line in (
+                f"https://github.com/{ci.CANONICAL_ORG}/{slug}/tree/main/grimoire",
+                f"git clone https://github.com/{ci.CANONICAL_ORG}/{slug}.git",
+            ):
+                self.assertTrue(matches(line), line)
+
+    def test_slug_prefix_of_another_repo_does_not_fire(self):
+        line = f"https://github.com/psf/{ci.REPO_SLUG}-extras"
+        self.assertEqual(matches(line), [])
 
     def test_canonical_org_does_not_fire(self):
         self.assertEqual(matches(f"https://github.com/{ci.CANONICAL_ORG}/{ci.REPO_SLUG}"), [])

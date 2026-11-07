@@ -31,8 +31,15 @@ Rules it keeps, because each one is a way a local run lies:
   ``mvnw.cmd`` through ``PATHEXT``. An extensionless file (the POSIX ``mvnw`` script beside
   ``mvnw.cmd``) is never picked on Windows, because Windows can't execute it.
 
+- **Every gate is green before a phase pushes, whatever the plan says.** A red gate is fixed in the
+  phase being pushed, even when the plan put its remediation in a later phase; the RED verdict
+  says so. The one exception is a ``push-red`` ruling the person approved in a signed-off spec's
+  ``## Gate remediation`` section (see ``_gate_rulings.py``): that gate may stay red, the table
+  marks it, and the exit code is 4 so it can't pass for a full green.
+
 Exit codes: 0 every gate ran and passed (or the ``--only`` selection did) · 1 a gate failed ·
-2 usage error or no gates found · 3 nothing failed but some gates did not run.
+2 usage error or no gates found · 3 nothing failed but some gates did not run · 4 every failure
+is a gate the approved plan lets stay red, and everything else passed.
 """
 from __future__ import annotations
 
@@ -50,6 +57,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import UsageError, cfg, find_repo_root, git, load_config, rel  # noqa: E402
+from _gate_rulings import active_rulings  # noqa: E402
 
 TAIL_LINES = 40
 
@@ -302,11 +310,24 @@ def tree_state(repo: Path) -> str:
             f"({modified} modified, {untracked} untracked)")
 
 
-def verdict(gates: list[Gate], selected: bool) -> tuple[str, int]:
-    failed = [g.name for g in gates if g.status == "FAIL"]
+def verdict(gates: list[Gate], selected: bool, waivers: dict | None = None) -> tuple[str, int]:
+    """``waivers`` maps lower-cased gate names to approved ``push-red`` rulings."""
+    waivers = waivers or {}
+    failed = [g.name for g in gates if g.status == "FAIL" and g.name.lower() not in waivers]
+    allowed = [g.name for g in gates if g.status == "FAIL" and g.name.lower() in waivers]
     unchecked = [g.name for g in gates if g.status in ("SKIP", "MANUAL")]
     if failed:
-        return "RED — fix before pushing: " + ", ".join(failed), 1
+        return ("RED — fix before pushing: " + ", ".join(failed)
+                + ". Fix each in the phase being pushed, as small a fix as turns it green, even if the "
+                  "plan puts its remediation in a later phase; don't stop to ask, and say in the "
+                  "phase's report that it was pulled forward and why"), 1
+    if allowed:
+        note = "; ".join(f"{waivers[n.lower()].gate} ({waivers[n.lower()].spec})" for n in allowed)
+        tail = f"push-red approved in the plan for: {note}. Say in the PR that these gates are red"
+        if unchecked:
+            return (f"GREEN on what ran, but {len(unchecked)} gate(s) NOT checked: "
+                    + ", ".join(unchecked) + f" — not a full run. {tail}"), 3
+        return f"GREEN except gate(s) the approved plan lets stay red: {', '.join(allowed)} — {tail}", 4
     if unchecked:
         return (f"GREEN on what ran, but {len(unchecked)} gate(s) NOT checked: "
                 + ", ".join(unchecked) + " — not a full run; say so in the PR"), 3
@@ -382,7 +403,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         for g in gates:
             run_gate(g, repo, args.timeout)
-        text, code = verdict(gates, selected=bool(args.only))
+        waivers = {k: r for k, r in active_rulings(repo, cfg(config, "spec.dir", "docs/specs")).items()
+                   if r.waives}
+        for g in gates:
+            if g.status == "FAIL" and g.name.lower() in waivers:
+                g.note = (g.note + "; " if g.note else "") + f"red allowed by the plan ({waivers[g.name.lower()].spec})"
+        text, code = verdict(gates, selected=bool(args.only), waivers=waivers)
         print(render(gates, tree_state(repo), source, args.verbose))
         print()
         print(text)

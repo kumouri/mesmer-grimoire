@@ -1,7 +1,7 @@
 """Regression test for the MCP server import guard's error-attribution bug.
 
-`mnemosyne.mcp_server` (and morpheus/grimoire's copies) wrap `from mcp.server.fastmcp import
-FastMCP` in `except ImportError` and used to always report "the MCP server needs the 'mcp'
+`mnemosyne.mcp_server` wraps `from mcp.server.fastmcp import FastMCP` in `except ImportError`
+and used to always report "the MCP server needs the 'mcp'
 package", even when 'mcp' was installed but the submodule import failed for another reason
 (e.g. mcp 2.x renamed FastMCP to MCPServer). This test exercises `_mcp_import_error` directly —
 no network install of `mcp` required — to make sure the guard distinguishes the two cases and

@@ -27,8 +27,8 @@ mcp = ["mcp>=1.2,<2"]
 mnemosyne = "mnemosyne.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/kumouri/claude-grimoire"
-Source = "https://github.com/kumouri/claude-grimoire/tree/main/mnemosyne"
+Homepage = "https://github.com/kumouri/mesmer-grimoire"
+Source = "https://github.com/kumouri/mesmer-grimoire/tree/main/mnemosyne"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

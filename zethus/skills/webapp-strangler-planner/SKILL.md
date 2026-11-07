@@ -5,6 +5,8 @@ description: Group recovered routes into strangler-fig cutover units — per-scr
 
 # Strangler-fig cutover planner
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 Turns the route manifests [`webapp-target-struts`](../webapp-target-struts/SKILL.md),
 [`webapp-target-spring-mvc-jsp`](../webapp-target-spring-mvc-jsp/SKILL.md) and
 [`webapp-target-plain-jsp-servlets`](../webapp-target-plain-jsp-servlets/SKILL.md) emit
@@ -18,7 +20,7 @@ The target frontend and the auth strategy are both required pipeline inputs, rea
 no hardcoded default for either — check before Stage 2 closes:
 
 ```bash
-python .github/zethus/scripts/webapp-hla-input-check.py
+python <kit root>/scripts/webapp-hla-input-check.py
 ```
 
 Exit 0 prints both. Exit 1 means **stop and ask** — never assume React+Vite, never assume Next.js,
@@ -33,7 +35,7 @@ behind the shim named here).
 1. **Run the planner over every route manifest for the target:**
 
    ```bash
-   python .github/zethus/scripts/strangler-planner.py \
+   python <kit root>/scripts/strangler-planner.py \
      --routes routes/struts.json routes/spring-mvc.json routes/jsp-servlet.json \
      --session-ledger session-state/struts.json session-state/spring-mvc.json \
      --out routes/cutover-plan.json

@@ -25,12 +25,15 @@ work and reflects feedback into new lessons so the same miss never happens twice
 
 ## Setup
 
-The engine is the `mnemosyne` CLI (`pip install mnemosyne-reflexion`, or run `python -m mnemosyne`).
+The engine is the `mnemosyne` CLI (or `python -m mnemosyne`). It is not on PyPI yet; install it with
+`pip install "git+https://github.com/kumouri/mesmer-grimoire#subdirectory=mnemosyne"`.
 It reads/writes a **memory repo** (a directory with a `memory/` folder). Point at it with the
 `MNEMOSYNE_REPO` environment variable, or run commands with `--repo <path>`. Create one with
 `mnemosyne --repo <path> init --example software-eng` (the `--example` seeds a config with useful
 recall axes; omit it for the minimal default). If the plugin's hooks are active, recall happens
-automatically on each prompt and the shared memory is pulled on session start.
+automatically on each prompt, and a memory repo with a remote is pulled on session start. The
+hooks also record lessons-capture *candidates* in shadow mode: they never save a lesson or print
+anything, so nothing changes for you. `mnemosyne candidate list` and `mnemosyne doctor` show what they recorded.
 
 ## Recall (start of a task)
 
@@ -86,14 +89,16 @@ fire, an idempotency gap that double-posted) saves normally.
 mnemosyne promote L-0009                     # local → this repo's shared tier
 mnemosyne promote L-0007 L-0009 --to team    # export up to a configured team/enterprise store
 mnemosyne promote --from-file promos.json    # batch across tiers via a manifest
-mnemosyne stores                             # list configured shared stores + clone/pull status
+mnemosyne stores                             # list configured shared stores + whether each is fetched
 ```
 
-Promotion moves the lesson to a shared tier, marks it `proposed`, and prints the git/PR steps. A
-human reviewer approves before it becomes team-wide truth. **Stores** are additional git repos
-(e.g. `team`, `enterprise`) declared in `mnemosyne.config.json`; `recall` federates over them,
-`--to <tier>` exports up to one (opening the PR in *that* repo), and the local original retires
-automatically on the next `sync` once its upstream PR merges. Relay the promotion/export line.
+Promotion commits the lesson alone on a review branch, keeps the local copy marked `proposed`, and
+prints the push/PR step. Merging the PR is the approval, and a human reviewer does it before the
+lesson becomes team-wide truth. **Stores** are additional git repos (e.g. `team`, `enterprise`)
+declared in `mnemosyne.config.json`; `recall` federates over the ones `sync` has fetched (it never
+touches the network), `--to <tier>` exports up to one (opening the PR in *that* repo), and the
+local original retires automatically on the next `sync` once its PR merges. Relay the
+promotion/export line.
 
 ## Curate on demand
 

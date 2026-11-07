@@ -13,12 +13,22 @@ procedure keeps each phase small and keeps its deviations visible.
 
 - The spec's status is `SIGNED-OFF` or `PARTIAL(…)`. If it is still `DRAFT`, stop: there is nothing
   to implement yet.
-- You know which phase you're building, and every earlier phase has merged (in `rebase` style:
-  is complete on the branch).
-- You're on a branch for **this phase only**, cut from the freshly fetched integration branch
-  (`git fetch` first, then branch from `origin/<base>`). If `branchModel.style` is `rebase`, you're
-  instead on the one long-lived branch, and this phase is the next commit series on it (below).
-- `python .github/zethus/scripts/base-freshness.py` exits 0. If it says STALE, rebase first.
+- You know which phase you're building, and every earlier phase is **committed, green on the
+  local gates, and pushed to its PR**. Its PR does not have to be merged: merging is a person's
+  call, made whenever the team's process allows ([why](../../docs/phase-advance-on-push.md)).
+- You're on a branch for **this phase only**. If this phase needs a **new** branch (every phase
+  after the first), stack it on the previous phase's branch as pushed:
+  `git switch -c <this-phase> <previous-phase>`, and open its PR against that branch, so the PR
+  shows this phase alone. If the previous phase's PR has already merged, cut it from the freshly
+  fetched integration branch instead: `git fetch` first, then branch from `origin/<base>`. If
+  you're on the branch Stage 0 just cut or rebased, it already sits on a base fetched and confirmed
+  minutes ago, so check that it's the branch you expect and don't fetch again. If
+  `branchModel.style` is `rebase`, you're instead on the one long-lived branch, and this phase is
+  the next commit series on it, pushed to the same PR (below).
+- The base was confirmed fresh when the branch was created or rebased (Stage 0). **Don't re-run
+  the freshness gate to start a phase** — it runs twice per change, at Stage 0 and again before
+  the push ([pre-push-gates](../pre-push-gates/SKILL.md)), which is where a base that moved while
+  you were building gets caught.
 
 ## Procedure
 
@@ -35,23 +45,58 @@ procedure keeps each phase small and keeps its deviations visible.
    | Situation | Action |
    |---|---|
    | Needed for this phase to work, obvious, small, and reversible | Do it, and list it under **As built** |
-   | Needed, but it's a real choice between options | **Stop.** Ask as an option list with a recommendation, then record an ADR |
+   | Needed, but it's a real choice between options | **Stop.** Ask with the question tool, recommendation first, then record an ADR |
    | Not needed for this phase | Leave it. Note it for the PR's *Noticed but out of scope* |
    | It invalidates the spec's design | **Stop.** Amend the spec and get sign-off again |
 
 5. **Keep commits small and conventional:** `type(scope): summary`. Every AI-assisted commit
-   carries the co-author trailer from `commits.aiTrailer`. In `rebase` style the phase is a
-   contiguous commit series on the long-lived branch, not a branch: name the phase in each
+   carries the co-author trailer from `commits.aiTrailer`, and a commit Zethus authors is signed
+   with `commits.signature` (default `— Zethus`) on its own line just before the trailer block,
+   which stays last, with a blank line on each side. The agent file's *Sign your commits* section
+   shows the exact shape. In `rebase` style the phase is a contiguous commit series on the
+   long-lived branch, not a branch: name the phase in each
    subject (`feat(retry): phase 1 — …`), don't interleave commits from two phases, and start the
-   next phase only once this one is complete.
-6. **Update the spec** in the same branch. Mark the phase built (or partly built), and add an
-   **As built** list with every deviation and its reason. Set the status to `PARTIAL(phases 0–N)`.
-   Leave `BUILT` for when the last phase merges.
+   next phase only once this one is committed, green on the gates, and pushed to the PR. Committing is not the end of a phase: the gates, the push and the PR follow in the same turn.
+6. **Update the spec** in the same branch. Mark the phase `in review (PR #n)`, and any earlier
+   phase whose PR has merged since `merged (PR #n)`; add an **As built** list with every deviation
+   and its reason. The status names both halves, leaving out an empty one:
+   `PARTIAL(merged: phases 0–1; in review: phase 2)`. A pushed phase is in review, not built:
+   leave `BUILT` for when the last phase's PR merges.
+7. **Code in progress doesn't hold work that doesn't run it.** A deployed run, a remote job or a
+   long-running task starts as soon as this phase's pending change doesn't touch what it runs.
+   Check the image or artifact build and the deploy definition instead of guessing, say in one
+   line what you checked, and if they don't settle it, ask once, with the question tool. Results
+   collected while local tooling was still changing get re-judged with its final version, and the
+   run log says so ([why](../../docs/independent-work-runs-concurrently.md)).
+
+## Every local gate is green before this phase pushes
+
+Whatever the phase plan says. Before the push, `run-local-gates` must be green on every gate,
+SonarQube and every other local gate included ([why](../../docs/gate-remediation-in-the-plan.md)).
+If a gate is red:
+
+1. **Fix it in this phase, without stopping to ask,** even when the plan put that gate's
+   remediation in a later phase. A later phase's name is not a waiver.
+2. **Keep the fix as small as turns the gate green:** only the findings or failures that gate
+   reports, not the later phase's whole remediation. Leave the rest for that phase.
+3. **Say it in this phase's report** (the *As built* list and the PR): the gate, that its fix was
+   pulled forward from the later phase, and why (the gate would have blocked the push).
+4. **The one exception** is a `push-red` ruling already approved in the spec's *Gate remediation*
+   table. `run-local-gates` honours it itself (exit 4, naming the spec). If it exits 1, no ruling
+   covers that gate, so fix it.
+
+Don't ask the person for leave to move remediation into the phase, and don't end the turn on it:
+the `agentStop` hook refuses that stop. If the smallest fix is a real design choice between
+options, that is an ordinary decision (step 4's table), not a request to move the phase.
 
 ## Done when
 
-The phase's tests exist and pass locally, every deviation is written down, and nothing outside the
-phase changed. Next: [pre-push-gates](../pre-push-gates/SKILL.md).
+Every test the plan names for this phase is written and compiles (build the tests without running
+them: `mvn test-compile`, `gradle testClasses`, `tsc --noEmit`, `cargo test --no-run`,
+`pytest --collect-only`), every deviation is written down, and nothing outside the phase changed.
+Running a test while you debug is fine, but don't run the phase's tests again as this stage's exit
+check: [test-plan](../test-plan/SKILL.md)'s verify step (Stage 4) runs them once, and that run is
+the one that counts. Next: that verify step.
 
 ## If the spec runs out, or work was interrupted
 

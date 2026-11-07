@@ -8,8 +8,10 @@ Three tiers exist for reaching Jira; this script can only see two of them:
 1. **An Atlassian/Jira MCP tool.** Whether one is available is a fact about the calling agent's
    own session (its tool list), not about the operating system, so no stdlib script can detect it.
    The skill checks this itself, first, before running this script.
-2. **A CLI on `PATH`** — `acli` (the Atlassian CLI) or `jira` (go-jira). Detected with
-   ``shutil.which``.
+2. **A CLI on `PATH`** — `acli` (the Atlassian CLI) or `jira`. Detected with ``shutil.which``,
+   which only sees the file name. Two tools install a binary called `jira`, go-jira and
+   `ankitpokhrel/jira-cli`, and this script can't tell them apart. The `jira-cli` skill documents
+   the second; its setup step is where a reader finds out which one is installed.
 3. **REST, via an API token in the environment** — a base URL, an email, and a token, each read
    from an env var name that config may override (``jira.baseUrlEnv``, ``jira.emailEnv``,
    ``jira.tokenEnvVars``; defaults ``JIRA_BASE_URL``, ``JIRA_EMAIL``, ``JIRA_API_TOKEN`` /

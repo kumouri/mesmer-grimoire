@@ -1,6 +1,6 @@
 # Amphion — the pipeline
 
-**Amphion** 🎼 is seven markdown skills that together carry spec-driven work from *what was
+**Amphion** 🎼 is six markdown skills that together carry spec-driven work from *what was
 already decided* to *a reviewable pull request*. There is no engine and no runtime: each skill is a
 procedure a Claude Code session follows, and the only shared state is
 `.claude/amphion.config.json` plus the repository itself.
@@ -25,8 +25,7 @@ flowchart TB
     IMPL --> CI["initialize-ci<br/><i>only if the repo has no gates</i>"]
     CI --> PR["pr-description"]
     IMPL --> PR
-    PR --> SYNC["sync-claude-md<br/><i>diff-gated, in place</i>"]
-    SYNC --> DONE(["reviewable PR"])
+    PR --> DONE(["reviewable PR"])
 
     FOF -.-> FRIC["log-friction"]
     RIP -.-> FRIC
@@ -73,33 +72,44 @@ There is no step 4. No skill in this package guesses a path, a command, or a doc
 
 The config is also where every project-specific fact lives that used to be hardcoded: the document
 set and its read order, the ledger path, the build/test commands, the project's mandated checks,
-the integration branch, the friction-log sink, and the doc-to-code map. See the
+the integration branch, and the friction-log sink. See the
 [config table](../README.md#configure) for the full key list.
 
-## Why `sync-claude-md` is the smallest stage
+## Docs are a rule, not a stage
 
-`sync-claude-md` is the only stage that ships deliberately *less* capable than the version it came
-from, and the reasoning generalizes past this package.
+Amphion used to end with a seventh skill, `sync-claude-md`, that corrected the documentation a diff
+made wrong. It shipped already narrowed: an earlier version ran after every phase and "brought each
+`CLAUDE.md` up to date", which appended history until the context files became changelogs, and
+touched the same file in every PR. The narrowed skill could only rewrite in place, and only for a
+document whose described code changed in the same diff.
 
-Its predecessor ran at the end of every phase and brought each in-scope `CLAUDE.md` up to date.
-Both halves of that description turned out to be defects:
+It was retired anyway, because the narrowed version turned out to be a rule restated as a
+procedure. The agent that changes the code is already the one obliged to fix the docs describing
+it, in the same change. Measured across the runs that could still be found, a separate docs pass
+mostly **added** text, all of it to repo-root instruction files that load into every later
+session, and caught little real drift. The last version is at the `sync-claude-md-final` tag.
+The evidence is in the stage 1 assessment,
+[Appendix A](../../docs/stage1-assessment-2026-09-30.md#appendix-a-d9-deep-dive-does-sync-claude-md-earn-its-place).
 
-| Behaviour | Consequence |
-|---|---|
-| "Bring up to date" → **append what's missing** | Context files accumulated history and grew into changelogs. A long context file is a worse context file: the fact the next session needs is buried in everything that ever happened. |
-| **Run every phase**, regardless of the diff | Every branch touched the same few files near the same lines. PRs sharing no code at all still collided, and the conflicts cost more than the staleness did. |
+Two things replace it:
 
-The narrowed skill inverts both: it may only **rewrite in place**, and only for a document whose
-described code changed **in this same diff**. Anything that would grow a document is reported to
-the user instead of written. Two PRs that touch no common code now touch no common documentation.
-
-The rationale is duplicated inside the skill itself — deliberately, since a future reader
-encountering it will be reading the `SKILL.md`, not this document, at the moment they're tempted to
-widen it back.
+1. **A written rule about where detail lands.** Detail goes in the *leaf*: the module docstring,
+   the spec, the README beside the code, none of which loads automatically. Auto-loaded
+   instruction files (`AGENTS.md`, `CLAUDE.md`, Copilot and Cursor rules) stay routers: they say
+   what exists and where to look. They carry no volatile state (no statuses, counts, dates or
+   phase lists), since that is exactly the text that goes stale. The same-change rule still binds
+   whoever changes behaviour to correct the docs describing it.
+2. **A mechanical check.** A pointer lint in CI fails when a Markdown link or a backticked repo path
+   no longer resolves. It catches renamed and deleted files, the one class of drift a machine sees
+   reliably, and unlike a skill it can never append. Zethus ships a portable one,
+   [`docs-pointer-check.py`](../../zethus/scripts/docs-pointer-check.py); the repository that
+   hosts Amphion runs its own, [`scripts/check_doc_pointers.py`](../../scripts/check_doc_pointers.py).
 
 ## Provenance
 
-These seven skills were extracted from a working spec-driven delivery pipeline and generalized for
+These skills were extracted from a working spec-driven delivery pipeline and generalized for
 release: the document set, branch model, gate commands, project invariants, and friction sink are
 now configuration rather than hardcoded assumptions, and the shipped defaults require no external
-service. The procedures are unchanged except where noted above.
+service. The procedures are unchanged except where noted above, and one extracted skill,
+`sync-claude-md`, has since been retired (see [Docs are a rule, not a
+stage](#docs-are-a-rule-not-a-stage)).

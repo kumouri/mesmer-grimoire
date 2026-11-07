@@ -5,6 +5,8 @@ description: Recover implicit business rules from legacy source before a moderni
 
 # Recover business rules
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 Legacy code encodes decisions nobody wrote down: a threshold, a retry count, a day it skips, an
 error it silently ignores. Rewriting it without recovering those decisions first loses them exactly
 once, permanently. This skill turns each one into a citable, numbered row before any of it changes.
@@ -111,5 +113,5 @@ run.
 Rule ledger in hand → author the constitution
 ([`../../templates/constitution.md`](../../templates/constitution.md)) as part of the spec's "What
 is true today," per [`write-spec-full`](../write-spec-full/SKILL.md). Before Stage 3 (Implement)
-opens, `python .github/zethus/scripts/overseer-gate.py constitution --constitution <path>` must
+opens, `python <kit root>/scripts/overseer-gate.py constitution --constitution <path>` must
 exit 0.

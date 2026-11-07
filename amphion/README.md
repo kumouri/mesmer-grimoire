@@ -1,6 +1,6 @@
 # Amphion 🎼
 
-**A spec-to-PR implementation pipeline for Claude Code, as seven composable skills.** You describe
+**A spec-to-PR implementation pipeline for Claude Code, as six composable skills.** You describe
 the wall; it assembles. Feed it a story and a goal, and the stages carry the work from *what was
 decided* through implementation, CI, and a reviewable pull request — with defined behaviour for the
 two things that actually break long runs: hitting something the spec didn't cover, and a delegated
@@ -10,7 +10,7 @@ agent dying mid-phase.
 > played his lyre and the stones rose and set themselves into place.
 
 Every skill here is plain markdown — no runtime, no dependencies. Project-specific paths, gates,
-and vocabulary live in `.claude/amphion.config.json`, so the same seven skills work on any repo.
+and vocabulary live in `.claude/amphion.config.json`, so the same six skills work on any repo.
 
 ## The pipeline
 
@@ -25,8 +25,6 @@ and vocabulary live in `.claude/amphion.config.json`, so the same seven skills w
   │
   ├─ pr-description ────── hand it to a human, with the judgment calls surfaced
   │
-  ├─ sync-claude-md ────── correct the docs this diff made wrong — in place, and only those
-  │
   └─ log-friction ──────── what cost time, written down where it can be designed out
 ```
 
@@ -37,36 +35,32 @@ and vocabulary live in `.claude/amphion.config.json`, so the same seven skills w
 | **Recovery** | [`resume-interrupted-phase`](plugin/skills/resume-interrupted-phase/SKILL.md) | A delegated agent returned an error, a truncation, or an unverifiable "completed". Reconstructs progress from git plus the in-repo ledger — never the dead agent's summary — re-validates the frontier, and resumes. |
 | **Gates** | [`initialize-ci`](plugin/skills/initialize-ci/SKILL.md) | Generates a GitHub Actions workflow adapted to the repo's *real* build/test/lint commands. Seven stack references; never clobbers existing CI; detects Git Flow vs single-branch triggers. |
 | **Handoff** | [`pr-description`](plugin/skills/pr-description/SKILL.md) | Diffs against the actual integration branch and writes the description — including the headings `flag-or-fix` files its deferrals under. |
-| **Docs** | [`sync-claude-md`](plugin/skills/sync-claude-md/SKILL.md) | Corrects documentation the diff made wrong. **In place, never appending, and only for docs describing code that changed in this same diff.** |
 | **Feedback** | [`log-friction`](plugin/skills/log-friction/SKILL.md) | Records what cost real time — to a markdown file, a Notion page, or GitHub issues — so recurring friction gets designed out rather than re-solved. |
 
 The stages compose but don't depend on each other: any one is useful alone.
 
-### A note on `sync-claude-md`
+### Keeping docs in sync: a rule, not a stage
 
-It ships **narrowed**. An earlier version ran after every phase and brought every in-scope
-`CLAUDE.md` "up to date," which produced two failures: it *appended*, so context files bloated into
-changelogs; and it fired *unconditionally*, so every PR touched the same file and conflicted with
-every other PR. The version here may only rewrite in place, and only for a document whose described
-code changed in the same diff. The rationale is written into the skill itself, under
-["Why this skill is narrow"](plugin/skills/sync-claude-md/SKILL.md#why-this-skill-is-narrow), so
-the next reader knows why not to widen it back.
+Amphion used to ship a seventh skill, `sync-claude-md`, that corrected the docs a diff made wrong.
+It was retired: the agent that changes the code is already the one that should fix its docs, in the
+same change, and a separate docs pass mostly *added* text to always-loaded instruction files. What
+replaced it is in [the pipeline doc](docs/pipeline.md#docs-are-a-rule-not-a-stage).
 
 ## Install
 
-**Plugin (recommended).** Install the `amphion` plugin from this repo; it carries all seven skills.
+**Plugin (recommended).** Install the `amphion` plugin from this repo; it carries all six skills.
 
 **Manual.** Copy the skill folders into your skills directory — user-level for all projects, or
 `.claude/skills/` inside one project:
 
 ```bash
-git clone https://github.com/kumouri/claude-grimoire.git
-cp -r claude-grimoire/amphion/plugin/skills/* ~/.claude/skills/
+git clone https://github.com/kumouri/mesmer-grimoire.git
+cp -r mesmer-grimoire/amphion/plugin/skills/* ~/.claude/skills/
 ```
 
 ```powershell
-git clone https://github.com/kumouri/claude-grimoire.git
-Copy-Item claude-grimoire\amphion\plugin\skills\* $HOME\.claude\skills\ -Recurse
+git clone https://github.com/kumouri/mesmer-grimoire.git
+Copy-Item mesmer-grimoire\amphion\plugin\skills\* $HOME\.claude\skills\ -Recurse
 ```
 
 Take a subset if you want one — each skill folder is self-contained. Cross-references between
@@ -91,7 +85,6 @@ guessing — it never silently invents a path. The config exists so it doesn't h
 | `branchModel.base` | `pr-description`, `resume-interrupted-phase`, `initialize-ci` | The integration branch, when it isn't the default. |
 | `branchModel.gitFlowOwners[]` | `initialize-ci` | GitHub owners/orgs whose repos use Git Flow by convention. Empty by default — add your own. |
 | `frictionLog.*` | `log-friction` | `sink` (`markdown` / `notion` / `githubIssues`), its target, and your `categories[]`. Defaults to a markdown file in-repo, which needs no credentials. |
-| `docSync.map[]` | `sync-claude-md` | `{ doc, describes[] }` — which globs each document describes. This *is* the narrowing gate: a document with no matching changed path is never touched. |
 
 ### What the skills assume of your project
 

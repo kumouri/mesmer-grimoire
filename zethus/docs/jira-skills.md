@@ -64,9 +64,9 @@ invented values" sections for exactly what that excludes and requires.
 
 Both skills write Markdown drafts and stop. **Neither creates, updates, or comments on a real Jira
 issue without an explicit human approval, given in the same session, after being shown exactly what
-would be written.** This mirrors the guardrail `pr-description` already uses for the one other
+would be written.** This mirrors the guardrail `zethus-pr-description` already uses for the one other
 shared-system action in this kit ("open it — don't merge it",
-[`../skills/pr-description/SKILL.md`](../skills/pr-description/SKILL.md)):
+[`../skills/zethus-pr-description/SKILL.md`](../skills/zethus-pr-description/SKILL.md)):
 
 - Only an explicit "create these" / "go ahead" / "approved" / "update it" / "post this", said
   *after* the drafts or the diff are shown, counts as approval. Silence, a question, or "looks
@@ -74,9 +74,9 @@ shared-system action in this kit ("open it — don't merge it",
 - Approval covers exactly the batch shown. A person asking to create ten stories after seeing eight
   gets asked again for the other two.
 - As with the rest of Zethus, this is enforced by the skill's own instructions, not by a technical
-  hook — Copilot and Claude Code have no mechanism to block a tool call the way a pre-tool-use hook
-  can (see the README's "The limit of enforcement"). The discipline is the same one
-  `pr-description`, `write-adr`, and the agent's refusal table already rely on.
+  hook. Both hosts now offer a blocking pre-tool-use hook, but Zethus doesn't install one (see the
+  README's "The limit of enforcement"). The discipline is the same one
+  `zethus-pr-description`, `write-adr`, and the agent's refusal table already rely on.
 
 ## Jira access, and how it's detected
 
@@ -85,8 +85,12 @@ Three tiers, tried in order, documented in
 
 1. **An Atlassian/Jira MCP tool**, if the session has one. Only the calling agent can see its own
    tool list, so this tier is checked by the skill itself, in prose — no script can see it.
-2. **A CLI on `PATH`** — `acli` or `jira` (go-jira) by default, overridable via `jira.cli` in
-   config.
+2. **A CLI on `PATH`** — `acli` or `jira` by default, overridable via `jira.cli` in config. Detection
+   sees only the file name, and both go-jira and `ankitpokhrel/jira-cli` install a `jira` binary, so
+   it can't say which one it found. The [`jira-cli`](../skills/jira-cli/SKILL.md) skill documents
+   the second and has the setup check that tells them apart. Both story skills defer to it for
+   every command, and its per-command confirmation is added to their approval step, not a
+   replacement for it.
 3. **REST, via an environment token** — `JIRA_BASE_URL`, `JIRA_EMAIL`, and one of
    `JIRA_API_TOKEN`/`JIRA_TOKEN` by default, overridable via `jira.baseUrlEnv`, `jira.emailEnv`,
    `jira.tokenEnvVars`.
@@ -106,7 +110,7 @@ All optional, read the same way as every other Zethus key (see the README's
 
 Like the rest of Zethus, these two skills are plain `SKILL.md` files (`name` and `description`
 frontmatter, then prose) and install into `.github/skills/`, so GitHub Copilot (CLI, VS Code,
-JetBrains) picks them up the same way it picks up the other ten. Unlike `agents/zethus.agent.md`,
+JetBrains) picks them up the same way it picks up the other ten. Unlike `com.github.copilot/agents/zethus.agent.md`,
 the `SKILL.md` format is not Copilot-specific — Claude Code reads folders of `SKILL.md` files from
 `.claude/skills/` the same way, so copying `skills/spec-to-stories/` and `skills/story-enrich/`
 there (as-is, no rewriting) works under Claude Code too. Nothing in either skill calls a

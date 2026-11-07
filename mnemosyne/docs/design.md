@@ -87,10 +87,40 @@ specialized memory libraries). Files in git are the right default, with a clean 
 
 **Two tiers, then N.** A captured lesson lands in the **local** tier (`memory/local.jsonl`,
 gitignored) instantly — zero friction. It shapes only *your* work until you **promote** it:
-`mnemosyne promote` moves it to the **shared** tier (`memory/lessons.jsonl`, committed) on a branch
-and stages a PR. A reviewer approves before it becomes team-wide, so one bad lesson can't silently
+`mnemosyne promote` proposes it for the **shared** tier (`memory/lessons.jsonl`, committed) through
+a review PR. A reviewer approves before it becomes team-wide, so one bad lesson can't silently
 poison everyone — the cost of a wrong shared lesson is high (it steers every future run), so it
 gets a human gate. Agent proposes, human disposes.
+
+**Merging the review PR is the approval.** There is no separate approve step. The lesson on the
+review branch already carries `review.state: approved`; it takes effect when the PR merges into the
+default branch. Until then the local original is **kept**, marked `proposed` with
+`source.exported_to`, so it keeps steering your work and keeps its id. The next `sync` sees the
+merged copy on the default branch and in the working tree, and retires the local original (status
+`retired`, reason recorded, record kept).
+
+Staging lives in the engine (`core.stage_review_pr`), not in any one surface, so the CLI, the MCP
+`promote` tool and `mn.promote()` behave identically. It never touches a working tree: it builds
+the review branch with git plumbing from the default branch (`origin/HEAD`, else `HEAD`) plus
+exactly the promoted lesson, with `LESSONS.md` rendered to match. So nothing else that happens to
+be uncommitted rides along, you stay on your branch, and a store's cached clone stays on its
+default branch, where `sync` can see the merge. It returns the step left to run by hand (push, open
+the PR); with `push` set it pushes too. Nothing in the engine opens or merges the PR. A memory repo
+outside git has no review to wait for, so there `promote` moves the lesson straight into the shared
+tier as `proposed`.
+
+**Ids are never reused.** A new id is allocated above every id in the local tier, the working
+tree's shared tier and the shared tier as committed on `HEAD`, the remote default branches and
+every local or remote `reflexion/*` review branch. If a promoted lesson's id turns out to be taken
+on a committed branch anyway (a teammate's lesson you hadn't fetched), the shared copy gets a fresh
+id and records `source.exported_from`. When ids do collide, the reviewed shared record wins in
+every view, and `validate` reports the collision rather than letting the local lesson vanish.
+
+**Nothing leaves the local tier unscrubbed.** `promote`, `export` and `capture --shared` pass every
+outgoing lesson through `core.scrub_lesson`. The author is `$MNEMOSYNE_AUTHOR`, else `unknown`,
+never the OS login. Absolute anchor paths become repo-relative or are dropped, and home-directory,
+drive, UNC and WSL paths in free text become `<path>`. A clean scrub is not clearance to publish;
+the review PR stays the gate.
 
 **Broader tiers (federation).** Beyond its own local+shared tiers, a repo can federate with
 additional **stores** — separate mnemosyne memory repos declared in `config.stores`, each a broader
@@ -98,18 +128,46 @@ shared tier (e.g. `team`, `enterprise`). A store is addressed by a git **url** (
 into a cache — `$MNEMOSYNE_CACHE`, else `~/.mnemosyne/stores` — and `sync` pulls it), or a **path**
 to an existing repo. Each store carries a distinct id **prefix** (e.g. `T`/`E`), which is what lets
 federated lessons share one id space without ever colliding. `recall` reads the union of primary +
-all reachable stores (best-effort: an unreachable store is skipped with a note, never a failure —
-recall never touches the network). `promote --to <tier>` (or `export`) copies chosen local lessons
-*up* to a store under a new store-prefixed id marked `proposed`, opening the PR in *that* store's
-repo. The local original is kept and marked (so recall's near-dup collapse hides the double) until
-the upstream PR merges — the next `sync` then retires it, leaving the store copy authoritative.
-Usage tracking always writes to the primary gitignored sidecar; stores are read-only for usage.
+every store **already on disk**. It never touches the network: it never clones or pulls, and a store
+that isn't fetched yet, or can't be read, is skipped with a note, never a failure. `sync` is the
+network path: it clones missing stores and pulls the rest. (`export`, being a write, may also clone
+the one store it writes to.) `promote --to <tier>` (or `export`) commits chosen local lessons *up*
+to a store, scrubbed, under new store-prefixed ids on one review branch in *that* store's repo.
+The local originals are kept and marked until the store's PR merges; the next `sync` then retires
+them, leaving the store copies authoritative. A store that isn't a git repo has no PR to merge, so
+`export` writes into it as `proposed` and `sync` retires an original only once its copy reads
+`approved`. Usage tracking always writes to the primary gitignored sidecar; stores are read-only for
+usage.
 
 **Source of truth = the JSONL.** `memory/lessons.jsonl` is authoritative; `memory/LESSONS.md` is a
 **generated** human view, regenerated on every write and committed so PR diffs are readable.
 Lessons are authored **only through the engine** — never hand-edited — which keeps ids, stamps,
 dedup, supersession, and the rendered view consistent. `mnemosyne validate` enforces the schema
 and spine consistency.
+
+**Crash-safe writes.** Every rewrite of a store file (`lessons.jsonl`, `local.jsonl`, the usage
+sidecar, `LESSONS.md`) goes through `core.atomic_write_text`: write a temp file in the same
+directory, `fsync` it, then `os.replace` it over the original (and, on POSIX, `fsync` the directory
+so the rename itself survives a power cut). `os.replace` is atomic within one filesystem, so a
+process killed mid-save leaves either the old file or the new one, never a truncated store. On
+Windows a concurrent reader briefly holding the file open blocks the swap, so the replace retries a
+few times.
+
+**Serialised writers.** Atomicity alone does not stop a lost update: two processes that each read
+the store, add a lesson and swap the file in would leave only the second one's lesson. So every
+read-modify-write of a repo's store files (capture/reflect, promote, export, prune `--apply`,
+sync's retire-on-merge, the usage bump, rendering `LESSONS.md` and validate's render-and-restore)
+runs under `core.store_lock(repo)`, which holds the read, the change and the atomic write as one
+step. It is an OS lock on `memory/.store.lock` (`fcntl.flock` on POSIX, `msvcrt.locking` on
+Windows; stdlib only), not "the lockfile exists", so the kernel releases it when its holder exits
+or crashes: a dead holder never wedges the store and there is no stale-lock cleanup to race over.
+The lockfile is never deleted and is gitignored; it records the last holder's pid for diagnostics.
+The lock is re-entrant within a process, and `export` (which writes the primary repo and a store
+repo) takes both locks in sorted path order so two exports can't deadlock each other. A writer
+waits at most `MNEMOSYNE_LOCK_TIMEOUT` seconds (default 10), then fails with `LockTimeout` (CLI
+exit 4) naming the lock and its last holder. The usage bump is best-effort, so a recall that can't
+get the lock skips the bump rather than failing. Reads take no lock: the atomic swap means a reader
+always sees one whole version of each file.
 
 **Thin by design.** The agent never reads the store. It runs one command and relays the one-line
 result. All scanning, ranking, writing, git work, and validation live in the engine, keeping the
@@ -155,9 +213,37 @@ Every command prints a quotable line the surfaces relay verbatim:
 - **recall** → `RECALL: N reflexion lesson(s) applied … (L-…, L-…). Source: …` — the user sees what
   prior knowledge is steering the work and can veto any of it.
 - **capture / reflect** → `SAVED: L-00NN captured to LOCAL reflexion memory — "…"` + the promote hint.
-- **promote** → `PROMOTED: L-00NN … staged for team review …`.
+- **promote** → `PROMOTED: L-00NN committed alone on review branch reflexion/L-00NN …`.
 
 Memory is never applied behind the user's back, and never shared unreviewed.
+
+## Capture candidates (shadow mode)
+
+Deciding what is worth a lesson is split by what can be done deterministically
+([lessons-capture spec](../../docs/lessons-capture-spec.md) §4.2). Hooks detect cheap, explainable
+**signals** and append **candidates** to a spool; the agent judges them later, at a checkpoint. No
+hook parses a transcript or calls a model.
+
+The spool lives in `memory/.capture/`, a directory whose own `.gitignore` is `*`, so it can't be
+committed even from a memory repo scaffolded before it existed. Writes are single appends with no
+store lock, so a hook never waits on a save. Concurrent hooks lose no line: Windows appends through
+a handle where the kernel picks the offset, and POSIX adds a short lock on a sidecar file for
+filesystems where `O_APPEND` isn't atomic. If that lock stays busy the line is written anyway and
+marked, so `mnemosyne doctor` can count it. A candidate carries pointers rather than text, and a
+credential shape anywhere in it drops it whole. Every hook run appends one decision line, which is
+what `mnemosyne doctor` reads. The detection lives in `mnemosyne.candidates`, and the plugin's
+`mnemosyne_hook.py` only feeds it the event.
+
+A host that reads two hook files runs the bridge twice for one event, and the installer can't
+prevent that: it can't know which repos commit their own copy. So the engine claims each event
+with an exclusive marker in `memory/.capture/fired/`, keyed on the session and the event's
+normalized content, and the second run logs `duplicate` and stops. A marker expires after a few
+seconds, so a real repeat counts again. The claim fails open, because a double-fire costs a noisy
+line and a lost event costs a signal. The module docstring has the details.
+
+For now it runs in **shadow mode**: candidates and decisions are recorded, but nothing becomes a
+lesson and nothing is asked. `candidate label` and `candidate stats` turn a week of that into each
+signal's count and precision, which decides what later phases may store automatically.
 
 ## Governance
 
@@ -171,8 +257,8 @@ template and `CODEOWNERS` to route shared-store changes to the right reviewers.
 One engine, three delivery layers (see the [README](../README.md)):
 
 - **CLI / library** — `mnemosyne …` or `import mnemosyne`; the stdlib foundation.
-- **Claude Code plugin** — a skill + hooks (recall on prompt, sync on session start) + `/recall`,
-  `/reflect`, `/promote` commands.
+- **Claude Code plugin** — a skill + hooks (recall on prompt, sync on session start, lessons capture
+  in shadow mode) + `/recall`, `/reflect`, `/promote` commands.
 - **MCP server** — the same operations as MCP tools for any MCP client.
 
 ## References

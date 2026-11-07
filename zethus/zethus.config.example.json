@@ -20,6 +20,14 @@
     "dir": "docs/specs"
   },
 
+  "sessionReview": {
+    "listLimit": 30,
+    "maxSessions": 30,
+    "maxReportLines": 90,
+    "maxTableRows": 12,
+    "stallMinutes": 10
+  },
+
   "adr": {
     "dir": "docs/adr"
   },
@@ -36,7 +44,12 @@
   },
 
   "commits": {
-    "aiTrailer": ""
+    "aiTrailer": "",
+    "signature": "— Zethus"
+  },
+
+  "plan": {
+    "checklist": "auto"
   },
 
   "_jiraReadme": "Everything below is only read by the optional Jira integration skills (see docs/jira-skills.md). Leave it out entirely if you haven't installed spec-to-stories or story-enrich.",

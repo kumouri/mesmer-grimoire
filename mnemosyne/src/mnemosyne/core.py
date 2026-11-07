@@ -16,15 +16,29 @@ TIERS
           recall time and written up to via `export`/`promote --to`. See stores.py.
 
 SOURCE OF TRUTH = the JSONL. memory/LESSONS.md is a generated human view (regenerated on write).
+
+DURABILITY  every rewrite of a store file goes through atomic_write_text: a temp file in the same
+          directory, fsynced, then os.replace'd over the original. A crash mid-save leaves the old
+          file intact (plus at worst a stray `.<name>.*.tmp`), never a truncated store.
+LOCKING   every read-modify-write of a repo's store files runs under store_lock(repo), an OS lock
+          on memory/.store.lock, so two processes saving at once serialise instead of one losing
+          the other's update. The OS drops the lock when its holder dies, so a crash never wedges it.
 """
 from __future__ import annotations
 
 import datetime as _dt
+import errno
 import fnmatch
 import json
 import os
 import re
+import secrets
+import stat
 import subprocess
+import tempfile
+import threading
+import time
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 from .config import BUNDLED_DIR, Config
@@ -51,6 +65,21 @@ class LowValueError(EngineError):
             code=3,
         )
         self.matched = matched
+
+
+class LockTimeout(EngineError):
+    """Another process held a store lock for longer than the bounded wait. CLI maps to exit 4."""
+
+    def __init__(self, path, waited: float, holder: dict):
+        who = f"pid {holder['pid']}" if holder.get("pid") else "another process"
+        since = f" since {holder['since']}" if holder.get("since") else ""
+        super().__init__(
+            f"timed out after {waited:g}s waiting for the store lock {path} (last taken by {who}{since}). "
+            f"Another mnemosyne write is still running: retry, or raise MNEMOSYNE_LOCK_TIMEOUT.",
+            code=4,
+        )
+        self.path = str(path)
+        self.holder = holder
 
 
 # ----------------------------------------------------------------------------- hygiene constants
@@ -136,26 +165,213 @@ def read_jsonl(p: Path):
     return out
 
 
+_REPLACE_RETRIES = 5
+
+
+def _fsync_dir(d: Path):
+    """Persist a rename on POSIX by fsyncing its directory. Windows has no directory handle to sync."""
+    if os.name == "nt":
+        return
+    try:
+        fd = os.open(str(d), os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def atomic_write_text(p: Path, text: str):
+    """Replace `p` with `text` so a crash leaves the old file or the new one, never a torn mix.
+
+    Writes a temp file beside `p` (os.replace is only atomic within one filesystem), fsyncs it,
+    keeps `p`'s permission bits, then swaps it in. On any failure the temp file is removed and `p`
+    is untouched. On Windows a reader holding `p` open briefly blocks the swap, so the replace is
+    retried a few times before giving up."""
+    p = Path(p)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(f".{p.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        try:
+            os.chmod(str(tmp), stat.S_IMODE(p.stat().st_mode))
+        except OSError:
+            pass  # no existing file (keep the umask default) or a filesystem without modes
+        for attempt in range(_REPLACE_RETRIES):
+            try:
+                os.replace(str(tmp), str(p))
+                break
+            except PermissionError:
+                if os.name != "nt" or attempt == _REPLACE_RETRIES - 1:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
+    except BaseException:
+        try:
+            os.unlink(str(tmp))
+        except OSError:
+            pass
+        raise
+    _fsync_dir(p.parent)
+
+
 def write_jsonl(p: Path, lessons):
     lessons = sorted(lessons, key=lambda l: l.get("id", ""))
-    p.parent.mkdir(parents=True, exist_ok=True)
-    with p.open("w", encoding="utf-8") as fh:
-        for l in lessons:
-            fh.write(json.dumps(l, ensure_ascii=False, separators=(",", ":")) + "\n")
+    atomic_write_text(p, "".join(
+        json.dumps(l, ensure_ascii=False, separators=(",", ":")) + "\n" for l in lessons))
+
+
+# ----------------------------------------------------------------------------- store lock
+# Atomic writes stop a torn file; they don't stop two writers each reading the store, adding a
+# lesson and replacing it, so the second replace drops the first one's lesson. store_lock
+# serialises that read-modify-write per repo. It is a kernel lock (flock on POSIX, msvcrt byte-range
+# lock on Windows) on memory/.store.lock rather than "the lockfile exists": the OS releases it when
+# the holder exits or crashes, so there is no stale-lock cleanup to race over. The lockfile is never
+# deleted (deleting it would let two processes lock two different inodes) and records the last
+# holder's pid only for the timeout message.
+
+LOCK_NAME = ".store.lock"
+LOCK_TIMEOUT = 10.0  # seconds; MNEMOSYNE_LOCK_TIMEOUT overrides
+_LOCK_POLL = 0.02
+_WIN_LOCK_OFFSET = 1 << 30  # lock a byte far past the holder record so readers can still see it
+
+_held = {}            # lock path -> [fd, depth]: re-entry by the holding thread doesn't re-lock
+_thread_locks = {}    # lock path -> RLock: threads in one process take turns before the OS lock
+_registry = threading.Lock()
+
+if os.name == "nt":
+    import msvcrt
+
+    def _try_os_lock(fd) -> bool:
+        os.lseek(fd, _WIN_LOCK_OFFSET, os.SEEK_SET)
+        try:
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        except OSError as e:
+            if e.errno in (errno.EACCES, errno.EDEADLOCK):
+                return False
+            raise
+        return True
+
+    def _os_unlock(fd):
+        os.lseek(fd, _WIN_LOCK_OFFSET, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+
+    def _try_os_lock(fd) -> bool:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as e:
+            if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK, errno.EACCES):
+                return False
+            raise
+        return True
+
+    def _os_unlock(fd):
+        fcntl.flock(fd, fcntl.LOCK_UN)
+
+
+def lock_path(repo: Path) -> Path:
+    return Path(repo).resolve() / "memory" / LOCK_NAME
+
+
+def _lock_timeout() -> float:
+    try:
+        return max(0.0, float(os.environ.get("MNEMOSYNE_LOCK_TIMEOUT", LOCK_TIMEOUT)))
+    except ValueError:
+        return LOCK_TIMEOUT
+
+
+def lock_holder(path) -> dict:
+    """The holder record ({"pid", "since"}) last written into a lockfile, or {} if unreadable."""
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _os_lock(path: str, timeout: float) -> int:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o666)
+    try:
+        deadline = time.monotonic() + timeout
+        while not _try_os_lock(fd):
+            if time.monotonic() >= deadline:
+                raise LockTimeout(path, timeout, lock_holder(path))
+            time.sleep(_LOCK_POLL)
+        rec = json.dumps({"pid": os.getpid(), "since": _dt.datetime.now().isoformat(timespec="seconds")})
+        os.ftruncate(fd, 0)
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.write(fd, rec.encode("utf-8"))
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+@contextmanager
+def _lock_one(path: str, timeout: float):
+    with _registry:
+        tl = _thread_locks.setdefault(path, threading.RLock())
+    if not tl.acquire(timeout=timeout):
+        raise LockTimeout(path, timeout, lock_holder(path))
+    try:
+        held = _held.get(path)
+        if held:
+            held[1] += 1
+        else:
+            held = _held[path] = [_os_lock(path, timeout), 1]
+        try:
+            yield
+        finally:
+            held[1] -= 1
+            if not held[1]:
+                del _held[path]
+                try:
+                    _os_unlock(held[0])
+                finally:
+                    os.close(held[0])
+    finally:
+        tl.release()
+
+
+@contextmanager
+def store_lock(*repos, timeout=None):
+    """Hold the write lock of each repo's store for the duration of a read-modify-write.
+
+    Waits up to `timeout` seconds (default MNEMOSYNE_LOCK_TIMEOUT, else LOCK_TIMEOUT) per lock, then
+    raises LockTimeout. Re-entrant: an engine call that already holds a repo's lock can call another
+    that takes it again. Several repos are locked in sorted path order, so two writers spanning the
+    same repos can't each hold one and wait on the other."""
+    timeout = _lock_timeout() if timeout is None else timeout
+    with ExitStack() as stack:
+        for path in sorted({str(lock_path(r)) for r in repos}):
+            stack.enter_context(_lock_one(path, timeout))
+        yield
 
 
 def load_all(repo: Path):
-    """Return (lessons, tier_by_id). Local tier shadows shared on id collision."""
+    """Return (lessons, tier_by_id). Shared shadows local on id collision.
+
+    The one legitimate overlap is a promoted lesson: its local copy is kept until the review PR
+    merges, then retired. The reviewed shared record is the authority, so it wins; an overlap that
+    isn't a promoted copy is an id collision, which `validate` reports."""
     shared = read_jsonl(shared_path(repo))
     local = read_jsonl(local_path(repo))
     tier = {}
     by_id = {}
-    for l in shared:
-        by_id[l["id"]] = l
-        tier[l["id"]] = "shared"
     for l in local:
         by_id[l["id"]] = l
         tier[l["id"]] = "local"
+    for l in shared:
+        by_id[l["id"]] = l
+        tier[l["id"]] = "shared"
     return list(by_id.values()), tier
 
 
@@ -169,24 +385,31 @@ def load_federated(cfg: Config, repo: Path, *, pull_remotes=False, notes=None):
     return stores.federated_load(cfg, repo, pull_remotes=pull_remotes, notes=notes)
 
 
-def next_id(cfg: Config, lessons, prefix=None) -> str:
+def next_id(cfg: Config, lessons, prefix=None, taken=()) -> str:
+    """The next `<prefix>-NNNN` above every id in `lessons` and in `taken` (ids seen elsewhere,
+    e.g. on review branches or the merged default branch; see committed_lessons)."""
     prefix = prefix or cfg.id_prefix
     mx = 0
     pat = re.compile(rf"^{re.escape(prefix)}-(\d+)$")
-    for l in lessons:
-        m = pat.match(l.get("id", ""))
+    for lid in [l.get("id", "") for l in lessons] + list(taken):
+        m = pat.match(lid or "")
         if m:
             mx = max(mx, int(m.group(1)))
     return f"{prefix}-{mx + 1:04d}"
 
 
 def git(repo: Path, *args, check=False, env=None):
+    """Run git in `repo`; return (returncode, stdout, stderr), stripped.
+
+    stdin is always DEVNULL. Under the MCP server our own stdin is the JSON-RPC channel, and a git
+    child that inherits it holds that channel so, on Windows, the tool's reply never arrives."""
     run_env = None
     if env:
         run_env = dict(os.environ)
         run_env.update(env)
     try:
-        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=run_env)
+        r = subprocess.run(["git", "-C", str(repo), *args], stdin=subprocess.DEVNULL,
+                           capture_output=True, text=True, env=run_env)
     except FileNotFoundError:
         return 127, "", "git not found"
     if check and r.returncode != 0:
@@ -201,6 +424,248 @@ def git_sha(repo: Path) -> str:
 
 def banner(repo: Path) -> str:
     return f"reflexion memory @ {repo.name} ({git_sha(repo)})"
+
+
+# ----------------------------------------------------------------------------- committed tiers
+# A memory repo's shared tier exists in more places than its working tree: on the default branch
+# (where merged reviews land) and on every review branch. Ids must be unique across all of them,
+# and "merged" means "on the default branch", so these read lessons straight out of git.
+
+_REVIEW_BRANCH = "reflexion/"
+
+
+def is_git_repo(repo: Path) -> bool:
+    return git(repo, "rev-parse", "--is-inside-work-tree")[0] == 0
+
+
+def has_remote(repo: Path) -> bool:
+    """True if `repo`'s git config declares a remote. Reads the config file rather than running
+    git, so a hook can ask it for free; a linked worktree's config is in its common dir. A remote
+    defined only through an `[include]` or the global config is not seen."""
+    here = Path(repo).resolve()
+    gd = None
+    for d in (here, *here.parents):
+        dot = d / ".git"
+        if dot.is_dir():
+            gd = dot
+        elif dot.is_file():
+            m = re.match(r"gitdir:\s*(.+)", dot.read_text(encoding="utf-8", errors="replace").strip())
+            gd = (d / m.group(1)) if m else None
+        else:
+            continue
+        break
+    if gd is None:
+        return False
+    common = gd / "commondir"
+    if common.is_file():
+        gd = gd / common.read_text(encoding="utf-8", errors="replace").strip()
+    try:
+        text = (gd / "config").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return re.search(r'^\s*\[remote\s+"', text, re.M) is not None
+
+
+def sync_has_work(cfg: Config, repo: Path) -> bool:
+    """Whether `sync` could fetch anything: the repo has a remote, or the config declares a store.
+    The session-start hook asks this first, because sync spawns about ten git children (roughly
+    300 ms on Windows) even when a local-only memory repo has nothing to pull."""
+    return has_remote(repo) or bool(getattr(cfg, "stores", None))
+
+
+def default_ref(repo: Path, branch=None):
+    """The ref holding the repo's merged shared tier: origin's `branch` if given, else origin/HEAD,
+    else HEAD (unless HEAD is a review branch). None outside git or before the first commit."""
+    cands = [f"refs/remotes/origin/{branch}", branch] if branch else []
+    cands.append("refs/remotes/origin/HEAD")
+    if not git(repo, "branch", "--show-current")[1].startswith(_REVIEW_BRANCH):
+        cands.append("HEAD")
+    for ref in cands:
+        if git(repo, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}")[0] == 0:
+            return ref
+    return None
+
+
+def lessons_at(repo: Path, ref) -> list:
+    """The shared tier as committed at `ref` (`[]` if absent). Unparseable lines are skipped."""
+    code, out, _ = git(repo, "show", f"{ref}:./memory/lessons.jsonl")
+    rows = []
+    if code == 0:
+        for line in out.splitlines():
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                continue
+    return rows
+
+
+def _id_refs(repo: Path) -> list:
+    """HEAD, the remote default branches and every local or remote review branch."""
+    code, out, _ = git(repo, "for-each-ref", "--format=%(refname)",
+                       f"refs/heads/{_REVIEW_BRANCH}", "refs/remotes/")
+    refs = ["HEAD"]
+    for ref in out.splitlines() if code == 0 else []:
+        tail = ref.split("/", 3)[-1] if ref.startswith("refs/remotes/") else ""
+        if ref.startswith("refs/heads/") or tail.startswith(_REVIEW_BRANCH) or tail == "HEAD":
+            refs.append(ref)
+    return refs
+
+
+def committed_lessons(repo: Path) -> dict:
+    """{id: lesson} across every committed copy of the shared tier: HEAD, the remote default
+    branches and all review branches (first seen wins). `{}` outside git."""
+    if not is_git_repo(repo):
+        return {}
+    out = {}
+    for ref in _id_refs(repo):
+        for l in lessons_at(repo, ref):
+            out.setdefault(l.get("id"), l)
+    out.pop(None, None)
+    return out
+
+
+def jsonl_text(lessons) -> str:
+    lessons = sorted(lessons, key=lambda l: l.get("id", ""))
+    return "".join(json.dumps(l, ensure_ascii=False, separators=(",", ":")) + "\n" for l in lessons)
+
+
+# ----------------------------------------------------------------------------- scrub
+# Nothing leaves the local tier carrying the machine it was captured on: promote, export and
+# capture --shared run every outgoing lesson through scrub_lesson. The login name never becomes
+# the author, absolute paths become repo-relative or are dropped, and home-directory, drive, UNC
+# and WSL paths in free text become <path>. A clean scrub is not clearance to publish: the review
+# PR stays the gate.
+
+NEUTRAL_AUTHOR = "unknown"
+_URL_RE = re.compile(r"^[a-z][a-z0-9+.-]*://", re.I)
+_ABS_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\|/)")
+_LINE_SUFFIX_RE = re.compile(r"^(.*?)((?::\d+)+)?$", re.S)
+_MACHINE_PATH_RE = re.compile(
+    r"(?<![\w.])(?:[A-Za-z]:[\\/]|\\\\[^\s\\/\"'<>|]+[\\/]|/(?:home|Users|root|mnt/[a-z])(?=[/\s]|$))"
+    r"[^\s\"'<>|]*")
+
+
+def _login_names() -> set:
+    names = {os.environ.get(k) for k in ("USER", "USERNAME", "LOGNAME")}
+    try:
+        import getpass
+        names.add(getpass.getuser())
+    except Exception:  # noqa: BLE001 - no login is fine; there is nothing to scrub then
+        pass
+    names.discard(None)
+    names.discard("")
+    names.discard(os.environ.get("MNEMOSYNE_AUTHOR"))  # an explicit choice is not a leak
+    return names
+
+
+def _roots(repo: Path) -> list:
+    """Directories an absolute path may be made relative to: the memory repo, its git toplevel
+    and the current git toplevel, each in its given and resolved form, longest first."""
+    cands = [Path(repo)]
+    for where in (repo, Path.cwd()):
+        code, top, _ = git(where, "rev-parse", "--show-toplevel")
+        if code == 0 and top:
+            cands.append(Path(top))
+    forms = set()
+    for c in cands:
+        for form in (c, c.resolve()):
+            s = str(form).replace("\\", "/").rstrip("/")
+            if s:
+                forms.add(s)
+    return sorted(forms, key=len, reverse=True)
+
+
+def _relative(path: str, roots) -> str | None:
+    p = path.replace("\\", "/")
+    fold = os.name == "nt" or re.match(r"^[A-Za-z]:/", p)
+    for root in roots:
+        a, b = (p.casefold(), root.casefold()) if fold else (p, root)
+        if a == b:
+            return "."
+        if a.startswith(b + "/"):
+            return p[len(root) + 1:]
+    return None
+
+
+def scrub_anchor(anchor: str, roots) -> str | None:
+    """A repo-relative form of a file anchor, a URL unchanged, or None if it can't be made safe."""
+    anchor = (anchor or "").strip()
+    if not anchor or _URL_RE.match(anchor):
+        return anchor or None
+    path, suffix = _LINE_SUFFIX_RE.match(anchor).groups()
+    if _ABS_RE.match(path) or path.startswith("~"):
+        rel = _relative(path, roots)
+        return rel + (suffix or "") if rel is not None else None
+    rel = path.replace("\\", "/")
+    if rel == ".." or rel.startswith("../") or "/../" in rel:
+        return None
+    return rel + (suffix or "")
+
+
+def scrub_text(text, roots):
+    """Free text with repo paths made relative and other machine paths replaced by <path>."""
+    if not text:
+        return text
+    for root in roots:
+        pat = r"[\\/]".join(re.escape(part) for part in re.split(r"/", root))
+        text = re.sub(pat + r"[\\/]([^\s\"'<>|]*)", lambda m: m.group(1).replace("\\", "/"),
+                      text, flags=re.I if os.name == "nt" else 0)
+    return _MACHINE_PATH_RE.sub("<path>", text)
+
+
+# Credential shapes (spec §4.6 "Secrets"). Matched by shape, never by a list of known secrets.
+# The capture spool drops any candidate whose text carries one (candidates.py).
+_SECRET_SHAPES = (
+    ("cloud-access-key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
+    ("github-token", re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{30,}")),
+    ("github-pat", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}")),
+    ("sk-key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}")),
+    ("slack-token", re.compile(r"\bxox[abposr]-[A-Za-z0-9-]{10,}")),
+    ("private-key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+    ("jwt", re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")),
+    ("credential-assignment", re.compile(
+        r"(?i)\b(?:password|passwd|pwd|token|secret|api[_-]?key|access[_-]?key)\s*[=:]\s*['\"]?[^\s'\"]{6,}")),
+)
+
+
+def find_secret(text) -> str | None:
+    """The name of the first credential shape found in `text`, else None."""
+    if not text:
+        return None
+    for name, pat in _SECRET_SHAPES:
+        if pat.search(text):
+            return name
+    return None
+
+
+def scrub_machine_paths(text):
+    """Free text with home-directory, drive, UNC and WSL paths replaced by <path>. Unlike scrub_text
+    it needs no repo roots, so it runs no git (the capture hooks may not)."""
+    return _MACHINE_PATH_RE.sub("<path>", text) if text else text
+
+
+def scrub_lesson(lesson: dict, repo: Path) -> dict:
+    """A copy of `lesson` that is safe to leave the local tier (see the section comment)."""
+    out = json.loads(json.dumps(lesson))
+    logins = _login_names()
+    if not out.get("author") or out["author"] in logins:
+        out["author"] = NEUTRAL_AUTHOR
+    rv = out.get("review")
+    if isinstance(rv, dict) and rv.get("approved_by") in logins:
+        rv["approved_by"] = NEUTRAL_AUTHOR
+    roots = _roots(repo)
+    for key in ("title", "lesson", "rationale"):
+        if out.get(key):
+            out[key] = scrub_text(out[key], roots)
+    src = out.get("source")
+    if isinstance(src, dict):
+        if src.get("anchors"):
+            src["anchors"] = [a for a in (scrub_anchor(x, roots) for x in src["anchors"]) if a]
+            if not src["anchors"]:
+                del src["anchors"]
+        if src.get("reflection_of"):
+            src["reflection_of"] = scrub_text(src["reflection_of"], roots)
+    return out
 
 
 # ----------------------------------------------------------------------------- context + scoring
@@ -330,15 +795,15 @@ def bump_usage(repo: Path, ids):
     if not ids:
         return
     try:
-        usage = read_usage(repo)
-        now = today()
-        for i in ids:
-            rec = usage.setdefault(i, {})
-            rec["uses"] = int(rec.get("uses", 0)) + 1
-            rec["last_recalled"] = now
-        usage_path(repo).parent.mkdir(parents=True, exist_ok=True)
-        usage_path(repo).write_text(json.dumps(usage, ensure_ascii=False, indent=0), encoding="utf-8")
-    except OSError:
+        with store_lock(repo):
+            usage = read_usage(repo)
+            now = today()
+            for i in ids:
+                rec = usage.setdefault(i, {})
+                rec["uses"] = int(rec.get("uses", 0)) + 1
+                rec["last_recalled"] = now
+            atomic_write_text(usage_path(repo), json.dumps(usage, ensure_ascii=False, indent=0))
+    except (OSError, LockTimeout):
         pass  # usage tracking is a nicety; never fail a recall over it
 
 
@@ -496,11 +961,22 @@ def render_digest(cfg: Config, ranked, repo, tier, fmt, budget) -> str:
 
 
 def render_lessons_md(cfg: Config, repo: Path):
+    with store_lock(repo):
+        return _render_lessons_md(cfg, repo)
+
+
+def _render_lessons_md(cfg: Config, repo: Path):
     lessons, tier = load_all(repo)
-    lessons.sort(key=lambda l: l["id"])
+    text = render_lessons_text(cfg, lessons, tier, git_sha(repo))
+    atomic_write_text(repo / "memory" / "LESSONS.md", text)
+    return repo / "memory" / "LESSONS.md"
+
+
+def render_lessons_text(cfg: Config, lessons, tier: dict, sha: str) -> str:
+    """The LESSONS.md text for `lessons` (tier: id -> tier label; sha: the baseline shown)."""
+    lessons = sorted(lessons, key=lambda l: l["id"])
     active = [l for l in lessons if l.get("status") == "active"]
     by_cat = {c: [l for l in active if l["category"] == c] for c in cfg.categories}
-    sha = git_sha(repo)
     trig_keys = ["stages"] + cfg.axis_names
     out = [
         "# Reflexion Lessons (generated — do not edit by hand)",
@@ -549,9 +1025,7 @@ def render_lessons_md(cfg: Config, repo: Path):
             out.append(f"- **Source:** {'; '.join(sb) if sb else '—'}")
             out.append(f"- _{' · '.join(meta)}_")
             out.append("")
-    text = "\n".join(out).rstrip("\n") + "\n"  # single trailing newline; no MD012 at EOF
-    (repo / "memory" / "LESSONS.md").write_text(text, encoding="utf-8")
-    return repo / "memory" / "LESSONS.md"
+    return "\n".join(out).rstrip("\n") + "\n"  # single trailing newline; no MD012 at EOF
 
 
 # ----------------------------------------------------------------------------- validation
@@ -602,20 +1076,43 @@ def validate_record(cfg: Config, l: dict, schema, valid_prefixes=None):
     return errs
 
 
+def _is_promoted_copy(local: dict, shared_id: str) -> bool:
+    exp = (local.get("source", {}) or {}).get("exported_to") or {}
+    return exp.get("tier") == "shared" and exp.get("remote_id") == shared_id
+
+
+def id_collisions(repo: Path) -> list:
+    """Problems for ids used twice in one tier file, or by an active local lesson and a different
+    shared lesson (in the working tree, on the default branch or on a review branch). load_all
+    shows only the shared one, so without this check the local lesson silently disappears."""
+    problems = []
+    tiers = {"shared": read_jsonl(shared_path(repo)), "local": read_jsonl(local_path(repo))}
+    for name, rows in tiers.items():
+        seen = {}
+        for l in rows:
+            seen[l.get("id")] = seen.get(l.get("id"), 0) + 1
+        problems += [f"{i}: duplicate id ({n}x in the {name} tier)" for i, n in seen.items() if n > 1]
+    shared = {**committed_lessons(repo), **{l.get("id"): l for l in tiers["shared"]}}
+    for l in tiers["local"]:
+        other = shared.get(l.get("id"))
+        if other is None or l.get("status") != "active" or _is_promoted_copy(l, l["id"]):
+            continue
+        problems.append(
+            f"{l['id']}: id collision: local \"{l.get('title', '')}\" and shared \"{other.get('title', '')}\" "
+            f"share an id, so only the shared one is visible. Re-capture the local lesson with --force "
+            f"(it gets a fresh id), then delete the old line from memory/local.jsonl.")
+    return problems
+
+
 def validate(cfg: Config, repo: Path) -> dict:
     schema = load_schema(repo)
     lessons, tier, _origin, _src = load_federated(cfg, repo, pull_remotes=False)
     valid_prefixes = [cfg.id_prefix] + [s["prefix"] for s in cfg.stores]
     problems = []
-    ids = {}
     for l in lessons:
         for e in validate_record(cfg, l, schema, valid_prefixes):
             problems.append(f"{l.get('id', '?')}: {e}")
-        ids.setdefault(l.get("id"), 0)
-        ids[l["id"]] += 1
-    for i, n in ids.items():
-        if n > 1:
-            problems.append(f"{i}: duplicate id ({n}x)")
+    problems += id_collisions(repo)
     by_id = {l["id"]: l for l in lessons}
     for l in lessons:
         sb = l.get("superseded_by")
@@ -628,12 +1125,13 @@ def validate(cfg: Config, repo: Path) -> dict:
                 problems.append(f"{l['id']}: dangling ref {r}")
     md = repo / "memory" / "LESSONS.md"
     stale = False
-    if md.exists():
-        cur = md.read_text(encoding="utf-8")
-        render_lessons_md(cfg, repo)
-        if md.read_text(encoding="utf-8") != cur:
-            stale = True
-            md.write_text(cur, encoding="utf-8")  # restore; don't mutate during validate
+    with store_lock(repo):  # the render-and-restore must not overwrite a concurrent save's render
+        if md.exists():
+            cur = md.read_text(encoding="utf-8")
+            render_lessons_md(cfg, repo)
+            if md.read_text(encoding="utf-8") != cur:
+                stale = True
+                atomic_write_text(md, cur)  # restore; don't mutate during validate
     by_tier = {}
     for t in tier.values():
         by_tier[t] = by_tier.get(t, 0) + 1
@@ -705,7 +1203,7 @@ def build_recall_context(cfg: Config, *, from_text=None, query=None, axes=None, 
 # ----------------------------------------------------------------------------- capture / reflect
 
 
-def build_lesson(cfg: Config, lessons, fields: dict, category_default, memory_default):
+def build_lesson(cfg: Config, lessons, fields: dict, category_default, memory_default, taken=()):
     l = dict(fields.get("base") or {})
     if fields.get("title"):
         l.setdefault("title", fields["title"])
@@ -746,12 +1244,12 @@ def build_lesson(cfg: Config, lessons, fields: dict, category_default, memory_de
     if fields.get("supersedes"):
         l.setdefault("supersedes", csv(fields["supersedes"]))
 
-    l["id"] = next_id(cfg, lessons)
+    l["id"] = next_id(cfg, lessons, taken=taken)
     l.setdefault("status", "active")
     l["created"] = today()
     l["updated"] = today()
-    l.setdefault("author", os.environ.get("MNEMOSYNE_AUTHOR") or os.environ.get("USER")
-                 or os.environ.get("USERNAME") or "unknown")
+    # Never the OS login: it's a machine identifier, and lessons are built to be shared.
+    l.setdefault("author", os.environ.get("MNEMOSYNE_AUTHOR") or NEUTRAL_AUTHOR)
     l.setdefault("uses", 0)
     l.setdefault("reinforced", 0)
     shared = bool(fields.get("shared"))
@@ -763,9 +1261,21 @@ def build_lesson(cfg: Config, lessons, fields: dict, category_default, memory_de
 
 def capture(cfg: Config, repo: Path, fields: dict, *, category_default="decision",
             memory_default="semantic", force=False, supersede=None) -> dict:
-    """Build + save a lesson to local (or shared). Returns a result dict describing what happened."""
+    """Build + save a lesson to local (or shared). Returns a result dict describing what happened.
+
+    The whole read (next id, dedup) through write runs under the repo's store lock."""
+    with store_lock(repo):
+        return _capture(cfg, repo, fields, category_default=category_default,
+                        memory_default=memory_default, force=force, supersede=supersede)
+
+
+def _capture(cfg: Config, repo: Path, fields: dict, *, category_default, memory_default, force,
+             supersede) -> dict:
     lessons, tier = load_all(repo)
-    lesson, shared = build_lesson(cfg, lessons, fields, category_default, memory_default)
+    taken = [l.get("id") for l in read_jsonl(local_path(repo))] + list(committed_lessons(repo))
+    lesson, shared = build_lesson(cfg, lessons, fields, category_default, memory_default, taken)
+    if shared:
+        lesson = scrub_lesson(lesson, repo)
 
     # (A) hygiene: refuse a missing-deliverable / transient failure (only for failure-shaped captures).
     if lesson.get("category") == cfg.failure_category and not force:
@@ -850,38 +1360,172 @@ def reflect(cfg: Config, repo: Path, fields: dict, *, force=False, supersede=Non
 # ----------------------------------------------------------------------------- promote / sync / prune
 
 
-def promote(cfg: Config, repo: Path, lesson_id: str) -> dict:
-    local = read_jsonl(local_path(repo))
-    by_id = {l["id"]: l for l in local}
-    if lesson_id not in by_id:
-        raise EngineError(f"{lesson_id} is not in the local tier (only local lessons can be promoted)")
-    lesson = by_id[lesson_id]
+# Promotion never touches a working tree. The review branch is built with git plumbing from the
+# target repo's default branch plus exactly the promoted lessons, so nothing else that happens to be
+# uncommitted in lessons.jsonl rides along, the developer stays on their branch, and a store's
+# cached clone stays on its default branch, where `sync` sees the merge. The commit carries
+# review.state=approved: merging the review PR is the approval, and nothing else has to flip it.
+
+
+def _review_commit(cfg: Config, repo: Path, branch: str, base: str, lessons, message: str) -> str:
+    """Create refs/heads/<branch> as `base` plus `lessons` appended to its shared tier, with
+    LESSONS.md rendered to match. Raises EngineError if the branch exists or git fails."""
+    if git(repo, "rev-parse", "--verify", "-q", f"refs/heads/{branch}")[0] == 0:
+        raise EngineError(f"branch {branch} already exists in {repo}: push or delete it, then retry")
+    top = git(repo, "rev-parse", "--show-toplevel", check=True)[1]
+    prefix = git(repo, "rev-parse", "--show-prefix", check=True)[1]
+    rows = lessons_at(repo, base) + list(lessons)
+    files = {
+        f"{prefix}memory/lessons.jsonl": jsonl_text(rows),
+        f"{prefix}memory/LESSONS.md": render_lessons_text(
+            cfg, rows, {l["id"]: "shared" for l in rows}, git(repo, "rev-parse", "--short", base)[1]),
+    }
+    with tempfile.TemporaryDirectory(prefix="mnemosyne-review-") as td:
+        env = {"GIT_INDEX_FILE": str(Path(td) / "index")}
+        git(top, "read-tree", base, env=env, check=True)
+        for i, (path, text) in enumerate(files.items()):
+            blob = Path(td) / f"blob{i}"
+            blob.write_bytes(text.encode("utf-8"))
+            oid = git(top, "hash-object", "-w", "--path", path, str(blob), check=True)[1]
+            git(top, "update-index", "--add", "--cacheinfo", f"100644,{oid},{path}", env=env, check=True)
+        tree = git(top, "write-tree", env=env, check=True)[1]
+    commit = git(top, "commit-tree", tree, "-p", base, "-m", message, check=True)[1]
+    git(top, "update-ref", f"refs/heads/{branch}", commit, "", check=True)
+    return commit
+
+
+def stage_review_pr(cfg: Config, repo: Path, branch: str, message: str, lessons, *,
+                    base_branch=None) -> dict:
+    """Commit `lessons`, and nothing else, on review branch `branch` cut from the repo's default
+    branch (see default_ref). The working tree and the current branch are left alone.
+
+    Returns {"branch", "is_git", "base", "commands", "pushed", "error"}. `commands` are the steps
+    left to run by hand (push, open the PR), returned so every surface (CLI, MCP, API) relays the
+    same thing; push_review_pr runs the push. Outside git nothing is committed and `commands` is
+    empty. Opening and merging the PR stays with a human; nothing here merges."""
+    out = {"branch": branch, "is_git": is_git_repo(repo), "base": None, "commands": [],
+           "pushed": False, "error": None}
+    if not out["is_git"]:
+        return out
+    base = default_ref(repo, base_branch)
+    if base is None:
+        raise EngineError(f"{repo} has no commit to cut a review branch from: commit it first")
+    _review_commit(cfg, repo, branch, base, lessons, message)
+    out["base"] = base
+    out["commands"] = [f'git -C "{repo}" push -u origin {branch} && gh pr create --fill --head {branch}']
+    return out
+
+
+def push_review_pr(repo: Path, pr: dict) -> dict:
+    """Push a staged review branch to origin; record `pushed`, or the failure in `error`."""
+    rc, _, err = git(repo, "push", "-u", "origin", pr["branch"])
+    if rc == 0:
+        pr["pushed"] = True
+    else:
+        pr["error"] = f"git push failed: {err}"
+    return pr
+
+
+def _promote_problem(lesson, lesson_id):
+    """Why `lesson` (the local record for `lesson_id`, or None) can't be promoted, or None."""
+    if lesson is None:
+        return f"{lesson_id} is not in the local tier (only local lessons can be promoted)"
+    exp = (lesson.get("source", {}) or {}).get("exported_to")
+    if exp:
+        return (f"{lesson_id} was already promoted to {exp.get('tier')} as {exp.get('remote_id')}; "
+                f"its review PR decides it")
+    if lesson.get("status") != "active":
+        return f"{lesson_id} is {lesson.get('status')}; only active lessons can be promoted"
+    return None
+
+
+def _outgoing_copy(lesson: dict, repo: Path, new_id: str, *, approved: bool) -> dict:
+    """The scrubbed copy of a local lesson that a promotion or export writes to a shared tier."""
+    copy = scrub_lesson(lesson, repo)
+    copy["id"] = new_id
+    copy["review"] = {"state": "approved" if approved else "proposed"}
+    copy["updated"] = today()
+    copy["status"] = "active"
+    copy.pop("superseded_by", None)
+    if new_id != lesson["id"]:
+        copy.setdefault("source", {})["exported_from"] = lesson["id"]
+    return copy
+
+
+def _mark_exported(lesson: dict, tier: str, remote_id: str):
+    """Keep the local original, marked proposed, until its review PR merges (sync retires it)."""
     lesson["review"] = {"state": "proposed"}
     lesson["updated"] = today()
-    shared = read_jsonl(shared_path(repo))
-    shared.append(lesson)
-    write_jsonl(shared_path(repo), shared)
-    write_jsonl(local_path(repo), [l for l in local if l["id"] != lesson_id])
-    render_lessons_md(cfg, repo)
-    code, _, _ = git(repo, "rev-parse", "--is-inside-work-tree")
-    return {"id": lesson_id, "title": lesson["title"], "branch": f"reflexion/{lesson_id}",
-            "is_git": code == 0}
+    lesson.setdefault("source", {})["exported_to"] = {"tier": tier, "remote_id": remote_id}
 
 
-def export(cfg: Config, repo: Path, lesson_ids, to_tier: str) -> dict:
+def promote(cfg: Config, repo: Path, lesson_id: str, *, push=False) -> dict:
+    """Propose a local lesson for this repo's shared tier through a review PR.
+
+    In a git repo the lesson is committed alone on `reflexion/<id>` (stage_review_pr), and the local
+    copy is KEPT, marked proposed with `source.exported_to`, until the PR merges; the next `sync`
+    retires it. So its id stays taken everywhere and is never reused. The shared copy keeps the
+    local id unless a different lesson already holds it on a committed branch, in which case it
+    gets a fresh one. Outside git there is no review to wait for, so the lesson moves straight into
+    the shared tier as proposed. Whatever leaves the local tier is scrubbed (scrub_lesson).
+
+    The result's `pr` is stage_review_pr's report; push=True also pushes the branch."""
+    if not is_git_repo(repo):
+        return _promote_in_place(cfg, repo, lesson_id)
+    with store_lock(repo):
+        local = read_jsonl(local_path(repo))
+        lesson = {l["id"]: l for l in local}.get(lesson_id)
+        problem = _promote_problem(lesson, lesson_id)
+        if problem:
+            raise EngineError(problem)
+        working = read_jsonl(shared_path(repo))
+        held = set(committed_lessons(repo)) | {l["id"] for l in working}
+        shared_id = next_id(cfg, working + local, taken=held) if lesson_id in held else lesson_id
+        branch = f"{_REVIEW_BRANCH}{shared_id}"
+        pr = stage_review_pr(cfg, repo, branch, f"reflexion: promote {shared_id} — {lesson['title']}",
+                             [_outgoing_copy(lesson, repo, shared_id, approved=True)])
+        _mark_exported(lesson, "shared", shared_id)
+        write_jsonl(local_path(repo), local)
+        render_lessons_md(cfg, repo)
+    if push:
+        push_review_pr(repo, pr)
+    return {"id": lesson_id, "shared_id": shared_id, "title": lesson["title"], "branch": branch,
+            "is_git": True, "pr": pr}
+
+
+def _promote_in_place(cfg: Config, repo: Path, lesson_id: str) -> dict:
+    """Promote in a repo that isn't under git: move the lesson to the shared tier as proposed."""
+    with store_lock(repo):
+        local = read_jsonl(local_path(repo))
+        lesson = {l["id"]: l for l in local}.get(lesson_id)
+        problem = _promote_problem(lesson, lesson_id)
+        if problem:
+            raise EngineError(problem)
+        copy = _outgoing_copy(lesson, repo, lesson_id, approved=False)
+        write_jsonl(shared_path(repo), read_jsonl(shared_path(repo)) + [copy])
+        write_jsonl(local_path(repo), [l for l in local if l["id"] != lesson_id])
+        render_lessons_md(cfg, repo)
+    pr = {"branch": None, "is_git": False, "base": None, "commands": [], "pushed": False, "error": None}
+    return {"id": lesson_id, "shared_id": lesson_id, "title": lesson["title"], "branch": None,
+            "is_git": False, "pr": pr}
+
+
+def export(cfg: Config, repo: Path, lesson_ids, to_tier: str, *, push=False) -> dict:
     """Promote chosen local lessons UP to a broader shared store (team/enterprise, etc.).
 
-    Each exported lesson is copied into the store under a NEW id in the store's own prefix and
-    marked review=proposed; the local original is KEPT but marked proposed with a back-reference
-    (`source.exported_to`) so recall's near-dup collapse hides the double and `sync` can retire it
-    once the upstream copy is approved. Unlike recall, export is a WRITE and fails loudly if the
-    store is unreachable. Returns a dict the CLI uses to stage the review PR in the STORE repo."""
+    Each exported lesson is scrubbed and copied under a NEW id in the store's own prefix. In a git
+    store the copies are committed together, and alone, on one review branch in the STORE repo
+    (stage_review_pr), marked approved because merging that PR is the approval; push=True also
+    pushes it. A store that isn't under git has no review, so the copies are written into it as
+    proposed. Either way the local original is KEPT, marked proposed with a back-reference
+    (`source.exported_to`), and the next `sync` after the merge retires it. Unlike recall, export is
+    a WRITE: it clones a store that isn't cached yet, and fails loudly if it can't reach it."""
     from . import stores as _stores
 
     if to_tier in (None, "shared"):
         # default path: same-repo local -> shared, one entry per id
         return {"tier": "shared", "same_repo": True,
-                "results": [promote(cfg, repo, lid) for lid in lesson_ids]}
+                "results": [promote(cfg, repo, lid, push=push) for lid in lesson_ids]}
 
     st = _stores.resolve_store(cfg, to_tier)
     if st is None:
@@ -892,49 +1536,74 @@ def export(cfg: Config, repo: Path, lesson_ids, to_tier: str) -> dict:
     store_repo, note = _stores.ensure_cloned(st)
     if store_repo is None:
         raise EngineError(f"cannot reach store '{to_tier}' to export: {note}")
+    store_git = is_git_repo(store_repo)
 
-    local = read_jsonl(local_path(repo))
-    local_by_id = {l["id"]: l for l in local}
-    store_lessons = read_jsonl(shared_path(store_repo))
+    pr = None
+    with store_lock(store_repo, repo):
+        local = read_jsonl(local_path(repo))
+        local_by_id = {l["id"]: l for l in local}
+        store_lessons = read_jsonl(shared_path(store_repo))
+        taken = list(committed_lessons(store_repo))
 
-    exported, skipped = [], []
-    for lid in lesson_ids:
-        orig = local_by_id.get(lid)
-        if orig is None:
-            skipped.append({"id": lid, "reason": "not in the local tier (only local lessons can be exported)"})
-            continue
-        copy = json.loads(json.dumps(orig))  # deep copy
-        remote_id = _stores.next_store_id(st, store_lessons)
-        copy["id"] = remote_id
-        copy["review"] = {"state": "proposed"}
-        copy["created"] = today()
-        copy["updated"] = today()
-        copy.setdefault("source", {})["exported_from"] = lid
-        copy.pop("superseded_by", None)
-        copy["status"] = "active"
-        store_lessons.append(copy)
-        orig["review"] = {"state": "proposed"}
-        orig["updated"] = today()
-        orig.setdefault("source", {})["exported_to"] = {"tier": to_tier, "remote_id": remote_id}
-        exported.append({"local_id": lid, "remote_id": remote_id, "title": orig.get("title", "")})
+        exported, skipped, copies = [], [], []
+        for lid in lesson_ids:
+            problem = _promote_problem(local_by_id.get(lid), lid)
+            if problem:
+                skipped.append({"id": lid, "reason": problem})
+                continue
+            remote_id = _stores.next_store_id(st, store_lessons + copies, taken)
+            copy = _outgoing_copy(local_by_id[lid], repo, remote_id, approved=store_git)
+            copy["created"] = today()
+            copies.append(copy)
+            exported.append({"local_id": lid, "remote_id": remote_id, "title": copy.get("title", "")})
 
-    if exported:
-        write_jsonl(shared_path(store_repo), store_lessons)
-        render_lessons_md(cfg, store_repo)
-        write_jsonl(local_path(repo), local)
-        render_lessons_md(cfg, repo)
+        remote_ids = [e["remote_id"] for e in exported]
+        branch = (f"{_REVIEW_BRANCH}{remote_ids[0]}" if len(remote_ids) == 1
+                  else f"{_REVIEW_BRANCH}export-{to_tier}-{'-'.join(remote_ids)}") if remote_ids else None
+        if exported:
+            pr = stage_review_pr(cfg, store_repo, branch, f"reflexion: export to {to_tier} ({branch})",
+                                 copies, base_branch=st.branch)
+            if not store_git:
+                write_jsonl(shared_path(store_repo), store_lessons + copies)
+                render_lessons_md(cfg, store_repo)
+            for e in exported:
+                _mark_exported(local_by_id[e["local_id"]], to_tier, e["remote_id"])
+            write_jsonl(local_path(repo), local)
+            render_lessons_md(cfg, repo)
 
-    remote_ids = [e["remote_id"] for e in exported]
-    branch = (f"reflexion/{remote_ids[0]}" if len(remote_ids) == 1
-              else f"reflexion/export-{to_tier}-{'-'.join(remote_ids)}") if remote_ids else None
-    code, _, _ = git(store_repo, "rev-parse", "--is-inside-work-tree")
+    if pr and push and store_git:
+        push_review_pr(store_repo, pr)
     return {"tier": to_tier, "same_repo": False, "store_repo": str(store_repo),
             "exported": exported, "skipped": skipped, "branch": branch,
-            "is_git": code == 0}
+            "is_git": store_git, "pr": pr}
 
 
-def _retire_exported_on_merge(cfg: Config, repo: Path, fed_by_id: dict) -> list:
-    """Retire local originals whose exported copy is now approved upstream. Returns retired ids."""
+def _merged_tiers(cfg: Config, repo: Path) -> dict:
+    """{tier: ({id: lesson}, merge_is_approval)} for this repo's shared tier and each cached store.
+
+    In git a lesson counts once it is on the default branch (default_ref), where presence means
+    the review PR merged, which is the approval, AND in the working tree recall reads. So a pull
+    that failed never retires a local copy before its replacement is visible. A store outside git
+    has no merge, so it counts only lessons whose review.state is approved."""
+    from . import stores as _stores
+
+    out = {}
+    targets = [("shared", repo, None)] + [
+        (st.tier, d, st.branch) for st in _stores.resolve_stores(cfg)
+        for d in [_stores.cached(st)[0]] if d is not None]
+    for tier, d, branch in targets:
+        working = {l["id"]: l for l in read_jsonl(shared_path(d))}
+        if is_git_repo(d):
+            ref = default_ref(d, branch)
+            merged = {l["id"] for l in lessons_at(d, ref)} if ref else set()
+            out[tier] = ({i: l for i, l in working.items() if i in merged}, True)
+        elif tier != "shared":
+            out[tier] = (working, False)
+    return out
+
+
+def _retire_merged_locked(repo: Path, merged: dict) -> list:
+    """Retire every kept original whose promoted or exported copy has merged. Returns their ids."""
     retired = []
     for tf in (shared_path(repo), local_path(repo)):
         rows = read_jsonl(tf)
@@ -943,21 +1612,39 @@ def _retire_exported_on_merge(cfg: Config, repo: Path, fed_by_id: dict) -> list:
             exp = (r.get("source", {}) or {}).get("exported_to")
             if not exp or r.get("status") != "active":
                 continue
-            remote = fed_by_id.get(exp.get("remote_id"))
-            if remote and (remote.get("review", {}) or {}).get("state") == "approved":
-                r["status"] = "retired"
-                r["retired_reason"] = f"exported to {exp.get('tier')} as {exp.get('remote_id')}, approved upstream"
-                r["superseded_by"] = exp.get("remote_id")
-                r["updated"] = today()
-                changed = True
-                retired.append(r["id"])
+            by_id, merge_is_approval = merged.get(exp.get("tier"), ({}, False))
+            remote_id = exp.get("remote_id")
+            remote = by_id.get(remote_id)
+            if not remote:
+                continue
+            if not merge_is_approval and (remote.get("review", {}) or {}).get("state") != "approved":
+                continue
+            how = "its review PR merged" if merge_is_approval else "approved upstream"
+            r["status"] = "retired"
+            r["retired_reason"] = f"promoted to {exp.get('tier')} as {remote_id}; {how}"
+            if remote_id != r["id"]:
+                r["superseded_by"] = remote_id
+            r["updated"] = today()
+            changed = True
+            retired.append(r["id"])
         if changed:
             write_jsonl(tf, rows)
     return retired
 
 
 def sync(cfg: Config, repo: Path) -> dict:
+    """Pull this repo and every store (the only place recall's data is fetched), then retire the
+    local originals of promotions and exports whose review PRs have merged."""
     from . import stores as _stores
+    if is_git_repo(repo):
+        # LESSONS.md is generated, and it also lists the local tier, so it is nearly always
+        # modified (or untracked, in a store that never committed one). Put it back as committed so
+        # a pull that touches it can fast-forward; it's re-rendered below.
+        md = repo / "memory" / "LESSONS.md"
+        if git(repo, "ls-files", "--error-unmatch", "memory/LESSONS.md")[0] == 0:
+            git(repo, "checkout", "--quiet", "HEAD", "--", "memory/LESSONS.md")
+        elif md.exists():
+            md.unlink()
     code, out, err = git(repo, "pull", "--ff-only")
     if code == 127:
         raise EngineError("git not found")
@@ -965,15 +1652,15 @@ def sync(cfg: Config, repo: Path) -> dict:
     # or retire-on-merge — those depend on the stores' state, not the primary's remote.
     primary_ok = code == 0
     primary_err = None if primary_ok else (err or out)
+    if not primary_ok and is_git_repo(repo):
+        git(repo, "fetch", "--quiet", "origin")  # a branch with no upstream still learns of merges
     store_status = []
     for st in _stores.resolve_stores(cfg):
         d, note = _stores.pull(st)
         store_status.append({"tier": st.tier, "ok": d is not None and not note,
                              "note": note, "sha": git_sha(d) if d else None})
-    retired = []
-    if cfg.stores:
-        fed, _t, _o, _s = load_federated(cfg, repo, pull_remotes=False)
-        retired = _retire_exported_on_merge(cfg, repo, {l["id"]: l for l in fed})
+    with store_lock(repo):
+        retired = _retire_merged_locked(repo, _merged_tiers(cfg, repo))
     render_lessons_md(cfg, repo)
     return {"ok": primary_ok, "error": primary_err, "sha": git_sha(repo),
             "out": out.splitlines()[-1] if out else "already current",
@@ -983,6 +1670,13 @@ def sync(cfg: Config, repo: Path) -> dict:
 def prune(cfg: Config, repo: Path, *, apply=False, cap=None, max_age_days=None) -> dict:
     cap = cfg.prune_cap if cap is None else cap
     max_age_days = cfg.prune_max_age_days if max_age_days is None else max_age_days
+    if not apply:
+        return _prune(cfg, repo, False, cap, max_age_days)
+    with store_lock(repo):
+        return _prune(cfg, repo, True, cap, max_age_days)
+
+
+def _prune(cfg: Config, repo: Path, apply, cap, max_age_days) -> dict:
     lessons, tier = load_all(repo)
     usage = read_usage(repo)
     today_d = _dt.date.today()
@@ -1094,7 +1788,7 @@ def init_repo(repo: Path, cfg_name: str | None = None) -> dict:
         sp.write_text("", encoding="utf-8")
     gi = repo / "memory" / ".gitignore"
     if not gi.exists():
-        gi.write_text("local.jsonl\nusage.local.json\n", encoding="utf-8")
+        gi.write_text("local.jsonl\nusage.local.json\n.*.tmp\n.store.lock\n", encoding="utf-8")
     wrote_cfg = False
     if cfg_name:
         from .config import BUNDLED_DIR as _BD

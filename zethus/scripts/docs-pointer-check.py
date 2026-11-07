@@ -12,8 +12,8 @@ code blocks or inline code are not checked. ``--code-spans`` also checks backtic
 paths, and a check that cries wolf gets switched off.
 
 **2. Docs that describe changed code (report-only).** With ``--sync-base REF``, every entry in
-the config's ``docSync.map`` (``{"doc": ..., "describes": [globs]}`` — the same key Amphion's
-``sync-claude-md`` reads) whose described paths changed since the merge-base with ``REF``, but
+the config's ``docSync.map`` (``{"doc": ..., "describes": [globs]}``) whose described paths
+changed since the merge-base with ``REF``, but
 whose doc did not, is listed as REVIEW. That is a prompt to re-read the doc, not proof it is wrong,
 so it never changes the exit code. If ``REF`` can't be resolved the section says so — "no answer",
 never a guess.

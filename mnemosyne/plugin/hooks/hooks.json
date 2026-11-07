@@ -20,12 +20,46 @@
         ]
       }
     ],
-    "SessionEnd": [
+    "PostToolUse": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/mnemosyne_hook.py\" session-end"
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/mnemosyne_hook.py\" post-tool",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/mnemosyne_hook.py\" post-tool",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/mnemosyne_hook.py\" stop",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/mnemosyne_hook.py\" pre-compact",
+            "timeout": 5
           }
         ]
       }

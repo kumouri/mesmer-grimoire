@@ -1,11 +1,12 @@
 # Zethus 🪨
 
 **A development process for GitHub Copilot, in a form Copilot can follow and enforce.** One custom
-agent runs every change through research → spec → sign-off → phased implementation → tests → local
-gates → a PR with evidence, and refuses to skip a stage. Ten standalone skills hold one procedure
-each. Four Markdown templates and five stdlib Python scripts do the mechanical parts. It installs into
-a repository's `.github/` folder, or once for your user account under `~/.copilot/` so it follows
-you into every repo without changing any of them. Nothing in it is specific to one organization.
+agent runs every change through research → spec → sign-off → phased implementation → tests → docs →
+local gates → a PR with evidence, and refuses to skip a stage. Ten core skills hold one procedure
+each, and optional extension skills (modernization, Jira, CLI tools, session review) add more. Four Markdown templates and five stdlib Python scripts do the mechanical parts. Install it as a
+Copilot plugin from this repo's marketplace, so it follows you into every repo without changing any
+of them, or copy it into a repository's `.github/` folder for a whole team and the cloud agent.
+Nothing in it is specific to one organization.
 
 > Amphion and his twin Zethus built the walls of Thebes. Amphion played his lyre and the stones set
 > themselves. Zethus carried each stone by hand and set it true. [Amphion][amphion] is the
@@ -20,69 +21,309 @@ flowchart LR
     S --> SO{{"sign-off"}}
     SO -->|"decisions → ADRs"| I["3 · Implement<br/><i>one phase; Phase 0 changes nothing</i>"]
     I --> T["4 · Tests<br/><i>incl. refusals · mutation check</i>"]
-    T --> G["5 · Gates<br/><i>run-local-gates</i>"]
-    G --> D["6 · Docs<br/><i>docs-pointer-check</i>"]
-    D --> P["7 · PR<br/><i>evidence · never self-merged</i>"]
+    T --> D["5 · Docs<br/><i>docs-pointer-check</i>"]
+    D --> G["6 · Gates<br/><i>fresh base · run-local-gates</i>"]
+    G --> P["7 · PR<br/><i>evidence · never self-merged</i>"]
     P -.->|"next phase"| I
     I -.->|"stuck twice"| F["fresh-eyes<br/>investigation"]
     F -.->|"ranked leads"| I
 ```
 
-The agent states which stage it's in at the top of every reply. It asks decisions as a short list
+The agent states which stage and step it's on at the top of every reply, and keeps its plan visible
+throughout (see [Seeing the plan](#seeing-the-plan)). It asks decisions as a short list
 of options with the recommendation first and marked, and it records each answer as an ADR. Its
 refusals are written into the agent file as a table. "Skip the spec" gets the minimum spec, about
 ten minutes. "Just push, CI will tell us" gets the local gates. "Merge it" gets a no: a person
 merges, only on green. One narrow exemption is written down too. A change with no behaviour change
-(a typo, a comment, formatting) may skip research, spec and tests, but never gates, docs or the PR.
+(a typo, a comment, formatting) may skip research, spec and tests, but never docs, gates or the PR.
+
+It doesn't stop between stages. When one stage's exit condition is met, it starts the next in the
+same turn, and every stage's skill names that next action. That includes the step after sign-off,
+where recording the ADRs and checking those doc edits finish Stage 2 and Phase 0 starts. It ends a
+turn only at a listed stop: an approval wall (sign-off, a decision, a merge), a question it can't
+answer with a citation, a stale base, a failure it couldn't resolve, a refusal, a question answered,
+or the goal complete. A finished phase, a commit or a green gate is progress, not a stop: it keeps
+going through everything it can do, gathers every wall it reached and presents them together, and
+carries on with the unblocked work meanwhile. Each time it does stop, it ends with where it
+stopped, what's next and why, and a plugin hook refuses a turn that ends without that
+([never stop silently](docs/never-stop-silently.md)). A command still running in the background
+is not a stop either: it waits by blocking on the harness's output read until the command exits,
+and only reports past a stated bound ([how](docs/never-stop-silently.md#addendum-2026-11-06-waiting-on-a-background-command)).
+
+Your questions come first. Ask something mid-task, above all about the agent's own behaviour, and
+answering it becomes the current task: answered fully, investigated if needed, before the agent
+offers to resume ([questions come first](docs/questions-come-first.md)).
+It asks every decision with the harness's own question tool, never for an exact phrase
+([ask with the question tool](docs/ask-with-the-question-tool.md)).
+
+Every local gate is green before a phase pushes, whatever the phase plan says. A red gate (SonarQube
+included) is fixed in the phase being pushed, without stopping to ask, even if the plan scheduled
+its remediation for a later phase; the fix is kept as small as turns it green, and the phase's
+report says it was pulled forward. A plan that schedules such a remediation phase says so in its
+**Gate remediation** section and asks for a ruling at sign-off: limited remediation in phase 0, a
+push with that gate red, a different phase order, or an equivalent. The ruling is recorded in the
+spec, `run-local-gates` honours it, and the stop hook refuses a stop that asks leave to move the fix
+([gate remediation in the plan](docs/gate-remediation-in-the-plan.md)).
+
+Each expensive check runs once per phase. Docs comes before Gates, so the full build and test suite
+runs once, last, on the exact tree that is pushed, docs included. The phase's tests run once, in
+Stage 4. Implement exits once they're written and compiling, and the mutation check proves its
+restore with `git diff --quiet` instead of re-running them. The base is fetched at the two freshness
+checkpoints and when a new phase branch is cut, and nowhere else: the PR stage reuses the fetch the
+gates just made. See [run each check once per phase](docs/run-once-per-phase.md).
+
+The next phase starts once the previous one is pushed to its PR, not once it merges. Merging is
+the team's call, on the team's schedule, so a process that merges only when a whole feature is done
+doesn't block the work. A pushed phase is marked *in review* in the spec, never *built*. See
+[the next phase starts on push](docs/phase-advance-on-push.md).
+
+Independent work doesn't wait in line. The stages order exit conditions, and uncommitted code alone
+doesn't hold anything. Two or three independent tasks may run at once when neither reads the
+other's output or the files the other is changing, such as docs while the local gates run (when the
+gates don't read docs) or read-only research while a build runs. Each is named in the visible plan,
+and the final gate run still happens last, on the exact tree that is pushed. Remote or long-running
+work starts as soon as the pending change doesn't touch what that work runs: the agent checks the
+image build and deploy definition instead of guessing, says so in one line, and asks once if the
+definitions don't settle it. Results collected while local tooling was still changing are re-judged
+with its final version, and the run log says so. If you say a piece of work isn't affected, it
+starts without being re-litigated. See
+[independent work runs concurrently](docs/independent-work-runs-concurrently.md).
+
+### Seeing the plan
+
+On starting, and on entering each stage, the agent writes the plan before doing the stage's work.
+The plan is the stage map (done, current, still to come) plus the current stage's concrete steps,
+each worded so you can tell what "done" means. One step is in progress at a time, or two or three
+when they are independent and each is named in the plan, and the header line of every reply names
+what's in progress. The list itself is updated when a stage is entered and when
+the plan changes, not each time a step finishes: finished steps are ticked at the next update. That
+saves a todo call, and a model round trip, per step ([plan update cadence](docs/plan-update-cadence.md)).
+When the plan changes, the list changes in the same turn and the reply says what changed and why. A stage isn't exited while any of its steps is open, unless the step was
+dropped with a reason you've seen.
+
+Where you see it depends on the Copilot surface, because only some of them render the `todo` tool:
+
+| Surface | `todo` tool | Where the plan shows |
+|---|---|---|
+| VS Code agent mode | Supported ([GitHub][gh-agents-config]); the list shows at the top of the Chat view. It shipped as experimental in 1.103, behind `chat.todoListTool.enabled` ([VS Code][vsc-todo]) | The todo list. Each reply's header names the current step, and the full checklist appears in the reply only on the turn the plan is written or changes. |
+| Copilot CLI | Not documented as supported, and reported to resolve to nothing ([copilot-sdk#1641][cli-todo]) | The checklist under the header of every reply |
+| JetBrains agent mode | Not documented either way | Whichever the agent has. If it has the tool but you can't see a list, say so once, or set `plan.checklist` to `"always"` |
+| Copilot cloud agent | "Not supported in cloud agent today" ([GitHub][gh-agents-config]) | The checklist under the header of every reply |
+
+The checklist looks like this, directly under the header line:
+
+```markdown
+Stage 3 · Implement — Phase 1, step 2 of 4: wire `retryLimit` into the retry loop
+
+✓ 0 Orient · ✓ 1 Research · ✓ 2 Spec · **▶ 3 Implement** · 4 Tests · 5 Docs · 6 Gates · 7 PR
+
+- [x] Add `retryLimit` to the config loader, default 3; a test reads it back
+- [ ] ▶ Wire `retryLimit` into the retry loop in `RetryingClient.send`
+- [ ] Log the attempt number at WARN on each retry
+- [ ] Flag anything outside Phase 1's scope in the *As built* list
+```
+
+Where the todo tool is shown, the agent doesn't repeat the full list in every reply. Two copies of
+the same list would be noise, and the step named in the header is enough to tie a reply to the
+plan. `plan.checklist: "always"` turns the copy back on.
+
+**No script checks the plan.** The kit's scripts check the repository, and the plan lives in the
+chat. A script could check a plan file the agent wrote, but not that you saw it, so a green result
+would vouch for the wrong thing. The plan is held instead the way the rest of the procedure is: a
+rule in the agent file, a stage exit condition (no open steps), a row in the refusal table, and a
+header on every reply that names the step, so a missing plan shows straight away.
+[`tests/test_zethus.py`](../tests/test_zethus.py) pins those rules into the agent file.
+
+### Signed commits
+
+Every commit Zethus authors is signed with its name as well as carrying the AI co-author trailer.
+The signature (`commits.signature`, default `— Zethus`) sits on its own line just before the
+trailer block, because git and GitHub only read trailers in the last paragraph:
+
+```text
+feat(retry): phase 1 — read retryLimit from config
+
+Read the retry limit from config instead of the hard-coded 3.
+
+— Zethus
+
+Co-authored-by: <the commits.aiTrailer value>
+```
+
+Set `commits.signature` to `""` to leave the signature off; the trailer is still required. Like the
+plan, this is a rule in the agent file rather than a script check: the kit has no commit hook, and
+[`tests/test_zethus.py`](../tests/test_zethus.py) pins the rule and its order.
 
 ## What's in the kit
 
 | File | Installs to | Purpose |
 |---|---|---|
 | [`copilot-instructions.md`](copilot-instructions.md) | `.github/copilot-instructions.md` | The standing rules, short and imperative. Copilot loads them for every request in the repo. |
-| [`instructions/docs.instructions.md`](instructions/docs.instructions.md) | `.github/instructions/` | Path-scoped rules (`applyTo: "**/*.md"`): Markdown is canonical, router vs leaf docs, pointers resolve, spec status vocabulary, ADRs superseded rather than rewritten. |
-| [`agents/zethus.agent.md`](agents/zethus.agent.md) | `.github/agents/` | **The enforcer.** The stage table with exit conditions, per-turn behaviour, and the refusal table. |
+| [`com.github.copilot/rules/zethus-docs.instructions.md`](com.github.copilot/rules/zethus-docs.instructions.md) | `.github/instructions/docs.instructions.md` | Path-scoped rules (`applyTo: "**/*.md"`): Markdown is canonical, router vs leaf docs, pointers resolve, spec status vocabulary, ADRs superseded rather than rewritten. |
+| [`com.github.copilot/agents/zethus.agent.md`](com.github.copilot/agents/zethus.agent.md) | `.github/agents/` | **The enforcer.** The stage table with exit conditions, the visible plan, per-turn behaviour, and the refusal table. |
 | [`skills/research-existing-code`](skills/research-existing-code/SKILL.md) | `.github/skills/` | Facts cited to `file:line`, the search behind every negative claim, and what the research did *not* cover. |
 | [`skills/write-spec-minimum`](skills/write-spec-minimum/SKILL.md) | `.github/skills/` | The one-screen spec for one PR, and the fast path when someone says "just code it". |
 | [`skills/write-spec-full`](skills/write-spec-full/SKILL.md) | `.github/skills/` | Verbatim ask, measured problem, facts, assumptions checked, options, phases, rollback, out of scope, open questions, then stop for sign-off. |
 | [`skills/write-adr`](skills/write-adr/SKILL.md) | `.github/skills/` | One imperative decision sentence, options, consequences, *enforced where*, *revisit when*. Pastes cleanly into a wiki or ticket. |
 | [`skills/fresh-eyes-investigation`](skills/fresh-eyes-investigation/SKILL.md) | `.github/skills/` | Artifact plus one line of intent in; ranked leads out, each established or conjecture. Never a diagnosis; an empty list is valid. |
-| [`skills/implement-phase`](skills/implement-phase/SKILL.md) | `.github/skills/` | One phase per branch (or per commit series, in `rebase` style), Phase 0 first. Stay inside the phase; classify anything unplanned; keep an *As built* list. |
+| [`skills/implement-phase`](skills/implement-phase/SKILL.md) | `.github/skills/` | One phase per branch, stacked on the previous phase's (or per commit series, in `rebase` style), Phase 0 first; the next phase starts once this one is pushed, not merged. Stay inside the phase; classify anything unplanned; keep an *As built* list. |
 | [`skills/test-plan`](skills/test-plan/SKILL.md) | `.github/skills/` | Per-phase tests covering the change, the failure path, the refusal, and what must not change, plus a mutation check. |
 | [`skills/pre-push-gates`](skills/pre-push-gates/SKILL.md) | `.github/skills/` | Every CI gate run locally, on the working tree, before a push. A skip is not a pass. |
-| [`skills/pr-description`](skills/pr-description/SKILL.md) | `.github/skills/` | An evidence-first PR body diffed against the real integration branch, including *What was not checked*. |
+| [`skills/zethus-pr-description`](skills/zethus-pr-description/SKILL.md) | `.github/skills/` | An evidence-first PR body diffed against the real integration branch, including *What was not checked*. |
 | [`skills/docs-sync-check`](skills/docs-sync-check/SKILL.md) | `.github/skills/` | Fix the docs that describe the changed code in the same PR, in place. Leave every other doc alone. |
 | [`templates/spec-full.md`](templates/spec-full.md) · [`spec-minimum.md`](templates/spec-minimum.md) | `.github/zethus/templates/` | Both spec shapes. The minimum spec's headings are a strict subset of the full spec's, so promoting one only adds sections. A test enforces this. |
 | [`templates/adr.md`](templates/adr.md) | `.github/zethus/templates/` | The ADR record: a field table (including *Enforced where*), decision, context, options, consequences. |
 | [`templates/pr.md`](templates/pr.md) | `.github/zethus/templates/` | The PR body: What · Why · Changes · Evidence · What was not checked · deferrals · decisions · docs · AI assistance. |
-| [`scripts/run-local-gates.py`](scripts/run-local-gates.py) | `.github/zethus/scripts/` | Discovers and runs lint/build/test, then prints a PASS/FAIL/SKIP table and an explicit verdict. Prefers a repo's `mvnw`/`gradlew` wrapper; on Windows a bare `mvn` or `./mvnw` resolves to `mvn.cmd`/`mvnw.cmd` through `PATHEXT`. Exit codes: `0` full green · `1` red · `3` green but incomplete · `2` nothing to run. |
-| [`scripts/base-freshness.py`](scripts/base-freshness.py) | `.github/zethus/scripts/` | Fetches, counts the commits in `HEAD..origin/<base>`, and stops the stage if there are more than `branchModel.maxBehind`. Prints the merge-base to diff against, and whether the branch was rewritten since its last push. The agent runs it at the start of every stage. Exit codes: `0` fresh · `1` stale, rebase first · `2` usage error · `3` no answer (the fetch failed). |
+| [`scripts/run-local-gates.py`](scripts/run-local-gates.py) | `.github/zethus/scripts/` | Discovers and runs lint/build/test, then prints a PASS/FAIL/SKIP table and an explicit verdict. Prefers a repo's `mvnw`/`gradlew` wrapper; on Windows a bare `mvn` or `./mvnw` resolves to `mvn.cmd`/`mvnw.cmd` through `PATHEXT`. Exit codes: `0` full green · `1` red · `3` green but incomplete · `4` green except a gate the signed-off spec lets stay red (`push-red`) · `2` nothing to run. |
+| [`scripts/gate-remediation-check.py`](scripts/gate-remediation-check.py) | `.github/zethus/scripts/` | Checks a spec's **Gate remediation** section: present (`None — …` counts), not `None` beside a phase that reads like gate remediation, rulings readable, none `PENDING` once the spec is signed off. [`scripts/_gate_rulings.py`](scripts/_gate_rulings.py) is the parser `run-local-gates` shares. Exit `1` on problems. |
+| [`scripts/base-freshness.py`](scripts/base-freshness.py) | `.github/zethus/scripts/` | Fetches, counts the commits in `HEAD..origin/<base>`, and stops the stage if there are more than `branchModel.maxBehind`. Prints the merge-base to diff against, and whether the branch was rewritten since its last push. The agent runs it at **two** points: Stage 0 (Orient) and immediately before the push (`pre-push-gates`) — see [Branch models](#branch-models). `--merge-base-only` prints the merge-base alone and always exits 0, for a stage that needs a diff base and must not be stopped. Exit codes: `0` fresh · `1` stale, rebase first · `2` usage error · `3` no answer (the fetch failed). |
 | [`scripts/new-adr.py`](scripts/new-adr.py) | `.github/zethus/scripts/` | Creates `docs/adr/YYYY-MM-DD-slug.md` and adds its row to the ADR index. Ids are keyed by date, so parallel branches never collide. |
 | [`scripts/new-spec.py`](scripts/new-spec.py) | `.github/zethus/scripts/` | `new-spec.py full\|minimum "Title"` creates `docs/specs/<slug>.md` as `DRAFT`. |
 | [`scripts/docs-pointer-check.py`](scripts/docs-pointer-check.py) | `.github/zethus/scripts/` | Fails on relative Markdown links that don't resolve, including case mismatches that only break on Linux. With `--sync-base`, it also lists docs whose described code changed (report-only). |
-| [`zethus.config.example.json`](zethus.config.example.json) | `.github/zethus.config.json` | Project facts: integration branch, gate commands, spec and ADR dirs, the doc-to-code map, the AI co-author trailer. |
-| [`install.py`](install.py) | — | Copies all of the above into place: into a repo (`--target`) or for your user account (`--user`, with `--uninstall`). Never clobbers a file it didn't write, and writes nothing if there are conflicts. |
+| [`zethus.config.example.json`](zethus.config.example.json) | `.github/zethus.config.json` | Project facts: integration branch, gate commands, spec and ADR dirs, the doc-to-code map, the AI co-author trailer and commit signature. |
+| [`plugin.json`](plugin.json), [`com.github.copilot/hooks/`](com.github.copilot/hooks/session_start.py) | — | The [plugin](#install-the-plugin-default): its manifest, the `sessionStart` hook that injects the working agreement and says where the scripts and templates are (and the plugin version), and the [`agentStop` / `userPromptSubmitted` stop guard](docs/never-stop-silently.md#enforcement-the-stop-guard-hook) that refuses a turn ending at a progress point. |
+| [`agents/`](agents/zethus.agent.md), [`hooks/hooks.json`](hooks/hooks.json) | — | Generated copies of the agent and the hook registration at the plugin root, for IntelliJ ([why](#one-plugin-two-layouts)). |
+| [`install.py`](install.py) | — | Copies all of the above into place: into a repo (`--target`) or for your user account (`--user`, with `--uninstall` and `--migrate-to-plugin`). Never clobbers a file it didn't write, and writes nothing if there are conflicts. `--with-mnemosyne` also sets up [Mnemosyne](#add-mnemosyne-in-the-same-step). |
 
 The scripts are Python 3.10+ standard library only. There are no PowerShell twins: Python runs
 natively on Windows, and a second implementation would be a second thing to drift.
 
+The kit's Markdown writes `<kit root>` for the folder holding `scripts/` and `templates/`, because a
+plugin can live anywhere. `install.py` turns it into a real path, and the plugin's hook announces it.
+
 ## Install
 
-There are two modes. Pick one per machine and repo; they don't need each other.
+The plugin is the default for VS Code, IntelliJ and the Copilot CLI. `install.py` is for repo mode,
+and so for the cloud agent, which never loads a user's plugins.
 
-| | Repo mode (`--target`) | User mode (`--user`) |
+| | Plugin (default) | Repo mode (`--target`) | User mode (`--user`) |
+|---|---|---|---|
+| Where it goes | The client's plugin folder | The repo's `.github/`, committed | `~/.copilot/`, on your machine only |
+| Who gets it | You, in every repo you open | Everyone who clones the repo, plus the Copilot cloud agent | You, in every repo you open |
+| Changes the repo | No | Yes: a PR adding `.github/` files | No. Optional per-repo config stays untracked |
+| Updates | From the marketplace | Re-run in a PR | Re-run on each machine |
+| Right when | You want it everywhere, with one setting | The team adopts the process, or the cloud agent must follow it | A client on your machine can't use plugins |
+
+### Install the plugin (default)
+
+Add the marketplace `kumouri/mesmer-grimoire#main`, then install **zethus** from it. Pin `#main`:
+the repo's default branch is `develop`, which would serve unreleased work. If `#main` doesn't list
+**zethus**, the plugin hasn't reached `main` in a release yet; use `#develop` until it has.
+
+```bash
+copilot plugin marketplace add kumouri/mesmer-grimoire#main
+copilot plugin install zethus@mesmer-grimoire
+```
+
+- **Copilot CLI:** the commands above. It needs a build with Agent Plugins 1.0; 1.0.65 ignored this
+  layout's agent and hooks, and 1.0.105 and 1.0.106-2 run it.
+- **VS Code:** add the same entry to `chat.plugins.marketplaces`, then install from the Extensions
+  view. Its hooks are in preview, and organizations can turn them off.
+- **IntelliJ:** add the same entry under *Tools → GitHub Copilot → Customizations → Plugin
+  Marketplaces*. It takes GitHub shorthand, a git URI or a local repo (as a `file:///` URI). A
+  shorthand and a URI for one repo count as one marketplace, so adding both installs nothing twice.
+
+Then pick the **zethus** agent, or invoke a skill as `/zethus:write-spec-minimum`. Set per-repo
+facts as in [Config for user-level use](#config-for-user-level-use). The same marketplace carries
+**mnemosyne**, whose hooks record lessons-capture candidates while Zethus works; its
+[README](../mnemosyne/README.md#github-copilot-the-plugin) says what else it needs.
+
+| What a plugin can't do by itself | What Zethus does |
+|---|---|
+| Ship always-on instructions: the Copilot CLI doesn't load a plugin's `rules/` | A `sessionStart` hook injects `copilot-instructions.md` as `additionalContext` |
+| Expand a variable inside a skill's text | The same hook announces the kit root. If it didn't run, a skill's own note says the kit is two folders above that skill's folder |
+
+If an organization turns hooks off, the working agreement doesn't load. The agent file still
+carries the procedure, so select it. The docs rule is in `com.github.copilot/rules/`, which only
+VS Code loads, as its source reads it.
+
+**Beside an `install.py` copy.** Project and personal skills silently beat a plugin's skills of the
+same name, and the agreement would load twice, so the two never both act:
+
+- `install.py --user` finds a plugin the Copilot CLI recorded, writes nothing and says so. `--force`
+  installs anyway.
+- `install.py --user --migrate-to-plugin` removes an earlier user-mode copy. It removes what
+  `--uninstall` removes, keeps your own files, and exits 1 if an edited skill stays and still
+  shadows the plugin (`--force` removes edited files too). **It keeps
+  `~/.copilot/agents/zethus.agent.md`:** it can only see a plugin the Copilot CLI recorded, and
+  IntelliJ lists a custom agent from that folder or from a plugin installed *in IntelliJ*, never
+  from the CLI's plugin install. Deleting the file on an IntelliJ machine made the agent vanish
+  from the dropdown. If the agent then shows twice, run it again with `--drop-agent`.
+- In a repo with the kit in `.github/zethus/`, the plugin's hook prints nothing: the repo's copy is
+  in charge there.
+- If it finds a user-mode copy, the hook injects only a line asking the model to tell you to
+  migrate. That covers a plugin installed by VS Code or IntelliJ, which the installer may not see.
+
+#### What each install gives, on each host
+
+"Plugin" means installed in that host: the Copilot CLI, VS Code and IntelliJ each keep their own
+plugin list, and installing in one does not install in another. `install.py --user` and
+`--target` need no plugin support.
+
+| Install | Copilot CLI | VS Code | IntelliJ |
+|---|---|---|---|
+| **Plugin, installed in that host** | Agent, skills, working agreement, `sessionStart` hook (with the version line), `agentStop` and `userPromptSubmitted` stop guard | Same, hooks in preview | Agent, skills and hooks listed; hooks not yet seen running |
+| **`install.py --user`** (no plugin) | Agent, skills, working agreement. No hooks, so no version line and no stop guard | Same | Same, from `~/.copilot/agents`, `skills` and `instructions` |
+| **`install.py --target`** (repo) | Same as `--user`, for that repo, committed | Same | Same |
+| **Plugin in the CLI only, plus `--migrate-to-plugin`** | Everything the plugin gives | Nothing, unless also installed there | Agent only, because the migration keeps the user-level agent; skills and agreement are gone until the plugin is added in IntelliJ |
+
+The `agentStop` guard and the `Plugin version:` line in the session announcement come **only** from
+a plugin install, because only a plugin carries `hooks.json`. `install.py` never writes hooks for
+Zethus.
+
+**A machine on the non-plugin install gets the current prompts** (the agent, skills and working
+agreement) by pulling the clone and re-running the installer; it updates the files it wrote,
+leaves edited ones and asks for `--force` to overwrite them:
+
+```bash
+git pull
+python zethus/install.py --user            # or: --target path/to/repo --force
+```
+
+Restart the IDE afterwards. Moving to the plugin on IntelliJ: add the marketplace and install
+**zethus** in IntelliJ first (*Tools → GitHub Copilot → Customizations → Plugin Marketplaces*),
+confirm the agent is in the dropdown, and only then run `--migrate-to-plugin`.
+
+#### One plugin, two layouts
+
+The Copilot CLI and IntelliJ look for a plugin's agent and hooks in places that don't overlap, so
+Zethus ships both:
+
+| Host | Reads the agent from | Reads hooks from |
 |---|---|---|
-| Where it goes | The repo's `.github/`, committed | `~/.copilot/`, on your machine only |
-| Who gets it | Everyone who clones the repo, plus the Copilot cloud agent | You, in every repo you open |
-| Changes the repo | Yes: a PR adding `.github/` files | No. Optional per-repo config stays untracked |
-| Right when | The team adopts the process | You may not commit to `.github/`, or you want it everywhere |
+| Copilot CLI (1.0.105, 1.0.106-2) | `com.github.copilot/agents/` only, because `plugin.json` declares the Agent Plugins 1.0 `$schema` | `com.github.copilot/hooks/hooks.json` only |
+| IntelliJ's Copilot language server (plugin 1.20.0, server 1.555.7) | `agents/` at the plugin root | `hooks.json`, else `hooks/hooks.json`, at the root |
+
+With only the first layout, IntelliJ listed the 28 skills but no agent and no hook. Neither host
+reads the other's place, so nothing loads or fires twice there. `plugin.json` can't point IntelliJ
+at `com.github.copilot/` instead: the 1.0 schema is closed, and the CLI ignores unknown keys and
+logs each one as an error. The files under `com.github.copilot/` are the canonical ones, and the
+ones `install.py` copies. [`scripts/sync_zethus_plugin_root.py`](../scripts/sync_zethus_plugin_root.py)
+writes the root copies from them. VS Code hasn't been checked against either layout: if it
+reads both places, it would load the agreement twice.
+
+**What was tested.** On Windows, with a temporary `COPILOT_HOME`:
+
+- **Copilot CLI:** a local marketplace on 1.0.105 (`--no-auto-update`) and 1.0.106-2, both from npm
+  copies. The model quoted the kit root the hook announced, the hook ran once per session, and the
+  **zethus** agent loaded. Before the root copies existed, a GitHub marketplace on 1.0.106-2 also
+  ran a bundled script from that root.
+- **IntelliJ:** its bundled language server, driven over stdio with a sandboxed home. It added a
+  local marketplace, installed **zethus** through its own install call, and listed the `zethus`
+  agent, the `SessionStart` hook and all 28 skills. It only lists the hook; nothing here ran the
+  hook inside the IDE.
+- **VS Code:** nothing has been run, so its steps rest on its docs and settings screens.
+
+### Install with `install.py`
+
+Two more modes. Pick one per machine and repo; they don't need each other.
 
 ### Install into a repository
 
 ```bash
-git clone https://github.com/kumouri/claude-grimoire.git
-python claude-grimoire/zethus/install.py --target path/to/your-repo --dry-run   # see the plan
-python claude-grimoire/zethus/install.py --target path/to/your-repo
+git clone https://github.com/kumouri/mesmer-grimoire.git
+python mesmer-grimoire/zethus/install.py --target path/to/your-repo --dry-run   # see the plan
+python mesmer-grimoire/zethus/install.py --target path/to/your-repo
 ```
 
 Then, in the target repo:
@@ -98,12 +339,16 @@ installs the rules as `.github/instructions/zethus.instructions.md` with `applyT
 combines path-specific and repository-wide instructions, so both apply. Copying by hand works too:
 the *Installs to* column above is the whole mapping.
 
+Repo mode never deletes anything. If you are upgrading a repo from a kit where the PR skill was
+called `pr-description`, delete `.github/skills/pr-description/` in the same PR, unless it is
+Amphion's skill of that name. User mode removes files that left the kit by itself.
+
 ### Install for your user account (every repo, no commit)
 
 ```bash
-python claude-grimoire/zethus/install.py --user --dry-run   # see the plan
-python claude-grimoire/zethus/install.py --user
-python claude-grimoire/zethus/install.py --user --uninstall # later, to remove it
+python mesmer-grimoire/zethus/install.py --user --dry-run   # see the plan
+python mesmer-grimoire/zethus/install.py --user
+python mesmer-grimoire/zethus/install.py --user --uninstall # later, to remove it
 ```
 
 Add `--jetbrains-legacy` only for an older JetBrains Copilot plugin that doesn't read
@@ -112,14 +357,14 @@ Add `--jetbrains-legacy` only for an older JetBrains Copilot plugin that doesn't
 | Kit piece | User-mode location |
 |---|---|
 | Working agreement (`copilot-instructions.md`) | `~/.copilot/instructions/zethus.instructions.md`, with `applyTo: "**"`. Your own `~/.copilot/copilot-instructions.md` is left alone. |
-| `instructions/docs.instructions.md` | `~/.copilot/instructions/zethus-docs.instructions.md` |
-| `agents/zethus.agent.md` | `~/.copilot/agents/` |
+| `com.github.copilot/rules/zethus-docs.instructions.md` | `~/.copilot/instructions/zethus-docs.instructions.md` |
+| `com.github.copilot/agents/zethus.agent.md` | `~/.copilot/agents/` |
 | `skills/<name>/` | `~/.copilot/skills/<name>/` |
 | Templates, scripts | `~/.copilot/zethus/templates/`, `~/.copilot/zethus/scripts/` |
 | Example config | `~/.copilot/zethus/config.example.json`, for reference only |
 | Working agreement, for older JetBrains builds | Only with `--jetbrains-legacy`: `global-copilot-instructions.md` in JetBrains' Copilot folder, and only if you don't have one |
 
-The installed Markdown is rewritten on the way. Every `.github/zethus/…` path becomes the absolute
+The installed Markdown is rewritten on the way. Every `<kit root>/…` path becomes the absolute
 path of your user-level copy, and each mention of the config lists the full resolution order
 below. So the agent and skills run `python <home>/.copilot/zethus/scripts/run-local-gates.py`
 from any repo.
@@ -127,7 +372,7 @@ from any repo.
 The user install is careful about your files:
 
 - **A file it didn't write is never overwritten**, even with `--force`. If you already have a
-  `~/.copilot/skills/pr-description/`, for example, it stops, lists the clash, and writes nothing.
+  `~/.copilot/skills/zethus-pr-description/`, for example, it stops, lists the clash, and writes nothing.
 - Every file it writes is recorded with its SHA-256 in `~/.copilot/zethus/install-manifest.json`.
   Re-running it upgrades the files you haven't edited. A kit file you *have* edited is a conflict
   unless you pass `--force`.
@@ -152,6 +397,7 @@ them**; it needs repo mode.
 | Agent, `~/.copilot/agents/` | Yes ([docs][vsc-agents]) | Yes ([docs][cli-ref]) | Yes: a default location in the settings screen ([changelog][jb-agents] agrees) |
 | Skills, `~/.copilot/skills/` | Yes ([docs][vsc-skills]) | Yes ([docs][cli-skills]) | Yes: a default location in the settings screen ([docs][gh-skills] agree). Older builds: see bug #1517 below |
 | Instructions, `~/.copilot/instructions/*.instructions.md` | Yes ([docs][vsc-instructions]) | Yes ([docs][cli-instr]) | Yes: a default location in the settings screen. The docs still describe only `global-copilot-instructions.md` ([docs][jb-instr]) |
+| Hooks, `~/.copilot/hooks/` (`--with-mnemosyne`) | Not checked | Not checked | Yes: a default location in the settings screen |
 | JetBrains `global-copilot-instructions.md` (`--jetbrains-legacy` only) | — | — | Windows: `%LOCALAPPDATA%\github-copilot\intellij\`. macOS: `~/.config/github-copilot/intellij/`. **Linux: not documented**, so the installer skips it and says so ([docs][jb-instr]) |
 
 **The JetBrains evidence.** In September 2026, the IntelliJ Copilot settings page *Tools → GitHub
@@ -260,6 +506,41 @@ wrapper, else `mvn -B verify`, which resolves to `mvn.cmd`. To mirror a CI that 
 { "gates": { "steps": [ { "name": "maven verify", "command": "mvn -B verify" } ] } }
 ```
 
+### Add Mnemosyne in the same step
+
+[Mnemosyne](../mnemosyne/README.md) is the reflexion memory whose hooks record lessons-capture
+candidates while Zethus works. `--with-mnemosyne` installs it after the kit, in either mode:
+
+```bash
+python mesmer-grimoire/zethus/install.py --user --with-mnemosyne --dry-run
+python mesmer-grimoire/zethus/install.py --user --with-mnemosyne
+python mesmer-grimoire/zethus/install.py --target path/to/your-repo --with-mnemosyne
+python mesmer-grimoire/zethus/install.py --user --with-mnemosyne --mnemosyne-repo ~/notes/memory
+python mesmer-grimoire/zethus/install.py --user --with-mnemosyne --mnemosyne-copilot-hooks-dir ~/my-hooks
+python mesmer-grimoire/zethus/install.py --user --uninstall --with-mnemosyne
+```
+
+It doesn't repeat any of Mnemosyne's setup. It calls Mnemosyne's own installer,
+[`mnemosyne/install.py`](../mnemosyne/install.py), and passes on `--target` or `--user`,
+`--dry-run`, `--uninstall`, `--mnemosyne-repo` (as `--repo`) and `--mnemosyne-copilot-hooks-dir`
+(as `--copilot-hooks-dir`). That installer sets up:
+
+- the `mnemosyne-reflexion` package;
+- a local git memory repo at `~/repos/mnemosyne-local`, with no remote;
+- `MNEMOSYNE_REPO`, set persistently;
+- the Claude Code plugin;
+- with `--target`, the repo's Copilot hook files, `.github/hooks/mnemosyne.json` and its bridge
+  script, which you commit along with the kit;
+- with `--user`, the same two files in `~/.copilot/hooks`, for every repo. The IntelliJ plugin
+  [reads that folder](#which-copilot-clients-read-the-user-level-files) and can add others;
+  `--mnemosyne-copilot-hooks-dir` writes to one of those instead. These files aren't committed, and
+  a repo that has its own copy doesn't fire twice.
+
+The [Mnemosyne README](../mnemosyne/README.md#install) has the details. Mnemosyne runs only after
+the kit installs cleanly, and the run's exit code is the worse of the two. `--force` isn't passed
+on, so an existing `MNEMOSYNE_REPO` pointing somewhere else, or a hook file you edited, stops the
+Mnemosyne step until you run its installer yourself with `--force`.
+
 ### Configuration
 
 Every key is optional. Where a value is missing, the scripts and agent work it out from the
@@ -270,16 +551,18 @@ The keys are the same in every location.
 
 | Key | Used by | Meaning |
 |---|---|---|
-| `branchModel.base` | agent, `pr-description`, `docs-sync-check`, `base-freshness` | The integration branch. Default: `develop` if it exists, else the default branch. |
-| `branchModel.style` | agent, `implement-phase`, `pr-description`, `base-freshness` | `"branch-per-change"` (default): a new branch per change, cut from the freshly fetched base, one branch and PR per phase. `"rebase"`: one long-lived branch kept rebased onto the base; phases are commit series on it, every diff is taken against the merge-base with `origin/<base>`, and the PR body says when the branch was rebased. See [Branch models](#branch-models). |
-| `branchModel.maxBehind` | `base-freshness`, agent, `pre-push-gates` | How many commits the branch may be behind `origin/<base>` before a stage refuses to start. Default `0`: any commit behind means rebase first. |
+| `branchModel.base` | agent, `zethus-pr-description`, `docs-sync-check`, `base-freshness` | The integration branch. Default: `develop` if it exists, else the default branch. |
+| `branchModel.style` | agent, `implement-phase`, `zethus-pr-description`, `base-freshness` | `"branch-per-change"` (default): a new branch per change, cut from the freshly fetched base, one branch and PR per phase, each phase stacked on the previous one's pushed branch. `"rebase"`: one long-lived branch kept rebased onto the base; phases are commit series on it, every diff is taken against the merge-base with `origin/<base>`, and the PR body says when the branch was rebased. See [Branch models](#branch-models). |
+| `branchModel.maxBehind` | `base-freshness`, agent, `pre-push-gates` | How many commits the branch may be behind `origin/<base>` before a freshness checkpoint (Stage 0, and the pre-push gates) refuses to continue. Default `0`: any commit behind means rebase first. |
 | `gates.steps[]` | `run-local-gates` | Ordered `{name, command, exitCode?}`. `command` is a string or an argv list; there's no shell. |
 | `gates.lint` / `.build` / `.test` / `.mandatedChecks[]` | `run-local-gates` | Amphion's gate keys, read when `gates.steps` is absent. A mandated check with only a prose `expect` shows as **MANUAL** (not checked). |
 | `spec.dir`, `spec.templates.{full,minimum}` | `new-spec` | Default `docs/specs`, and the kit's templates. |
 | `adr.dir`, `adr.template` | `new-adr` | Default `docs/adr`, and the kit's template. |
-| `docSync.map[]` | `docs-pointer-check --sync-base` | `{doc, describes[globs]}`: which code each doc describes. It is Amphion's key. Globs use `fnmatch` rules, so `*` also matches `/`. |
+| `docSync.map[]` | `docs-pointer-check --sync-base` | `{doc, describes[globs]}`: which code each doc describes. Globs use `fnmatch` rules, so `*` also matches `/`. |
 | `docs.pointerIgnore[]` | `docs-pointer-check` | Markdown files to skip, such as generated changelogs. |
 | `commits.aiTrailer` | agent | The co-author trailer that AI-assisted commits carry. |
+| `commits.signature` | agent | The line Zethus signs its commits with, just before the trailer block. Default `"— Zethus"`; `""` means no signature line. It goes alongside `commits.aiTrailer`, never instead of it. See [Signed commits](#signed-commits). |
+| `plan.checklist` | agent | `"auto"` (default): the plan goes in the todo tool where the agent has one, else as a checklist in every reply. `"always"`: the checklist goes in every reply as well, for a surface that accepts the tool but doesn't show it. See [Seeing the plan](#seeing-the-plan). |
 
 ### Branch models
 
@@ -288,16 +571,32 @@ Zethus assumes nothing about how long a branch lives. It insists only that the b
 | | `branch-per-change` (default) | `rebase` |
 |---|---|---|
 | Branches | A new one per change, cut from `origin/<base>` | One long-lived branch, rebased onto `origin/<base>` every few days |
-| Phases | One branch and one PR each | One commit series each, on the same branch, Phase 0 first |
-| Diff base | `origin/<base>...HEAD` | The same: the merge-base with the freshly fetched `origin/<base>`, never a local ref |
-| After a rebase | — | Push with `--force-with-lease`; the PR body names the new base |
+| Phases | One branch and one PR each, Phase 0 first; each branch stacked on the previous phase's, its PR targeting that branch | One commit series each, on the same branch, Phase 0 first, pushed to the same PR |
+| Next phase starts | Once the previous phase is committed, green on the gates and pushed. Its PR need not be merged | The same |
+| Diff base | `origin/<base>...HEAD`; for a stacked phase, `origin/<previous-phase>...HEAD` | The merge-base with the freshly fetched `origin/<base>`, never a local ref |
+| Merging | A person merges the stack bottom-up, when their process allows; GitHub retargets the next PR to `<base>` | A person merges the one PR, when the feature is done |
+| After a rebase | Rebase the stack from its top with `git rebase --update-refs origin/<base>`; push each branch with `--force-with-lease` | Push with `--force-with-lease`; the PR body names the new base |
 
-In both, the agent runs `base-freshness.py` at the start of every stage, and `pre-push-gates`
-runs it before the gates. A stale base doesn't look stale. Diffs, measurements and research notes
-taken on one quietly compare branch drift instead of the change, and the PR can revert work that
-already landed. So the check counts commits rather than trusting the checkout. Raise
-`branchModel.maxBehind` only as a recorded decision; the default of `0` means any commit behind
-stops the stage.
+Neither style waits for a merge to start the next phase. See
+[the next phase starts on push](docs/phase-advance-on-push.md) for why, and for a stack whose lower
+PR was squash-merged.
+
+In both, the agent runs `base-freshness.py` at **exactly two** points per change:
+
+1. **Stage 0 · Orient** — before any work, so the branch is cut from, or rebased onto, a base just
+   confirmed current;
+2. **`pre-push-gates`** — immediately before the push and the PR, so the gates, the diff and the PR
+   body are against the base as it stands now.
+
+The stages in between don't re-run it. A stale base doesn't look stale — diffs, measurements and
+research notes taken on one quietly compare branch drift instead of the change, and the PR can
+revert work that already landed — so the check counts commits rather than trusting the checkout.
+But that only *costs* something when the branch is created and when a diff leaves the machine,
+which is what makes two checkpoints enough and seven pure interruption
+([the cadence decision](docs/base-freshness-cadence.md)). A stage that needs the merge-base to
+diff against gets it from `--merge-base-only`, which prints that one line and always exits 0.
+Raise `branchModel.maxBehind` only as a recorded decision; the default of `0` means any commit
+behind stops the checkpoint.
 
 ```json
 { "branchModel": { "base": "develop", "style": "rebase", "maxBehind": 0 } }
@@ -311,6 +610,7 @@ The formats were checked against GitHub's and VS Code's documentation in Septemb
 |---|---|---|
 | Repository instructions | `.github/copilot-instructions.md`, plain Markdown | [Adding repository custom instructions][gh-repo-instructions] · [support matrix][gh-instructions-support] |
 | Path-specific instructions | `.github/instructions/*.instructions.md` with `applyTo` | [VS Code custom instructions][vsc-instructions] |
+| Copilot plugin | Agent Plugins 1.0: `plugin.json`, `skills/`, `com.github.copilot/{agents,rules,hooks}/`, plus root `agents/` and `hooks/` for IntelliJ ([why](#one-plugin-two-layouts)); catalogue in `.github/plugin/marketplace.json` | [CLI plugin reference][cli-ref] · [VS Code agent plugins][vsc-plugins] · [Agent Plugins spec][ap-spec] |
 | Custom agent | `.github/agents/*.agent.md`: `name`, `description`, `tools` | [Custom agents configuration][gh-agents-config] · [Creating custom agents][gh-agents-create] · [VS Code custom agents][vsc-agents] |
 | Skills | `.github/skills/<name>/SKILL.md`: `name` (matches the folder), `description` | [About agent skills][gh-skills] · [Creating skills][gh-skills-create] · [VS Code agent skills][vsc-skills] |
 
@@ -320,13 +620,17 @@ in VS Code and JetBrains agent mode, the Copilot CLI, and the Copilot cloud agen
 invoked by `/name` as well as picked automatically from their description. The agent's tool list
 uses GitHub's portable aliases (`read`, `search`, `edit`, `execute`, `web`, `todo`, `agent`).
 Surfaces that don't support a tool ignore it; for example, `web` and `todo` aren't used by the
-cloud agent.
+cloud agent, and `todo` is documented only for VS Code. The agent's plan falls back to a checklist
+in its replies wherever `todo` isn't available (see [Seeing the plan](#seeing-the-plan)).
 
-**The limit of enforcement.** Copilot has no hook that can block a tool call the way a
-pre-tool-use hook can. So the agent enforces the process through its instructions, its stage
-gates and its refusal table. The scripts give each stage an objective exit condition: an exit code
+**The limit of enforcement.** Copilot now has a blocking hook: a `preToolUse` hook in
+`.github/hooks/*.json` can deny a tool call on the Copilot CLI and the cloud agent
+([hooks configuration][gh-hooks], checked October 2026). This kit doesn't install one yet, so the
+agent enforces the process through its instructions, its stage gates and its refusal table. The scripts give each stage an objective exit condition: an exit code
 is harder to talk around than a sentence. Merging is protected by your platform's branch
-protection, not by this kit.
+protection, not by this kit. A hook can't hold the turn-level rules either: a
+`userPromptSubmitted` hook's output is dropped, and whether `agentStop` can hold a turn open is
+unverified ([never stop silently](docs/never-stop-silently.md#why-no-hook)).
 
 ## Modernization extensions
 
@@ -428,11 +732,11 @@ the OAuth2/OIDC auth-replacement phase itself.
 
 ## How it relates to Amphion
 
-[Amphion][amphion] is a spec-to-PR pipeline of seven Markdown skills for Claude Code. Zethus uses
+[Amphion][amphion] is a spec-to-PR pipeline of six Markdown skills for Claude Code. Zethus uses
 the same design where they overlap, rather than duplicating it:
 
-- **One config vocabulary.** The keys that exist in both (`gates.*`, `branchModel.base`,
-  `docSync.map`) mean the same thing. `branchModel.style` and `branchModel.maxBehind` are Zethus's
+- **One config vocabulary.** The keys that exist in both (`gates.*`, `branchModel.base`) mean
+  the same thing. `branchModel.style` and `branchModel.maxBehind` are Zethus's
   own; Amphion ignores them. When no Zethus config is found in the repo, the scripts read
   `.claude/amphion.config.json`, so a repo using both answers each question once.
 - **Different stages.** Amphion covers what happens *after* the decisions: loading decided
@@ -441,13 +745,14 @@ the same design where they overlap, rather than duplicating it:
   assumes already happened: research, specs, ADRs and fresh-eyes investigation. It also covers the
   enforcement, which Amphion leaves to the operator. `implement-phase` points to Amphion's two
   exception handlers rather than re-implementing them.
-- **Shared headings.** Zethus's `pr-description` keeps Amphion's *Not in this PR (intentional)*
+- **Shared headings.** Zethus's `zethus-pr-description` keeps Amphion's *Not in this PR (intentional)*
   and *Noticed but out of scope* headings, so `flag-or-fix` deferrals land in the same place.
-  `docs-sync-check` follows the same narrow rule as Amphion's `sync-claude-md`: change only the
-  docs that describe code this diff touched, in place.
+  `docs-sync-check` keeps the narrow rule Amphion's retired `sync-claude-md` followed: change
+  only the docs that describe code this diff touched, in place.
 - **Installing both.** Amphion's skills use the same `SKILL.md` format, and Copilot can load
-  them. If you copy them into `.github/skills/` too, skip Amphion's `pr-description`: Zethus's
-  version adds to it (evidence, what was not checked, decisions) and has the same name.
+  them. The two PR skills have different names, so both can be installed side by side:
+  `zethus-pr-description` is Amphion's `pr-description` plus evidence, what was not checked, and
+  decisions. Pick one per repo so the agent doesn't have to choose.
 
 ## Jira integration
 
@@ -461,7 +766,7 @@ guardrail.
 |---|---|---|
 | [`skills/spec-to-stories`](skills/spec-to-stories/SKILL.md) | `.github/skills/` | Turns a Markdown spec into one Jira-ready story per file plus an index, each INVEST-checked with a self-check table and a flag on any failing criterion; groups stories into epics when the spec has phases |
 | [`skills/story-enrich`](skills/story-enrich/SKILL.md) | `.github/skills/` | Researches an existing Jira story against the real codebase (via `research-existing-code`, cited to `file:line`) and proposes a human-relevant enrichment plus a diff against the original |
-| [`scripts/jira-access.py`](scripts/jira-access.py) | `.github/zethus/scripts/` | Detects a `jira`/`acli` CLI or a REST token in the environment. An available Jira/Atlassian MCP tool is checked by the skill itself, not this script. Exit codes: `0` CLI or REST found · `1` neither, degrade to pasted input · `2` usage error |
+| [`scripts/jira-access.py`](scripts/jira-access.py) | `.github/zethus/scripts/` | Detects a `jira`/`acli` CLI or a REST token in the environment. It sees only the file name, so it can't tell go-jira from `jira-cli`, the tool [`skills/jira-cli`](skills/jira-cli/SKILL.md) documents. An available Jira/Atlassian MCP tool is checked by the skill itself, not this script. Exit codes: `0` CLI or REST found · `1` neither, degrade to pasted input · `2` usage error |
 | [`templates/story.md`](templates/story.md) | `.github/zethus/templates/` | One story: user story statement, context, acceptance criteria, out of scope, dependencies, INVEST self-check |
 | [`templates/stories-index.md`](templates/stories-index.md) | `.github/zethus/templates/` | The index a batch of stories is listed under, grouped by epic when the spec has phases |
 
@@ -472,33 +777,95 @@ Unlike the rest of this kit, these two skills also work unmodified under Claude 
 `SKILL.md` format is shared between the two harnesses, see
 [`docs/jira-skills.md`](docs/jira-skills.md#harness).
 
+## CLI tool skills
+
+Five optional, standalone skills that drive the tools a team already runs, from the terminal.
+Like the Jira pair above, none is part of the core ten, and they install the same way, alongside
+them. Each is PowerShell-first with labelled bash equivalents, reads its credentials from the
+environment only and never prints them, and shows every write in full and waits for a picked go-ahead
+([question tool](docs/ask-with-the-question-tool.md)) before it runs. The skill names carry a `-cli` suffix on purpose: a personal skill of the plain tool name
+(`~/.copilot/skills/jira`, say) silently beats a plugin skill of the same name, and a differing file
+there stops `install.py --user`.
+
+| Piece | Installs to | Purpose |
+|---|---|---|
+| [`skills/jira-cli`](skills/jira-cli/SKILL.md) | `.github/skills/` | Jira Cloud or Data Center through `ankitpokhrel/jira-cli`: JQL search, view, create, edit, transition, comment, assign, worklog, epics and sprints. [`story-enrich`](skills/story-enrich/SKILL.md) and [`spec-to-stories`](skills/spec-to-stories/SKILL.md) use it when they reach Jira |
+| [`skills/confluence-cli`](skills/confluence-cli/SKILL.md) | `.github/skills/` | Confluence through `cfl`, with a PowerShell REST fallback for the two things `cfl` lacks (comments, labels): CQL search, pages, attachments, spaces |
+| [`skills/datadog-cli`](skills/datadog-cli/SKILL.md) | `.github/skills/` | Datadog through the official Pup CLI: logs (with a cursor-paginated REST fallback), metrics, monitors, events, APM spans, dashboards, downtimes |
+| [`skills/jenkins-cli`](skills/jenkins-cli/SKILL.md) | `.github/skills/` | Jenkins or CloudBees CI through `jenkins-cli.jar` and the JSON API: jobs, builds, console logs, queue, nodes, plus CloudBees RBAC, service accounts and CasC bundle reload |
+| [`skills/sonarqube-cli`](skills/sonarqube-cli/SKILL.md) | `.github/skills/` | SonarQube Server or Cloud: `sonar-scanner` to analyse, the official `sonar` CLI to read projects, quality gates, issues, hotspots and measures |
+
+**Not run live.** The commands were carried over from reviewed research notes. Nobody has run them
+against a live Jira, Confluence, Datadog, Jenkins or SonarQube instance. Their checks are
+structural, in [`tests/test_zethus_tool_skills.py`](../tests/test_zethus_tool_skills.py): valid
+frontmatter, a description under the 1024-character limit that silently drops a longer one, the
+safety rules still present, and every PowerShell block passing PowerShell's own parser. The
+checklist at the end of each skill lists the live checks to do first.
+
+## Session review
+
+One optional, standalone skill, for use in a workplace where transcripts can't leave. It lists your
+local agent sessions, scans the ones you select, pairs each ask with what the agent did, and writes a
+short report of failure patterns. It installs the same way as the rest, through all three routes.
+
+A script writes the report, from fixed wording, integers, dates and "Session N" labels, and refuses
+to write anything else. Nothing from a transcript reaches it, tool names included, so it can be shown
+to someone who must learn nothing about the work. A session it can't parse shows as "could not read",
+never as clean. [The guarantee](docs/session-review-guarantee.md) says how this works, what it can't
+catch, and which session stores were checked against a real session.
+
+| Piece | Installs to | Purpose |
+|---|---|---|
+| [`skills/session-review`](skills/session-review/SKILL.md) | `.github/skills/` | The procedure: list, select with the question tool, scan, hand over the file as written |
+| [`scripts/session-review.py`](scripts/session-review.py) | `.github/zethus/scripts/` | `list` (on-screen only) and `scan --select ...`. Reads read-only, no network, spawns nothing, writes one file, by default outside any git working tree. Exit codes: `0` listed or written · `1` refused · `2` usage error |
+
+New config keys, all optional defaults a flag can also set (see
+[`zethus.config.example.json`](zethus.config.example.json)): `sessionReview.listLimit`,
+`sessionReview.maxSessions`, `sessionReview.maxReportLines`, `sessionReview.maxTableRows`,
+`sessionReview.stallMinutes`.
+
 ## Maintaining this kit
 
 - Keep it **organization-neutral**. It must contain no company, client, or project names and no
   private paths. A project-specific fact goes in a config key, not in the text.
 - Keep the skills standalone. Each one must work when invoked alone, and cross-links between skills
   are relative (`../<skill>/SKILL.md`).
+- Keep the plugin's version in `plugin.json` and its entry in
+  [`.github/plugin/marketplace.json`](../.github/plugin/marketplace.json) equal, and bump both on a
+  release: clients use it for update checks. [`tests/test_copilot_plugins.py`](../tests/test_copilot_plugins.py)
+  enforces that, and that no skill text says `.github/zethus/`: only `install.py` writes that.
 - Keep the scripts stdlib-only, with no shell and no network, and cover them in
   [`tests/test_zethus.py`](../tests/test_zethus.py). That file also enforces Copilot's frontmatter
   rules on every skill, the minimum ⊂ full spec contract, and that this kit's own Markdown has no
   broken pointers.
+- Quote any frontmatter `description:` that contains a colon followed by a space. The Copilot CLI
+  drops the whole agent or skill on that, with only a log line to show for it;
+  [`tests/test_frontmatter.py`](../tests/test_frontmatter.py) parses every agent, mirror and skill.
+- Edit the agent and the hook registration only under `com.github.copilot/`, then run
+  `python scripts/sync_zethus_plugin_root.py` to rewrite their root copies. `tests/test_copilot_plugins.py`
+  fails while the copies are stale.
 - When a Copilot format changes, update the table above along with the files that use it.
 
 ## License
 
 [Apache-2.0](../LICENSE) © 2026 Ceryce Armstrong
 
-[amphion]: https://github.com/kumouri/claude-grimoire/tree/develop/amphion
+[amphion]: https://github.com/kumouri/mesmer-grimoire/tree/develop/amphion
 [gh-repo-instructions]: https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions
 [gh-instructions-support]: https://docs.github.com/en/copilot/reference/custom-instructions-support
 [vsc-instructions]: https://code.visualstudio.com/docs/copilot/customization/custom-instructions
 [gh-agents-config]: https://docs.github.com/en/copilot/reference/custom-agents-configuration
 [gh-agents-create]: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/create-custom-agents
 [vsc-agents]: https://code.visualstudio.com/docs/copilot/customization/custom-agents
+[vsc-plugins]: https://code.visualstudio.com/docs/copilot/customization/agent-plugins
+[ap-spec]: https://agent-plugins.org/specification
+[gh-hooks]: https://docs.github.com/en/copilot/reference/hooks-configuration
 [gh-skills]: https://docs.github.com/en/copilot/concepts/agents/about-agent-skills
 [gh-skills-create]: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/create-skills
 [vsc-skills]: https://code.visualstudio.com/docs/copilot/customization/agent-skills
 [vsc-settings]: https://code.visualstudio.com/docs/copilot/reference/copilot-settings
+[vsc-todo]: https://code.visualstudio.com/updates/v1_103
+[cli-todo]: https://github.com/github/copilot-sdk/issues/1641
 [cli-ref]: https://docs.github.com/en/copilot/reference/cli-plugin-reference
 [cli-skills]: https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills
 [cli-instr]: https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-custom-instructions

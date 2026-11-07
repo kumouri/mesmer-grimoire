@@ -10,3 +10,7 @@ venv/
 # Runtime memory tiers (per-developer, never committed)
 memory/local.jsonl
 memory/usage.local.json
+memory/.*.tmp
+memory/.store.lock
+# Lessons-capture spool. It also ignores itself; this keeps the public demo store safe regardless.
+memory/.capture

@@ -30,11 +30,11 @@ from pathlib import Path
 
 from . import core
 from .config import Config, ConfigError, load_config, load_named_example
-from .core import EngineError, LowValueError, resolve_repo
+from .core import EngineError, LockTimeout, LowValueError, resolve_repo
 
 __all__ = [
     "recall", "capture", "reflect", "promote", "export", "prune", "hygiene", "validate",
-    "Config", "ConfigError", "EngineError", "LowValueError",
+    "Config", "ConfigError", "EngineError", "LockTimeout", "LowValueError",
     "load_config", "load_named_example", "resolve_repo",
 ]
 
@@ -96,27 +96,31 @@ def reflect(title, lesson, reflection_of, *, category=None, memory_type=None, co
     return core.reflect(cfg, repo_path, fields, force=force, supersede=supersede)
 
 
-def promote(lesson_id, *, to=None, repo=None, config=None):
-    """Promote lesson(s) to a shared tier and mark review=proposed (stage the governance PR).
+def promote(lesson_id, *, to=None, push=False, repo=None, config=None):
+    """Propose lesson(s) for a shared tier through a review PR; the local copy stays until it merges.
 
-    Default (to=None or "shared"): move a single local lesson to this repo's shared tier, as before.
-    to=<store tier> (e.g. "team"): export the given id(s) UP to a configured store — see export()."""
+    Default (to=None or "shared"): commit a single local lesson alone on a review branch for this
+    repo's shared tier. to=<store tier> (e.g. "team"): export the given id(s) UP to a configured
+    store — see export(). The result's `pr` carries the remaining step (push, open the PR);
+    push=True also pushes, exactly like `mnemosyne promote --push`. Merging the PR is the approval,
+    and the next sync() retires the local copy."""
     cfg, repo_path = _prep(repo, config)
     if to in (None, "shared") and isinstance(lesson_id, str):
-        return core.promote(cfg, repo_path, lesson_id)
+        return core.promote(cfg, repo_path, lesson_id, push=push)
     ids = [lesson_id] if isinstance(lesson_id, str) else list(lesson_id)
-    return core.export(cfg, repo_path, ids, to)
+    return core.export(cfg, repo_path, ids, to, push=push)
 
 
-def export(lesson_ids, to, *, repo=None, config=None):
+def export(lesson_ids, to, *, push=False, repo=None, config=None):
     """Export chosen local lesson(s) UP to a broader shared store (team/enterprise, ...).
 
-    Copies each lesson into the store under a new store-prefixed id (review=proposed) and marks the
-    local original for retire-on-merge. `to` is a tier label from config.stores; `lesson_ids` is one
-    id or a list. Returns a dict describing the exported/skipped lessons and the store PR branch."""
+    Commits each lesson, scrubbed, under a new store-prefixed id on a review branch in the store repo
+    and marks the local original for retire-on-merge. `to` is a tier label from config.stores;
+    `lesson_ids` is one id or a list. Returns a dict describing the exported/skipped lessons and,
+    under `pr`, the remaining step (push, open the PR), which push=True runs."""
     cfg, repo_path = _prep(repo, config)
     ids = [lesson_ids] if isinstance(lesson_ids, str) else list(lesson_ids)
-    return core.export(cfg, repo_path, ids, to)
+    return core.export(cfg, repo_path, ids, to, push=push)
 
 
 def prune(*, apply=False, cap=None, max_age_days=None, repo=None, config=None):

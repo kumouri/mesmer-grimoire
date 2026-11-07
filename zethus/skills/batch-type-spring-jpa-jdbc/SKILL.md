@@ -1,6 +1,6 @@
 ---
 name: batch-type-spring-jpa-jdbc
-description: Recover business rules from plain Spring applications that hand-roll batch loops over JPA/JDBC with no Spring Batch framework -- where "a batch" is only a main() and a loop, and commit points and restart behaviour must be inferred from transaction boundaries in code rather than read off framework config. Use as the batch-type/spring-jpa-jdbc reader within recover-business-rules for the ask's named first target: old Spring-based JPA/JDBC batches.
+description: Recover business rules from plain Spring applications that hand-roll batch loops over JPA/JDBC with no Spring Batch framework -- where "a batch" is only a main() and a loop, and commit points and restart behaviour must be inferred from transaction boundaries in code rather than read off framework config. Use as the batch-type/spring-jpa-jdbc reader within recover-business-rules for the ask's named first target, old Spring-based JPA/JDBC batches.
 ---
 
 # Batch-type reader: plain Spring JPA/JDBC batch loops

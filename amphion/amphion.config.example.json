@@ -79,18 +79,5 @@
       { "name": "Process & Coordination", "includes": "Handoffs, review latency, orchestration and agent-delegation failures" },
       { "name": "External Services & Dependencies", "includes": "Third-party APIs, vendor limits, upstream bugs" }
     ]
-  },
-
-  "docSync": {
-    "map": [
-      {
-        "doc": "CLAUDE.md",
-        "describes": ["src/**", "package.json", ".github/workflows/**"]
-      },
-      {
-        "doc": "src/api/README.md",
-        "describes": ["src/api/**"]
-      }
-    ]
   }
 }

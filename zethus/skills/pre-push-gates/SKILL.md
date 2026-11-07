@@ -5,22 +5,39 @@ description: Run every lint, build and test gate CI would run, locally on the wo
 
 # Pre-push gates
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 CI's job is to show that a different machine agrees with yours. It shouldn't be where you first
 find out a gate is red. Every red found in CI after a push costs a round trip that a local run
 would have saved, and it tells the reviewer the author didn't check.
 
 ## Procedure
 
-0. **Check the base is fresh:** `python .github/zethus/scripts/base-freshness.py`.
-   Gates run on a stale base check a tree that won't be the one that merges. Exit 1 (STALE) means
-   stop: rebase onto `origin/<base>` first, then come back here. Exit 3 means the fetch failed and
-   freshness is unknown; say so, and don't treat the base as fresh.
-1. **See what will run:** `python .github/zethus/scripts/run-local-gates.py --list`.
+Run this stage last, after [docs-sync-check](../docs-sync-check/SKILL.md) and immediately before
+the push, so one full run covers everything you push, docs and spec edits included. If you edit
+anything after it goes green, run it again.
+
+That binds the final run, not an earlier one. An early run may overlap docs work when the gates
+don't read docs ([why](../../docs/independent-work-runs-concurrently.md)), but it can only find a
+red. The run that clears the push starts after the last edit, on the exact tree that is pushed.
+
+0. **Check the base is fresh:** `python <kit root>/scripts/base-freshness.py`.
+   Gates run on a stale base check a tree that won't be the one that merges, and the PR describes
+   a diff against a base that has moved. Exit 1 (STALE) means stop: rebase onto `origin/<base>`
+   first, then come back here. On a stack of phase branches, rebase the whole stack from its top
+   (`git rebase --update-refs origin/<base>`) and push each branch with `--force-with-lease`. Exit 3 means the fetch failed and freshness is unknown; say so, and
+   don't treat the base as fresh.
+
+   **This is one of the change's two freshness checkpoints** — the other is Stage 0, when the
+   branch is created or rebased. The stages in between don't check, because staleness costs
+   nothing until a diff leaves the machine; that makes this run the one that catches a base which
+   moved while you were building, so don't skip it on the grounds that Stage 0 was green.
+1. **See what will run:** `python <kit root>/scripts/run-local-gates.py --list`.
    Gates come from `gates.steps` in `.github/zethus.config.json`, or else from the repo's build
    files (`package.json`, `Makefile`, `pyproject.toml`, Gradle, Maven, .NET, Go, Cargo). **Compare
    the list against the CI workflow.** If CI runs a gate the list doesn't have, add it to
    `gates.steps` now. A local run that skips a CI gate is a partial run.
-2. **Run them all:** `python .github/zethus/scripts/run-local-gates.py`.
+2. **Run them all:** `python <kit root>/scripts/run-local-gates.py`.
    The script checks the **working tree on disk**, uncommitted changes included, and its header
    says so. Commit after it goes green, not before, so what you push is what you checked.
 3. **Read the verdict line, not just the table:**
@@ -28,14 +45,21 @@ would have saved, and it tells the reviewer the author didn't check.
    | Exit | Verdict | What you do |
    |---|---|---|
    | 0 | `GREEN — every gate ran and passed` | Push. |
-   | 1 | `RED — fix before pushing: …` | Fix it. The failing gate's output tail is printed below the table. Don't push. |
+   | 1 | `RED — fix before pushing: …` | Fix it **in this phase**, with the smallest change that turns it green, even if the plan scheduled that gate's remediation for a later phase, and without asking first. Say in the phase's report that it was pulled forward and why. The failing gate's output tail is printed below the table. Don't push. |
+   | 4 | `GREEN except gate(s) the approved plan lets stay red` | The person approved a `push-red` ruling for those gates in the spec's *Gate remediation* table. Push, and say in the PR which gates are red and where the ruling is. |
    | 3 | `GREEN on what ran, but N gate(s) NOT checked` | Install the missing toolchain and re-run. If that's genuinely impossible, push, and list those gates under *What was not checked* in the PR. |
    | 2 | No gates found / usage error | Configure `gates.steps`. No gates is not a green run. |
 
 4. **Paste the table into the PR's *Evidence* section,** unedited.
 
+A green verdict is progress, not a report to hand over and wait on. Next, in the same turn once the verdict lets you push: commit, push, and open the PR with
+[zethus-pr-description](../zethus-pr-description/SKILL.md).
+
 ## Rules
 
+- **Every local gate is green before a phase pushes, whatever the phase plan says,** unless the
+  signed-off spec records an approved `push-red` ruling for that gate
+  ([why](../../docs/gate-remediation-in-the-plan.md)).
 - **Never report a gate as passed if you didn't run it.** Write "not run", with the reason.
 - **Don't weaken a gate to get green:** no skipped tests, loosened lint, or `--no-verify`. If a gate
   is wrong, fixing it is a separate decision for a person, recorded as an ADR.

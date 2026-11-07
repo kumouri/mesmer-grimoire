@@ -1,9 +1,0 @@
-# Optional reconciliation sweep for Linux (cron).
-# The hooks already dream on compaction/end; this only catches sessions that
-# crashed or were archived/deleted without a clean SessionEnd.
-#
-# Requires: pip install morpheus-dreaming
-# Install with:  crontab -e   (then paste the line below)
-#
-# Every 30 minutes:
-*/30 * * * * python -m morpheus reconcile >> "$HOME/.claude/morpheus/reconcile.log" 2>&1

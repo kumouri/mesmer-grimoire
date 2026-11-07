@@ -5,6 +5,8 @@ description: Translate a Markdown spec (a Zethus spec or any spec-shaped Markdow
 
 # Spec to stories
 
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
 A spec describes a change. A story is a unit of work someone can pick up, estimate, and mark done.
 This skill does the translation, and refuses to call the output "decent" until it's earned that.
 
@@ -82,16 +84,20 @@ help.
 This skill never creates, updates, or comments on anything in Jira. It writes Markdown files and
 stops.
 
-**Only an explicit "create these" / "go ahead" / "approved", said after being shown the drafts,
-counts as approval.** Silence, a question, or "looks reasonable so far" doesn't. "Just push them,
-I trust it" gets the same answer pr-description gives to "just push it, CI will tell us": decline,
+**Only an explicit approval, given after being shown the drafts, counts:** a picked "Create these" on
+the question tool, or any clear "go ahead" / "approved" (no exact phrase is required). Silence, a question, or "looks reasonable so far" doesn't. "Just push them,
+I trust it" gets the same answer zethus-pr-description gives to "just push it, CI will tell us": decline,
 and show the drafts first — approval covers what was actually shown, not what might have been meant.
 
 If, after approval, the batch is to be created in Jira: check whether an Atlassian/Jira MCP tool is
 available in this session first (only the calling agent can see its own tool list); otherwise run
-`python .github/zethus/scripts/jira-access.py` to check for a CLI or a REST token. Create issues one
-at a time, report each created key back, and stop and ask again before creating anything beyond the
-approved batch.
+`python <kit root>/scripts/jira-access.py` to check for a CLI or a REST token. For a `jira` CLI,
+follow [jira-cli](../jira-cli/SKILL.md): its setup and auth check first, then its create command,
+which states the exact command and gets a picked go-ahead for each issue. That is on top of the approval
+above, never in place of it. The script can't tell which tool a `jira` binary is, and that skill's
+commands are for `ankitpokhrel/jira-cli`, so if they aren't recognised, use REST or hand over the
+drafts. Create issues one at a time, report each created key back, and stop and ask again before
+creating anything beyond the approved batch.
 
 ## Anti-patterns
 

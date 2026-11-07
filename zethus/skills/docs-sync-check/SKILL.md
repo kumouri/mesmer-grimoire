@@ -1,9 +1,11 @@
 ---
 name: docs-sync-check
-description: Before a PR, find the documentation that describes the code this change touched and confirm each is still true — updating it in place in the same change — and check every Markdown pointer still resolves. Uses docs-pointer-check with the docSync map. Use before opening a PR, after renaming or moving files, or when asked whether the docs are up to date.
+description: Before the pre-push gates and the PR, find the documentation that describes the code this change touched and confirm each is still true — updating it in place in the same change — and check every Markdown pointer still resolves. Uses docs-pointer-check with the docSync map. Use before opening a PR, after renaming or moving files, or when asked whether the docs are up to date.
 ---
 
 # Docs sync check
+
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
 
 Stale documentation is a bug, and it's the one reviewers are least likely to catch: the diff shows
 the code that changed, not the README that now describes it wrongly. So fix the docs **in the same
@@ -14,7 +16,7 @@ change**, without being asked. Change only the docs that describe code this diff
 1. **Check pointers, and list docs whose code changed:**
 
    ```bash
-   python .github/zethus/scripts/docs-pointer-check.py --sync-base origin/<base>
+   python <kit root>/scripts/docs-pointer-check.py --sync-base origin/<base>
    ```
 
    - Broken pointers (exit 1) must be fixed. A relative link to a moved or renamed file breaks, and
@@ -35,6 +37,12 @@ change**, without being asked. Change only the docs that describe code this diff
    [implement-phase](../implement-phase/SKILL.md)).
 5. **Report** under the PR's *Docs updated* heading: each doc, and whether it was updated or
    confirmed. "No doc describes this code" is a valid answer once you've done step 2.
+
+Next: [pre-push-gates](../pre-push-gates/SKILL.md). This stage runs before the gates, not after
+them, so the one full gate run covers these edits too and doesn't have to be repeated. Docs work
+may overlap an earlier test or gate run that doesn't read docs
+([why](../../docs/independent-work-runs-concurrently.md)); it finishes before the final run
+starts.
 
 ## Rules
 

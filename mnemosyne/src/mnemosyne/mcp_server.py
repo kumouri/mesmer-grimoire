@@ -4,8 +4,8 @@ Any MCP client (Claude Desktop, Claude Code, Cursor, ...) can recall/capture/ref
 against a git-backed memory. Thin adapters over the public API in `mnemosyne`; the repo and
 config resolve from $MNEMOSYNE_REPO / $MNEMOSYNE_CONFIG exactly like the CLI.
 
-Run:
-    pip install "mnemosyne-reflexion[mcp]"
+Run (not on PyPI yet, so install from GitHub with the [mcp] extra):
+    pip install "mnemosyne-reflexion[mcp] @ git+https://github.com/kumouri/mesmer-grimoire#subdirectory=mnemosyne"
     MNEMOSYNE_REPO=/path/to/memory-repo python -m mnemosyne.mcp_server
 
 Register (Claude Code):
@@ -27,7 +27,7 @@ def _mcp_import_error(exc: ImportError) -> SystemExit:
     """
     if importlib.util.find_spec("mcp") is None:
         return SystemExit(
-            "the MCP server needs the 'mcp' package — install with: pip install \"mnemosyne-reflexion[mcp]\""
+            "the MCP server needs the 'mcp' package — install with: pip install \"mcp>=1.2,<2\""
         )
     return SystemExit(
         "the MCP server found an installed 'mcp' package but failed to import "
@@ -104,13 +104,22 @@ def reflect(title: str, lesson: str, reflection_of: str, tags: str = "",
 
 
 @mcp.tool()
-def promote(lesson_id: str) -> dict:
-    """Move a LOCAL lesson to the SHARED tier and mark it review=proposed (stage the governance PR).
+def promote(lesson_ids: str, to: str = "", push: bool = False) -> dict:
+    """Promote LOCAL lesson(s) for team review: the same operation as the `mnemosyne promote` CLI.
 
-    A human reviewer approves the PR before the lesson becomes team-wide truth. Announce this to the user.
-    To send lesson(s) UP to a broader team/enterprise store instead of this repo's shared tier, use `export`.
+    lesson_ids: one id or a comma-separated list (e.g. "L-0009" or "L-0007,L-0009").
+    to:         empty (default) proposes them for this repo's SHARED tier; a store tier label from
+                config (e.g. "team") exports them UP to that store instead, like `export`.
+    push:       false (default) commits each lesson alone on its own review branch, without touching
+                the working tree, and returns the remaining step (push, open the PR) in
+                `pr.commands`; relay it to the user. true also pushes and reports `pr.pushed` /
+                `pr.error`.
+    The local copy is kept, marked review=proposed, until the PR merges. Merging the PR is the
+    approval, and only a human reviewer does that, so never merge it yourself; the next `sync`
+    retires the local copy. Announce which lessons were promoted.
     """
-    return mn.promote(lesson_id)
+    ids = [x.strip() for x in lesson_ids.split(",") if x.strip()]
+    return mn.promote(ids, to=to or None, push=push)
 
 
 @mcp.tool()
@@ -119,9 +128,10 @@ def export(lesson_ids: str, to: str) -> dict:
 
     lesson_ids: one id or a comma-separated list (e.g. "L-0007,L-0009").
     to:         the destination tier label (e.g. "team" or "enterprise").
-    Each lesson is copied into the store under a new store-prefixed id (review=proposed) and the local
-    original is kept + marked for retire-on-merge; `sync` retires it once the upstream PR is approved.
-    Announce which lessons were exported and to which tier.
+    Each lesson is scrubbed and committed under a new store-prefixed id on a review branch in the
+    store repo; the local original is kept + marked for retire-on-merge, and the next `sync` after
+    the store's PR merges retires it. The result's `pr.commands` are the remaining steps (push, open
+    the PR); relay them. Announce which lessons were exported and to which tier.
     """
     ids = [x.strip() for x in lesson_ids.split(",") if x.strip()]
     return mn.export(ids, to)

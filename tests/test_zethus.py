@@ -25,12 +25,14 @@ from unittest import mock
 
 REPO = Path(__file__).resolve().parent.parent
 KIT = REPO / "zethus"
+AGENT = "com.github.copilot/agents/zethus.agent.md"
+DOCS_RULE = "com.github.copilot/rules/zethus-docs.instructions.md"
 SCRIPTS = KIT / "scripts"
 
 REQUIRED_SKILLS = {
     "research-existing-code", "write-spec-full", "write-spec-minimum", "write-adr",
     "fresh-eyes-investigation", "implement-phase", "test-plan", "pre-push-gates",
-    "pr-description", "docs-sync-check",
+    "zethus-pr-description", "docs-sync-check",
 }
 
 
@@ -509,6 +511,36 @@ class BaseFreshness(TempRepo):
         self.assertIn("NO ANSWER", out)
         self.assertNotIn("FRESH", out)
 
+    def test_merge_base_only_prints_the_diff_base_and_never_gates(self):
+        mb = self.git(self.work, "merge-base", "HEAD", "origin/develop")
+        code, out = self.check("--merge-base-only")
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"diff base (merge-base) {mb[:12]}", out)
+        self.assertIn("base origin/develop", out)
+        self.assertNotIn("FRESH", out)
+
+        self.land_on_base(3)                        # three commits behind: stale for the gate
+        self.assertEqual(self.check()[0], 1, "the gating form still stops")
+        code, out = self.check("--merge-base-only")
+        self.assertEqual(code, 0, f"the merge-base is never a gate: {out}")
+        self.assertIn("no gate", out)
+        self.assertNotIn("STALE", out)
+
+    def test_merge_base_only_falls_back_to_the_last_fetch_instead_of_no_answer(self):
+        self.git(self.work, "remote", "set-url", "origin", str(self.repo / "_gone.git"))
+        self.assertEqual(self.check()[0], 3, "the gating form refuses to guess")
+        code, out = self.check("--merge-base-only")
+        self.assertEqual(code, 0, out)
+        self.assertIn("could not fetch", out)
+        self.assertIn("NOT fetched", out)
+        self.assertIn("diff base (merge-base)", out)
+
+    def test_merge_base_only_still_reports_a_usage_error(self):
+        self.set_config({"maxBehind": -1})
+        code, out = self.check("--merge-base-only", "--no-fetch")
+        self.assertEqual(code, 2, out)
+        self.assertIn("branchModel.", out)
+
     def test_not_a_git_repo_is_a_usage_error(self):
         plain = self.repo / "plain"
         plain.mkdir()
@@ -605,7 +637,7 @@ class KitContract(unittest.TestCase):
             self.assertLessEqual(len(fm["description"]), 1024, name)
 
     def test_agent_frontmatter(self):
-        path = KIT / "agents/zethus.agent.md"
+        path = KIT / AGENT
         fm = frontmatter(path)
         self.assertTrue(fm.get("description"))
         self.assertEqual(fm.get("name"), "zethus")
@@ -615,12 +647,12 @@ class KitContract(unittest.TestCase):
         self.assertTrue(set(tools) <= {"read", "search", "edit", "execute", "web", "todo", "agent"})
 
     def test_agent_links_every_skill(self):
-        text = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+        text = (KIT / AGENT).read_text(encoding="utf-8")
         for name in REQUIRED_SKILLS:
-            self.assertIn(f"../skills/{name}/SKILL.md", text)
+            self.assertIn(f"../../skills/{name}/SKILL.md", text)
 
     def test_path_instructions_have_apply_to(self):
-        for path in (KIT / "instructions").glob("*.instructions.md"):
+        for path in (KIT / "com.github.copilot/rules").glob("*.instructions.md"):
             self.assertTrue(frontmatter(path).get("applyTo"), path.name)
 
     def test_minimum_spec_headings_are_a_strict_ordered_subset_of_full(self):
@@ -647,14 +679,340 @@ class KitContract(unittest.TestCase):
         self.assertEqual(fresh_mod.branch_model({}), ("branch-per-change", 0),
                          "no config keeps today's behaviour")
 
-    def test_the_freshness_check_is_wired_into_every_stage_and_the_gates(self):
-        agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+    def test_the_freshness_gate_runs_at_two_checkpoints_and_no_others(self):
+        """Stage 0 and the pre-push gates: the two points where staleness costs something.
+
+        It used to run at the start of all seven stages, and again inside four skills, each of
+        which can stop the work for a rebase (``maxBehind`` defaults to 0) — see
+        ``zethus/docs/base-freshness-cadence.md``. A third gating call is that cadence creeping
+        back, so this test names the two files allowed to make one.
+        """
+        agent = (KIT / AGENT).read_text(encoding="utf-8")
         gates = (KIT / "skills/pre-push-gates/SKILL.md").read_text(encoding="utf-8")
         for text in (agent, gates):
-            self.assertIn("python .github/zethus/scripts/base-freshness.py", text)
+            self.assertIn("python <kit root>/scripts/base-freshness.py", text)
+        self.assertIn("## Check the base at two points, not at every stage", agent)
+        self.assertIn("two freshness checkpoints", gates)
+
+        # A gating call is the script without --merge-base-only on the same line.
+        offenders = []
+        for path in sorted((KIT / "skills").glob("*/SKILL.md")):
+            if path.parent.name == "pre-push-gates":
+                continue
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if "scripts/base-freshness.py" in line and "--merge-base-only" not in line:
+                    offenders.append(f"{path.parent.name}: {line.strip()[:80]}")
+        self.assertEqual(offenders, [], "only Stage 0 (the agent file) and pre-push-gates may gate "
+                                        "on freshness; a stage that needs the diff base uses "
+                                        "--merge-base-only")
+
         readme = (KIT / "README.md").read_text(encoding="utf-8")
-        for key in ("branchModel.style", "branchModel.maxBehind"):
+        for key in ("branchModel.style", "branchModel.maxBehind", "--merge-base-only"):
             self.assertIn(key, readme)
+        instructions = (KIT / "copilot-instructions.md").read_text(encoding="utf-8")
+        for rule in ("Stage 0", "--merge-base-only", "don't re-run it"):
+            self.assertIn(rule, instructions)
+
+    def test_docs_comes_before_gates_so_the_full_suite_runs_once(self):
+        """Docs edits the tree, so a Gates stage before it meant a second full suite before the push.
+
+        Ceryce's ruling, 2026-10-19 (``zethus/docs/run-once-per-phase.md``): Docs is Stage 5 and
+        Gates Stage 6, immediately before the PR, and every stage map and cross-reference agrees.
+        """
+        agent = (KIT / AGENT).read_text(encoding="utf-8")
+        table = agent.split("## The stages", 1)[1].split("\n\n", 2)[1]
+        rows = [[c.strip() for c in line.strip("|").split("|")][:2]
+                for line in table.splitlines()[2:]]
+        self.assertEqual(rows, [["0", "Orient"], ["1", "Research"], ["2", "Spec"],
+                                ["3", "Implement"], ["4", "Tests"], ["5", "Docs"],
+                                ["6", "Gates"], ["7", "PR"]])
+        self.assertIn("../skills/docs-sync-check/SKILL.md) | Every doc", agent)
+        stage_map = "4 Tests · 5 Docs · 6 Gates · 7 PR"
+        for doc in (AGENT, "README.md"):
+            text = (KIT / doc).read_text(encoding="utf-8")
+            self.assertIn(stage_map, text, doc)
+            self.assertNotIn("5 Gates", text, doc)
+        self.assertIn("**Stage 6 · Gates**, immediately before the push", agent)
+        self.assertIn("Stages 1–5 and 7 don't run it", agent)
+        readme = (KIT / "README.md").read_text(encoding="utf-8")
+        self.assertLess(readme.index('"5 · Docs'), readme.index('"6 · Gates'))
+        self.assertIn("after [docs-sync-check]",
+                      (KIT / "skills/pre-push-gates/SKILL.md").read_text(encoding="utf-8"))
+        self.assertIn("Next: [pre-push-gates]",
+                      (KIT / "skills/docs-sync-check/SKILL.md").read_text(encoding="utf-8"))
+
+    def test_the_phase_tests_run_once_before_the_gates(self):
+        """Stage 3 exits on written-and-compiling; Stage 4 runs the tests once.
+
+        The mutation check proves its restore with ``git diff --quiet`` rather than a re-run.
+        Ceryce's ruling, 2026-10-19 (``zethus/docs/run-once-per-phase.md``).
+        """
+        agent = (KIT / AGENT).read_text(encoding="utf-8")
+        self.assertIn("written and compiling", agent)
+        self.assertIn("passes in one run", agent)
+        implement = (KIT / "skills/implement-phase/SKILL.md").read_text(encoding="utf-8")
+        done = implement.split("## Done when", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("compiles", done)
+        self.assertNotIn("exist and pass", done)
+        test_plan = (KIT / "skills/test-plan/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("Every planned test exists and passes, in one run", test_plan)
+        self.assertIn("git diff --quiet -- <file>", test_plan)
+        self.assertIn("confirm it fails", test_plan, "the mutation check itself stays")
+
+    def test_only_a_new_phase_branch_and_the_checkpoints_fetch(self):
+        """The PR stage reuses the pre-push fetch; the first phase reuses Stage 0's.
+
+        Ceryce's ruling, 2026-10-19 (``zethus/docs/run-once-per-phase.md``).
+        """
+        pr = (KIT / "skills/zethus-pr-description/SKILL.md").read_text(encoding="utf-8")
+        self.assertNotIn("Fetch first", pr)
+        self.assertIn("Reuse the fetch and the merge-base", pr)
+        implement = (KIT / "skills/implement-phase/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("If this phase needs a **new** branch", implement)
+        self.assertIn("don't fetch again", implement)
+
+    def test_the_next_phase_starts_on_push_not_on_merge(self):
+        """A pushed phase unblocks the next one; a pushed phase is in review, never built.
+
+        Ceryce's ruling, 2026-10-22 (``zethus/docs/phase-advance-on-push.md``): on a team that
+        merges only when a whole feature is done, waiting for each phase's PR to merge blocks all
+        work. Phases stack on the previous phase's pushed branch instead.
+        """
+        implement = (KIT / "skills/implement-phase/SKILL.md").read_text(encoding="utf-8")
+        pre = implement.split("## Preconditions", 1)[1].split("\n## ", 1)[0]
+        self.assertNotIn("has merged (in", pre, "the merge gate is gone")
+        self.assertNotIn("once the previous phase's PR has merged), cut it", pre)
+        self.assertIn("pushed to its PR**. Its PR does not have to be merged", pre)
+        self.assertIn("git switch -c <this-phase> <previous-phase>", pre)
+        self.assertIn("in review (PR #n)", implement)
+        self.assertNotIn("Leave `BUILT` for when the last phase merges.", implement)
+
+        agent = (KIT / AGENT).read_text(encoding="utf-8")
+        model = agent.split("## Branch model", 1)[1].split("\n**Stuck branch.**", 1)[0]
+        for rule in ("Phases are **stacked**", "pushed, not merged", "--update-refs",
+                     "pushed to the PR"):
+            self.assertIn(rule, model)
+        self.assertIn("Don't wait for the PR to merge", agent)
+        self.assertNotIn("starts only once\n    the one before it is complete", agent)
+
+        instructions = (KIT / "copilot-instructions.md").read_text(encoding="utf-8")
+        self.assertNotIn("Each phase merges green on its own", instructions)
+        self.assertIn("pushed to its PR, not\n  once it merges", instructions)
+        self.assertIn("Never merge your own PR", instructions, "the merge rule itself stays")
+
+        # Status words: in review is its own state; BUILT still waits for the last merge.
+        for doc in (DOCS_RULE, "templates/spec-full.md",
+                    "skills/write-spec-full/SKILL.md"):
+            text = (KIT / doc).read_text(encoding="utf-8")
+            self.assertIn("PARTIAL(merged: …; in review: …)", text, doc)
+            self.assertNotIn("PARTIAL(what is built)", text, doc)
+        self.assertNotIn("Each phase merges\ngreen on its own",
+                         (KIT / "templates/spec-full.md").read_text(encoding="utf-8"))
+
+        pr = (KIT / "skills/zethus-pr-description/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("origin/<previous-phase>...HEAD", pr)
+        self.assertIn("**Don't merge it, even if you can.**", pr)
+        self.assertIn("- **Stacked on:**", (KIT / "templates/pr.md").read_text(encoding="utf-8"))
+        readme = (KIT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("| Next phase starts |", readme)
+        self.assertIn("docs/phase-advance-on-push.md", readme)
+
+    def test_the_visible_plan_is_a_rule_with_a_fallback_and_an_exit_condition(self):
+        """The plan stays visible, updated per stage rather than per step.
+
+        Ceryce's ruling, 2026-10-19 (``zethus/docs/plan-update-cadence.md``), relaxed the original
+        "mark it done the moment it's done": the list is updated at stage entry and when the plan
+        changes, and the header line names the current step in between.
+        """
+        agent = (KIT / AGENT).read_text(encoding="utf-8")
+        self.assertIn('"todo"', frontmatter(KIT / AGENT)["tools"])
+        self.assertNotIn("Mark it done the moment it's done", agent)
+        for rule in ("## Keep the plan visible",
+                     "One step is in progress at a time, or two or three when they are",
+                     "Update the list at stage entry and when the plan changes, not at every step",
+                     "The header line on every reply names what's in progress",
+                     "When the plan changes, change the list in the same turn",
+                     "A stage isn't exited with open steps",
+                     "You have no todo-list tool",
+                     "- [ ] ▶ ",
+                     "plan.checklist",
+                     "Start each reply with the current stage and step",
+                     '"Skip the todo list, just do it"'):
+            self.assertIn(rule, agent)
+        config = json.loads((KIT / "zethus.config.example.json").read_text(encoding="utf-8"))
+        self.assertEqual(config["plan"]["checklist"], "auto")
+        readme = (KIT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("plan.checklist", readme)
+        self.assertNotIn("ticked the moment it's done", readme)
+
+    def test_commits_are_signed_before_the_trailer_block_alongside_the_trailer(self):
+        agent = (KIT / AGENT).read_text(encoding="utf-8")
+        for rule in ("## Sign your commits", "commits.signature", "commits.aiTrailer",
+                     "never instead of it", '`commits.signature: ""` means no signature line'):
+            self.assertIn(rule, agent)
+        # The example commit in the agent file: signature, then the trailer as the last paragraph.
+        example = agent.split("## Sign your commits", 1)[1].split("```text\n", 1)[1]
+        lines = example.split("\n```", 1)[0].splitlines()
+        sig, trailer = lines.index("— Zethus"), lines.index(
+            "Co-authored-by: <the commits.aiTrailer value>")
+        self.assertEqual(trailer, len(lines) - 1, "the trailer block stays last")
+        self.assertEqual(lines[sig - 1:trailer], ["", "— Zethus", ""],
+                         "the signature is its own paragraph, just before the trailer")
+        config = json.loads((KIT / "zethus.config.example.json").read_text(encoding="utf-8"))
+        self.assertEqual(config["commits"]["signature"], "— Zethus")
+        self.assertIn("aiTrailer", config["commits"], "the signature never replaces the trailer")
+        for doc in ("README.md", "copilot-instructions.md", "skills/implement-phase/SKILL.md",
+                    "skills/zethus-pr-description/SKILL.md", "templates/pr.md"):
+            self.assertIn("commits.signature", (KIT / doc).read_text(encoding="utf-8"), doc)
+
+    def test_every_stage_hands_off_and_no_turn_ends_silently(self):
+        """A passing check is not a stop; a turn ends only at a listed stop, and says why.
+
+        Ceryce's report, 2026-11-01 (``zethus/docs/never-stop-silently.md``): after the post-sign-off
+        doc checks the agent never started Phase 0 and never said it had stopped. *On sign-off* was
+        the one stage-ending section with no next action.
+        """
+        stage_skills = ("research-existing-code", "write-spec-minimum", "write-spec-full",
+                        "implement-phase", "test-plan", "docs-sync-check", "pre-push-gates",
+                        "zethus-pr-description")
+        for name in stage_skills:
+            text = (KIT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+            self.assertRegex(text, r"(?m)^## Next$|Next[,:]", f"{name}: names its next action")
+        for name in ("write-spec-minimum", "write-spec-full"):
+            text = (KIT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+            after = text.split("n sign-off", 1)[1]
+            self.assertIn("start Phase 0 with [implement-phase]", after, name)
+            self.assertIn("They are not a place to stop", after, name)
+
+        agent = (KIT / AGENT).read_text(encoding="utf-8")
+        section = agent.split("## Hand off to the next stage, and never stop silently", 1)[1]
+        section = section.split("\n## ", 1)[0]
+        for rule in ("A check that passes is not a place to stop", "**in the same turn**",
+                     "**After sign-off**", "You end a turn only at one of these points",
+                     "Stopped at:", "Next:", "Why:"):
+            self.assertIn(rule, section)
+        self.assertIn("**End a turn only at a listed stop, and say so.**", agent)
+        instructions = (KIT / "copilot-instructions.md").read_text(encoding="utf-8")
+        self.assertIn("## Keep moving, and never stop silently", instructions)
+        self.assertIn("A check that passes is not a stopping point", instructions)
+        self.assertIn("docs/never-stop-silently.md", (KIT / "README.md").read_text(encoding="utf-8"))
+        adr = (KIT / "docs/never-stop-silently.md").read_text(encoding="utf-8")
+        # A public repo: the ADR paraphrases the report, quoting none of it.
+        self.assertIn("Ceryce's report, paraphrased", adr)
+        self.assertNotIn("verbatim", adr)
+        self.assertNotIn("\n> ", adr, "no block quotes")
+
+    def test_the_persons_questions_come_first(self):
+        """A question mid-task becomes the task, answered fully before any offer to resume.
+
+        Ceryce's report, 2026-11-01 (``zethus/docs/questions-come-first.md``): asked what had
+        happened, the agent looked for the least-effort answer so it could get back to the task.
+        """
+        agent = (KIT / AGENT).read_text(encoding="utf-8")
+        self.assertLess(agent.index("## The person's questions come first"),
+                        agent.index("## Keep the plan visible"), "sits with the process rules")
+        section = agent.split("## The person's questions come first", 1)[1].split("\n## ", 1)[0]
+        for rule in ("**that question becomes\nthe current task.**", "same weight as the stages",
+                     "your own behaviour", "**Answer fully, with real effort.**",
+                     "Investigate if the answer needs it", "never to an answer",
+                     "**Don't minimise.**", "**Then offer to resume, and wait.**"):
+            self.assertIn(rule, section)
+        instructions = (KIT / "copilot-instructions.md").read_text(encoding="utf-8")
+        self.assertLess(instructions.index("## Questions come first"),
+                        instructions.index("## Start from a fresh base"))
+        for rule in ("**that question is the current\n  task.**", "your own behaviour",
+                     "Don't shrink the answer", "offer to resume"):
+            self.assertIn(rule, instructions)
+        self.assertIn("docs/questions-come-first.md", (KIT / "README.md").read_text(encoding="utf-8"))
+        adr = (KIT / "docs/questions-come-first.md").read_text(encoding="utf-8")
+        # A public repo: the ADR paraphrases the report, quoting none of it.
+        self.assertIn("Ceryce's report, paraphrased", adr)
+        self.assertNotIn("verbatim", adr)
+        self.assertNotIn("\n> ", adr, "no block quotes")
+
+    def test_independent_work_runs_at_the_same_time(self):
+        """The stages order exit conditions; they don't queue unrelated work.
+
+        Ceryce's report and rulings, 2026-11-01 (``zethus/docs/independent-work-runs-concurrently.md``):
+        the agent wouldn't start independent remote runs while unrelated local changes were
+        pending.
+        """
+        def flat(text):
+            return " ".join(text.replace("\n> ", " ").split())
+
+        rules = ("Two or three independent tasks may run at once",
+                 "the other's output or the files the other is changing",
+                 "docs while the local gates run",
+                 "read-only research while a build runs",
+                 "The final gate run still happens last, on the exact tree that is pushed",
+                 "Remote or long-running work starts as soon as the pending change doesn't touch "
+                 "what that work runs",
+                 "the deploy definition",
+                 "which paths get copied into the image or onto the machines that run it",
+                 "the changed helper is local-only (not in the image's COPY paths); the remote "
+                 "job runs an unchanged image → starting the next runs.",
+                 "ask once, with the question tool",
+                 "re-judged with that tooling's final version before anyone relies on them, and "
+                 "the run log says so",
+                 "isn't affected",
+                 "without re-litigating")
+        agent = (KIT / AGENT).read_text(encoding="utf-8")
+        section = agent.split("## Run independent work at the same time", 1)[1].split("\n## ", 1)[0]
+        instructions = (KIT / "copilot-instructions.md").read_text(encoding="utf-8")
+        hook = load(KIT / "com.github.copilot/hooks/session_start.py")
+        for name, text in (("agent", section), ("agreement", instructions),
+                           ("sessionStart", hook.agreement())):
+            for rule in rules:
+                self.assertIn(rule, flat(text).replace("Ask once", "ask once"), name)
+        self.assertIn("Name each one in the visible plan", flat(instructions))
+        self.assertIn("named in the visible plan", flat(section))
+
+        # The rule doesn't loosen what it sits beside.
+        self.assertIn("The order binds exit conditions, not the clock", flat(agent))
+        self.assertIn("sign-off still comes before code", flat(section))
+        self.assertIn('"Do Phase 1 and 2 together"', agent, "phases stay one at a time")
+        self.assertIn("Anything edited after the gates go green sends you back to stage 6", flat(agent))
+        self.assertIn("A gate run that overlapped an edit can find a red, but it can't clear the push",
+                      flat(section))
+        self.assertIn("no check first, no second question", flat(section))
+
+        # The lines that forced one thing at a time are gone or narrowed.
+        plan = agent.split("## Keep the plan visible", 1)[1].split("\n## ", 1)[0]
+        readme = (KIT / "README.md").read_text(encoding="utf-8")
+        for name, text in (("agent", plan), ("README", readme)):
+            self.assertNotIn("Exactly one step is in progress", flat(text), name)
+            self.assertIn("One step is in progress at a time, or two or three", flat(text), name)
+        self.assertNotIn("Run it last, after the docs are updated", flat(instructions))
+        self.assertIn("The run that counts comes last", flat(instructions))
+
+        for rule in ("Two or three independent tasks may run at once",
+                     "Remote or long-running work starts as soon as the pending change doesn't "
+                     "touch what that work runs",
+                     "docs/independent-work-runs-concurrently.md"):
+            self.assertIn(rule, flat(readme))
+        self.assertLess(readme.index("Independent work doesn't wait in line"),
+                        readme.index("### Seeing the plan"), "sits in the phase flow")
+
+        skill = {name: flat((KIT / "skills" / name / "SKILL.md").read_text(encoding="utf-8"))
+                 for name in ("implement-phase", "pre-push-gates", "docs-sync-check", "test-plan")}
+        self.assertIn("Code in progress doesn't hold work that doesn't run it",
+                      skill["implement-phase"])
+        self.assertIn("The run that clears the push starts after the last edit",
+                      skill["pre-push-gates"])
+        self.assertIn("it finishes before the final run starts", skill["docs-sync-check"])
+        self.assertIn("Nothing that reads that file runs alongside this check", skill["test-plan"])
+
+        adr = flat((KIT / "docs/independent-work-runs-concurrently.md").read_text(encoding="utf-8"))
+        # A public repo: the ADR paraphrases the report and rulings, quoting none of it.
+        for line in ("wouldn't start independent remote runs while unrelated local changes were "
+                     "pending",
+                     "Independent local tasks, though, should get limited parallelism",
+                     "The second ruling restores what the first set aside, so both halves are "
+                     "built"):
+            self.assertIn(line, adr)
+        self.assertNotIn("verbatim", adr)
+        self.assertNotIn("\n> ", (KIT / "docs/independent-work-runs-concurrently.md")
+                         .read_text(encoding="utf-8"), "no block quotes")
 
     def test_kit_markdown_has_no_broken_pointers(self):
         code, out = run(pointer_mod, "--repo", str(REPO), "zethus")
@@ -736,12 +1094,12 @@ class UserInstaller(FakeHome):
             sys.path[:] = saved_path
 
     def test_a_file_it_did_not_install_is_never_overwritten_even_with_force(self):
-        mine = self.copilot / "skills/pr-description/SKILL.md"
+        mine = self.copilot / "skills/zethus-pr-description/SKILL.md"
         mine.parent.mkdir(parents=True)
         mine.write_text("my own skill", encoding="utf-8")
         code, out = self.install("--force")
         self.assertEqual(code, 1, out)
-        self.assertIn("~/.copilot/skills/pr-description/SKILL.md", out)
+        self.assertIn("~/.copilot/skills/zethus-pr-description/SKILL.md", out)
         self.assertEqual(mine.read_text(encoding="utf-8"), "my own skill")
         self.assertFalse((self.copilot / "agents").exists(), "nothing written on a conflict")
 
@@ -855,6 +1213,102 @@ class UserInstaller(FakeHome):
         with self.assertRaises(SystemExit) as ctx, redirect_stderr(io.StringIO()):
             install_mod.main(["--target", str(self.home), "--jetbrains-legacy"])
         self.assertEqual(ctx.exception.code, 2)
+
+
+class WithMnemosyne(FakeHome):
+    """``--with-mnemosyne`` hands off to mnemosyne/install.py; without it nothing is delegated.
+    That installer's own behaviour is covered in tests/test_mnemosyne_install.py."""
+
+    def setUp(self):
+        super().setUp()
+        self.calls: list[list[str]] = []
+        for patcher in (mock.patch.object(install_mod, "PLATFORM", "linux"),
+                        mock.patch.object(install_mod, "run_mnemosyne", self.fake_mnemosyne)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.exit = 0
+
+    def fake_mnemosyne(self, argv):
+        self.calls.append(argv)
+        return self.exit
+
+    def test_without_the_flag_nothing_is_delegated(self):
+        target = self.home / "repo"
+        target.mkdir()
+        for argv in (["--user", "--dry-run"], ["--user"], ["--user", "--uninstall"],
+                     ["--target", str(target)]):
+            run(install_mod, *argv)
+        self.assertEqual(self.calls, [])
+
+    def test_user_mode_passes_the_repo_and_dry_run(self):
+        code, out = run(install_mod, "--user", "--with-mnemosyne", "--mnemosyne-repo", "~/mem", "--dry-run")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.calls, [["--user", "--repo", "~/mem", "--dry-run"]])
+
+    def test_user_mode_passes_the_copilot_hooks_folder(self):
+        code, out = run(install_mod, "--user", "--with-mnemosyne",
+                        "--mnemosyne-copilot-hooks-dir", "~/my-hooks")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.calls, [["--user", "--copilot-hooks-dir", "~/my-hooks"]])
+
+    def test_the_copilot_hooks_folder_needs_with_mnemosyne_and_an_install(self):
+        for argv in (["--user", "--mnemosyne-copilot-hooks-dir", "x"],
+                     ["--user", "--uninstall", "--with-mnemosyne", "--mnemosyne-copilot-hooks-dir", "x"]):
+            with self.subTest(argv=argv), self.assertRaises(SystemExit) as ctx, \
+                    redirect_stderr(io.StringIO()):
+                install_mod.main(argv)
+            self.assertEqual(ctx.exception.code, 2)
+
+    def test_repo_mode_passes_the_target(self):
+        target = self.home / "repo"
+        target.mkdir()
+        code, out = run(install_mod, "--target", str(target), "--with-mnemosyne")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.calls, [["--target", str(target)]])
+
+    def test_uninstall_runs_both_even_when_zethus_has_nothing_to_remove(self):
+        code, _ = run(install_mod, "--user", "--uninstall", "--with-mnemosyne")
+        self.assertEqual(code, 1)                   # no Zethus manifest; the worse code wins
+        self.assertEqual(self.calls, [["--user", "--uninstall"]])
+
+    def test_a_refused_zethus_install_stops_before_mnemosyne(self):
+        target = self.home / "repo"
+        (target / ".github" / "agents").mkdir(parents=True)
+        (target / ".github" / "agents" / "zethus.agent.md").write_text("mine", encoding="utf-8")
+        code, _ = run(install_mod, "--target", str(target), "--with-mnemosyne")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.calls, [])
+
+    def test_a_failed_mnemosyne_step_fails_the_run(self):
+        self.exit = 1
+        self.assertEqual(run(install_mod, "--user", "--with-mnemosyne")[0], 1)
+
+    def test_mnemosyne_repo_needs_the_flag(self):
+        with self.assertRaises(SystemExit) as ctx, redirect_stderr(io.StringIO()):
+            install_mod.main(["--user", "--mnemosyne-repo", "x"])
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_the_real_handoff_runs_mnemosynes_installer(self):
+        """End to end through the real run_mnemosyne, with pip and claude faked on its side."""
+        from tests.test_mnemosyne_install import FakeHost
+        from tests.test_mnemosyne_install import mi as mnemosyne_install
+        host = FakeHost()
+        with mock.patch.object(install_mod, "run_mnemosyne", WithMnemosyne.real_run_mnemosyne), \
+                mock.patch.dict(os.environ, {"SHELL": "/bin/bash"}), \
+                mock.patch.object(mnemosyne_install, "PLATFORM", "linux"), \
+                mock.patch.object(mnemosyne_install, "run", host.run), \
+                mock.patch.object(mnemosyne_install, "which", host.which):
+            os.environ.pop("MNEMOSYNE_REPO", None)
+            code, out = run(install_mod, "--user", "--with-mnemosyne", "--dry-run")
+        self.assertEqual(code, 0, out)
+        self.assertIn("mnemosyne: install.py --user --dry-run", out)
+        self.assertIn("create    ~/repos/mnemosyne-local", out)
+        self.assertIn("create    ~/.copilot/hooks/mnemosyne.json", out)
+        self.assertIn("create    ~/.copilot/hooks/mnemosyne_hook.py", out)
+        self.assertEqual(out.count("dry run: nothing written"), 2)
+        self.assertEqual(list(self.home.iterdir()), [])
+
+    real_run_mnemosyne = staticmethod(install_mod.run_mnemosyne)
 
 
 class ConfigResolution(FakeHome):

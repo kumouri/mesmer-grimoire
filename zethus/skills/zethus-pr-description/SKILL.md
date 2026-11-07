@@ -1,0 +1,99 @@
+---
+name: zethus-pr-description
+description: Write a pull request description with evidence — what and why, linked spec and ADRs, the local gate table, tests and what they prove, what was NOT checked, deliberate deferrals, and decisions needed from the reviewer — diffed against the repo's real integration branch. Use when opening or updating a PR, or when asked to summarize a branch for review.
+---
+
+# PR description
+
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
+
+A good description lets the reviewer read the diff already knowing what to check. It carries the
+evidence the author gathered, so the reviewer doesn't have to repeat it, and it says plainly what
+wasn't checked.
+
+## Step 1: diff against the right base
+
+Work out the integration branch. Don't assume `main`:
+
+1. `branchModel.base` in `.github/zethus.config.json`, if set;
+2. otherwise `develop`, if it exists;
+3. otherwise the default branch (`git remote show origin`, the *HEAD branch* line).
+
+Read `git log --oneline origin/<base>..HEAD` and `git diff origin/<base>...HEAD`. The three-dot
+diff is against the merge-base, so it describes *your* changes, not everything that landed on the
+base since you branched. Never diff against a local `<base>`; it is only as fresh as your last pull.
+
+**A stacked phase.** If this phase's branch is stacked on an earlier phase whose PR hasn't merged
+(see [implement-phase](../implement-phase/SKILL.md)), the PR targets that phase's branch, so
+describe `origin/<previous-phase>...HEAD` instead: this phase alone. Freshness is still measured
+against `origin/<base>`.
+
+**Reuse the fetch and the merge-base [pre-push-gates](../pre-push-gates/SKILL.md) just made.** Its
+freshness check fetched and confirmed the base immediately before this stage, so `origin/<base>` is
+already current; don't fetch again, and there is nothing here to re-gate. If you don't have that
+merge-base to hand (a resumed session, say), ask for it alone:
+
+```bash
+python <kit root>/scripts/base-freshness.py --merge-base-only
+```
+
+That fetches, prints the merge-base, and exits 0 whatever the branch's freshness, so it cannot
+stop this stage. `git merge-base HEAD origin/<base>` after a fetch gives the same commit. Don't
+run the gating form here: freshness is checked at Stage 0 and at the gates, not at every stage.
+
+**A rebased branch.** If `branchModel.style` is `rebase`, or `base-freshness` reported the upstream
+as *rewritten since the last push* at the gates, the branch has been rebased. Push it with
+`git push --force-with-lease`, never a plain `--force`. Then, in the PR body (under *What*), and in
+a PR comment if the PR already exists, say:
+
+- that the branch was rebased, and onto what: `origin/<base>` at the new merge-base (short SHA);
+- whether the rebase changed anything beyond the base moving (conflicts resolved, commits dropped
+  or reworded). If it did, say where; the approval covered the earlier commits.
+
+Recompute *Changes* and *Evidence* against the new merge-base. A body written before the rebase
+describes a diff that no longer exists.
+
+## Step 2: fill the template
+
+Start from `<kit root>/templates/pr.md`:
+
+- **What / Why:** one sentence, then two or three lines. Link the spec, and say which phase this
+  PR is.
+- **Changes:** grouped by concern. Don't restate the diff line by line.
+- **Evidence:** the `run-local-gates` table, pasted unedited; the tests added and what each
+  proves; the mutation check; any measurement, with its source and timestamp.
+- **What was not checked:** gates that were skipped or manual, environments not exercised, and
+  claims verified only by reading. Never drop this heading. Write "Nothing — every gate ran" if
+  that's true.
+- **Not in this PR (intentional)** and **Noticed but out of scope:** deferrals and `file:line`
+  observations. These headings are shared with Amphion's `flag-or-fix`, which files its deferrals
+  under them.
+- **Decisions needed from the reviewer:** as options, with your recommendation first and marked
+  **(Recommended)**.
+- **Docs updated:** from [docs-sync-check](../docs-sync-check/SKILL.md).
+- **AI assistance:** name the tool, and confirm the co-author trailer is on the commits, with the
+  Zethus signature (`commits.signature`, unless set to `""`) just before it.
+
+Delete any other heading that is empty.
+
+## Step 3: open it — don't merge it
+
+Push the branch and open the PR against the integration branch, or, for a stacked phase, against
+the previous phase's branch; name that PR under *Stacked on*, since this one merges after it. **Don't merge it, even if you can.** A person merges, and only when CI is green on the exact
+head commit they reviewed. If you push again after review, say so in a comment: the approval
+covered the earlier commit. The push is what lets the next phase start; the merge is the team's to
+schedule.
+
+Next: an open PR is progress, not a place to stop. If the spec has another phase, start it in the same turn with
+[implement-phase](../implement-phase/SKILL.md), stacked on this branch. If it has none, say the
+change is done and link the PR.
+
+## Anti-patterns
+
+- **Diffing against `main` in a repo that integrates on `develop`.** You'd describe every commit
+  since the last release.
+- **Diffing against a stale ref.** A local `develop`, or an `origin/develop` not fetched since the
+  last rebase, puts other people's commits in your description, or hides the ones you rebased over.
+- **"All tests pass"** without saying which ones ran, where, and on what tree.
+- **Hiding a judgment call in the diff.** If you decided something the spec didn't, it belongs
+  under *Decisions needed*, or in an ADR.
