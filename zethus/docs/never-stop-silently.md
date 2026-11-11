@@ -156,6 +156,62 @@ Declined: a "sleep" or poll loop run as a command, since it holds the shell and 
 command's output; and asking the person whether to keep waiting, since a wait is not a decision and
 the person can't be asked in a headless run.
 
+*(Correction, 2026-11-11: the read does have a cap, 600 seconds, and it returns as soon as the command
+exits. The [next addendum](#addendum-2026-11-11-when-the-person-moves-the-command-to-the-background)
+has the evidence and the one case where the read is the wrong door.)*
+
+## Addendum, 2026-11-11: when the person moves the command to the background
+
+Ceryce's report, paraphrased, with two photos of a Copilot CLI session (GPT-6 Luna): during a merge of
+an upstream branch, the merge ran in a shell the CLI showed as moved to the background by the user.
+The model then spent nine reasoning steps in a row, from nearly a minute down to a few seconds each,
+with no tool call. It quoted the harness telling it not to call any more tools for that command and
+to wait for a completion notification, weighed that against the kit's rule not to end a turn to wait,
+and couldn't tell whether it was allowed to stop, while the session's usage meter climbed. When the
+completion notice came (exit code 1, two merge conflicts) it read the output and carried on.
+
+### What the Copilot CLI does
+
+Checked on this PC with Copilot CLI 1.0.110-1, by two headless probes, and from the shell tools' text
+in the 1.0.108-1 runtime:
+
+| Question | Finding |
+|---|---|
+| The output read | `read_powershell` (`read_bash` elsewhere) takes `shellId` and `delay`, the seconds to wait before reading. A `delay` over 600 is rejected with "Please supply a valid delay between 0 and 600 seconds". A read with `delay: 300` on a command that finished 30 seconds in came back at 30 seconds: the read ends when the command exits, so a long delay is a held wait, not a sleep |
+| A command that outlives `initial_wait` | The result says it is still running, that a notification will come, and that if the result is needed the model may end its response with no tool calls to wait for it. Either door works |
+| How completion arrives | Never mid-response. After the response ends and `agentStop` has run, the CLI submits a `<system_notification>` that the shell completed as a new prompt, by itself (`userPromptSubmitted` fires with it as the prompt), reads the output and starts a new turn. No person is involved |
+| A command the person moved | The result says the person moved it to the background and has already seen a confirmation, and tells the model not to respond about it, not to call any more tools for it, and to wait for the person's next instruction. A variant, for a read the person interrupted by typing, says to answer them and stop calling tools for the command. The completion notification still comes |
+
+### The bind
+
+The kit had one door for a wait: block on the read, and don't end the turn. For a command the person
+moved, the harness shuts that door. The guard could shut the other: a silent end of turn (the harness
+asks for no reply) is judged on the last message with text, which was a Zethus progress message, and
+refused with a reason that says to read the output. Whether the guard fired in that session can't be
+told from the photos; the reasoning on screen is enough, since the model quoted both instructions and
+found no action that obeyed both. A model with both doors shut keeps thinking, and each step costs.
+
+### What changed
+
+| Where | Change |
+|---|---|
+| The agent file, *Waiting on a background command* | One action per step: `read_powershell` with `delay: 600`, again and again. Each step of a wait is a tool call or the end of the turn, never thinking with neither. The end of the turn is right only when the harness says the person moved the command or says to stop calling tools for it; the completion notification starts the next turn |
+| The stop table | A row for that case |
+| The working agreement | The short form |
+| [`stop_guard.py`](../com.github.copilot/hooks/stop_guard.py) | While the transcript shows a shell the person moved and no completion for it, any stop is let through. It reads that from the CLI's own tool result, not the model's words, so a model can't talk its way past it. A prompt that is the CLI's completion notification gets no reminder. The refusal names `delay 600` |
+| `tests/test_zethus_wait_on_background.py` | The case from the photos: refused before, let through now, and refused again once the command completes |
+
+The read stays the default although the CLI also offers ending the turn: it keeps the work in one turn
+with the result in hand, it is checked only on the Copilot CLI (IntelliJ's server is unknown), and
+every end of turn runs the stop hook. Both are a push, not a poll.
+
+Declined: accepting any stop whose text mentions a notification, since the words can't show that the
+person moved the command and the transcript can.
+
+Limits: the guard knows the person-moved case by the CLI's wording, which may change between
+versions; it then falls back to the refusal, bounded at two as before. `session-review`'s "turn ended
+with a background command running" pattern still counts this stop, which is now legitimate.
+
 ## Options considered
 
 | Option | What it means | What it costs | |
