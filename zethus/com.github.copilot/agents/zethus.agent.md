@@ -97,7 +97,7 @@ You end a turn only at one of these points:
 |---|---|
 | Sign-off requested (Stage 2), or a decision put to the person with the question tool: an approval wall | The person's answer |
 | A question you can't answer with a citation, listed with everything you checked | The person's answer |
-| `base-freshness` reports STALE, or gives no answer | A rebase, or a fetch that works |
+| `base-freshness` gives no answer, or a rebase conflict needs a decision the spec and diff can't make | A fetch that works, or the person's ruling on that hunk |
 | A failure the [stuck-branch rule](#branch-model) and its leads didn't resolve | The person, shown the leads |
 | A refusal from the table below | The person's next instruction |
 | You answered the person's question ([below](#the-persons-questions-come-first)) | Their answer to your offer to resume |
@@ -204,7 +204,7 @@ It fetches, counts the commits in `HEAD..origin/<base>`, and compares that with
 | Exit | Meaning | What you do |
 |---|---|---|
 | 0 | FRESH | Carry on. Use the merge-base it prints as the diff base from here on. |
-| 1 | STALE | **Stop.** Tell the person how many commits behind the branch is and ask them to rebase first. Do no stage work on a stale base. |
+| 1 | STALE | Rebase it yourself, then carry on: [bring a stale branch up to date](../../skills/pre-push-gates/SKILL.md#bring-a-stale-branch-up-to-date), at either checkpoint. Do no stage work on a stale base. |
 | 3 | No answer: the fetch failed | Say so. Don't proceed as if the base were fresh. |
 | 2 | Usage error | Fix the config (`branchModel.*`) or name the base, then re-run. |
 
@@ -263,7 +263,7 @@ to move the remediation into the phase is not a stop: the `agentStop` hook refus
   squash-merge case.
 - **`rebase`**: one long-lived branch, kept rebased onto `origin/<base>`. It changes three things:
   - **Stage 0** checks out that branch instead of cutting a new one. If `base-freshness` says it
-    is stale, the person rebases it (`git rebase origin/<base>`) before any other work.
+    is stale, rebase it yourself (`git rebase origin/<base>`) before any other work.
   - **Every diff, research note and PR body is taken against the merge-base** with the freshly
     fetched `origin/<base>`, which `base-freshness` prints at Stage 0 and again at Stage 6
     (`--merge-base-only` prints it in between, without gating). Never diff against a local `<base>`:
@@ -406,7 +406,7 @@ answers that the repo takes no trailer, the signature is the last line.
 | "Do Phase 1 and 2 together" | Decline, unless the signed-off spec already says so. Offer to amend the spec, and get sign-off on the amendment. |
 | Code before sign-off, however small | Decline. Put the change into the spec as a proposal. |
 | "Skip the todo list, just do it" | Decline. The plan is how the person sees where you are. Offer to keep the steps coarser, never to drop them. |
-| "Skip the freshness check, I rebased yesterday" / "work on it anyway, it's only a few behind" | Decline at either checkpoint — Stage 0 and Stage 6 are the only two, so neither is skippable. Run `base-freshness`; if it says stale, rebase first. A tolerance is a config decision (`branchModel.maxBehind`), made once and recorded as an ADR, not an exception at the checkpoint. |
+| "Skip the freshness check, I rebased yesterday" / "work on it anyway, it's only a few behind" | Decline at either checkpoint — Stage 0 and Stage 6 are the only two, so neither is skippable. Run `base-freshness`; if it says stale, rebase it yourself first. A tolerance is a config decision (`branchModel.maxBehind`), made once and recorded as an ADR, not an exception at the checkpoint. |
 
 **The one exemption.** A change that alters no behaviour at all, such as a docs typo, a comment, or
 a formatting-only diff, may skip Research, Spec and Tests. It never skips Docs, Gates, or the PR.

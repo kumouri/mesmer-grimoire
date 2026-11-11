@@ -10,7 +10,8 @@ What it reads: the session's transcript (``transcriptPath`` on stdin) or a last-
 the host sends one. It is a *Zethus turn* when the last assistant message opens with the agent's
 header line (``Stage N · …`` or ``Answering your question``). It is a *real stop* when that message
 ends with a ``Stopped at:`` line and a ``Why:`` line whose reason names a wall: sign-off, a
-decision, an answer, a stale base, a refusal, a stuck branch, a merge, or the work being done.
+decision, an answer, a failed fetch, a rebase conflict, a refusal, a stuck branch, a merge, or the
+work being done.
 
 Modes (the one argument):
 
@@ -28,6 +29,12 @@ and a request for authorization). Every local gate is green before a phase pushe
 says, so there is nothing to ask: the fix is pulled forward. The planning stop (Stage 2) is exempt:
 asking for that ruling there is the point. That is the one stop whose reason is allowed to be a wall
 and is still refused, because the wall is not real.
+
+A stale base is not a wall either: the agent rebases the branch itself and carries on. A stop whose
+``Why:`` is about the branch being stale, behind or needing a rebase is refused with a reason that
+says to do the rebase, unless that ``Why:`` names one of the two walls a stale base can still hit: a
+failed fetch (no answer from ``base-freshness``) or a conflict the spec and the diff can't settle.
+A sign-off or done stop that only mentions a rebase already made is left alone.
 
 A turn that is legitimately waiting on a background command is not a turn that ended: the model is
 inside a tool call (the output read), so this hook never sees it. What the hook can see is the report
@@ -71,8 +78,14 @@ BACKGROUND_RE = re.compile(r"\b(in the background|background (?:command|job|shel
 BACKGROUND_WHY_RE = re.compile(r"\b(?:still running|in the background|background)\b")
 WAITED_RE = re.compile(r"\bwaited\b[^.\n]{0,40}?\b\d+(?:\.\d+)?\s*"
                        r"(?:s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?)\b")
+# A Why about a stale base that hands the rebase back. Only a failed fetch or a conflict excuses it.
+STALE_WHY_RE = re.compile(r"\b(stale (?:base|branch)|(?:base|branch) is stale|rebas\w*|commits? behind"
+                          r"|behind (?:origin|the base|its base|the integration branch))\b")
+STALE_WALL_RE = re.compile(r"\b(conflict\w*|hunks?|fetch\w*|no answer"
+                           # a Why that only mentions a rebase already done, at another wall
+                           r"|sign-?off|goal is complete|change is done|work is done|no further phase)\b")
 WALLS = ("sign-off", "sign off", "signoff", "approval", "approve", "decision", "option", "answer",
-         "question", "citation", "cite", "stale", "rebase", "fetch", "refus", "stuck", "merge",
+         "question", "citation", "cite", "conflict", "fetch", "refus", "stuck", "merge",
          "waiting for your", "waiting on you", "change is done", "work is done", "goal is complete",
          "no further phase")
 
@@ -159,6 +172,15 @@ def asks_to_defer_gate_fix(reply: str) -> bool:
     return all(rx.search(tail) for rx in GATE_ASK)
 
 
+def hands_back_rebase(reply: str) -> bool:
+    """The closing ``Why:`` stops for a stale base that the agent should have rebased itself."""
+    why = WHY_RE.search(closing_lines(reply))
+    if not why:
+        return False
+    reason = why.group("why").lower()
+    return bool(STALE_WHY_RE.search(reason)) and not STALE_WALL_RE.search(reason)
+
+
 def next_action(reply: str) -> str:
     found = NEXT_RE.findall(reply)
     return found[-1].strip() if found else "the next stage or phase in your plan"
@@ -174,7 +196,8 @@ def refuse(event: dict, reply: str) -> str:
     if not is_zethus_turn(reply):
         return ""
     gate_ask = asks_to_defer_gate_fix(reply)
-    if is_real_stop(reply) and not gate_ask:
+    rebase_ask = hands_back_rebase(reply)
+    if is_real_stop(reply) and not gate_ask and not rebase_ask:
         return ""
     counter = refusals_file(event)
     try:
@@ -191,6 +214,17 @@ def refuse(event: dict, reply: str) -> str:
                   "re-run `run-local-gates` and push. Say in the phase's report that the fix was pulled "
                   "forward and why. The one exception is a `push-red` ruling already approved in the "
                   "spec's Gate remediation section; the gate script says when one applies. "
+                  f"(Refusal {seen + 1} of {MAX_REFUSALS}; after that the turn is let through.)")
+        return json.dumps({"decision": "block", "reason": reason})
+    if rebase_ask:
+        reason = ("Zethus: a stale base is not a stop, and the rebase is not the person's to do. Bring "
+                  "the branch up to date yourself, now: rebase onto origin/<base> (a stack from its top "
+                  "with --update-refs), resolve any conflicts keeping both sides' intent, re-run "
+                  "base-freshness until it reports FRESH, re-run the gates if work was already written, "
+                  "and push a rewritten branch with --force-with-lease, saying in the PR that it was "
+                  "rebased. Then carry on. Stop only if the fetch fails, or a conflict needs a decision "
+                  "the spec and the diff can't make; then name the hunk and why, with the rebase paused "
+                  "cleanly or aborted. The steps are in pre-push-gates, \"Bring a stale branch up to date\". "
                   f"(Refusal {seen + 1} of {MAX_REFUSALS}; after that the turn is let through.)")
         return json.dumps({"decision": "block", "reason": reason})
     if waits_on_background(reply):
@@ -222,6 +256,13 @@ def remind(event: dict) -> str:
                 "Don't wait for it: fix the failing gate in the phase being pushed, as small a fix as "
                 "turns it green, re-run `run-local-gates`, and say in the phase's report that the fix "
                 "was pulled forward. Unless this message is a question, do that first.")
+        return json.dumps({"additionalContext": text,
+                           "hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                                                  "additionalContext": text}})
+    if hands_back_rebase(reply):
+        text = ("Zethus: your last turn stopped for a stale base, which is not a stop. Unless this "
+                "message is a question, rebase the branch yourself first (pre-push-gates, \"Bring a "
+                "stale branch up to date\"), re-run base-freshness and the gates, then carry on.")
         return json.dumps({"additionalContext": text,
                            "hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                                   "additionalContext": text}})

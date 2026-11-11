@@ -41,8 +41,9 @@ It doesn't stop between stages. When one stage's exit condition is met, it start
 same turn, and every stage's skill names that next action. That includes the step after sign-off,
 where recording the ADRs and checking those doc edits finish Stage 2 and Phase 0 starts. It ends a
 turn only at a listed stop: an approval wall (sign-off, a decision, a merge), a question it can't
-answer with a citation, a stale base, a failure it couldn't resolve, a refusal, a question answered,
-or the goal complete. A finished phase, a commit or a green gate is progress, not a stop: it keeps
+answer with a citation, a failed fetch or a rebase conflict it can't decide, a failure it couldn't
+resolve, a refusal, a question answered, or the goal complete. A stale base is not a stop: it
+rebases the branch itself and carries on. A finished phase, a commit or a green gate is progress, not a stop: it keeps
 going through everything it can do, gathers every wall it reached and presents them together, and
 carries on with the unblocked work meanwhile. Each time it does stop, it ends with where it
 stopped, what's next and why, and a plugin hook refuses a turn that ends without that
@@ -168,7 +169,7 @@ plan, this is a rule in the agent file rather than a script check: the kit has n
 | [`skills/fresh-eyes-investigation`](skills/fresh-eyes-investigation/SKILL.md) | `.github/skills/` | Artifact plus one line of intent in; ranked leads out, each established or conjecture. Never a diagnosis; an empty list is valid. |
 | [`skills/implement-phase`](skills/implement-phase/SKILL.md) | `.github/skills/` | One phase per branch, stacked on the previous phase's (or per commit series, in `rebase` style), Phase 0 first; the next phase starts once this one is pushed, not merged. Stay inside the phase; classify anything unplanned; keep an *As built* list. |
 | [`skills/test-plan`](skills/test-plan/SKILL.md) | `.github/skills/` | Per-phase tests covering the change, the failure path, the refusal, and what must not change, plus a mutation check. |
-| [`skills/pre-push-gates`](skills/pre-push-gates/SKILL.md) | `.github/skills/` | Every CI gate run locally, on the working tree, before a push. A skip is not a pass. |
+| [`skills/pre-push-gates`](skills/pre-push-gates/SKILL.md) | `.github/skills/` | Every CI gate run locally, on the working tree, before a push. A skip is not a pass. Also how the agent brings a stale branch up to date itself, at either freshness checkpoint. |
 | [`skills/zethus-pr-description`](skills/zethus-pr-description/SKILL.md) | `.github/skills/` | An evidence-first PR body diffed against the real integration branch, including *What was not checked*. |
 | [`skills/docs-sync-check`](skills/docs-sync-check/SKILL.md) | `.github/skills/` | Fix the docs that describe the changed code in the same PR, in place. Leave every other doc alone. |
 | [`templates/spec-full.md`](templates/spec-full.md) · [`spec-minimum.md`](templates/spec-minimum.md) | `.github/zethus/templates/` | Both spec shapes. The minimum spec's headings are a strict subset of the full spec's, so promoting one only adds sections. A test enforces this. |
@@ -176,7 +177,7 @@ plan, this is a rule in the agent file rather than a script check: the kit has n
 | [`templates/pr.md`](templates/pr.md) | `.github/zethus/templates/` | The PR body: What · Why · Changes · Evidence · What was not checked · deferrals · decisions · docs · AI assistance. |
 | [`scripts/run-local-gates.py`](scripts/run-local-gates.py) | `.github/zethus/scripts/` | Discovers and runs lint/build/test, then prints a PASS/FAIL/SKIP table and an explicit verdict. Prefers a repo's `mvnw`/`gradlew` wrapper; on Windows a bare `mvn` or `./mvnw` resolves to `mvn.cmd`/`mvnw.cmd` through `PATHEXT`. Exit codes: `0` full green · `1` red · `3` green but incomplete · `4` green except a gate the signed-off spec lets stay red (`push-red`) · `2` nothing to run. |
 | [`scripts/gate-remediation-check.py`](scripts/gate-remediation-check.py) | `.github/zethus/scripts/` | Checks a spec's **Gate remediation** section: present (`None — …` counts), not `None` beside a phase that reads like gate remediation, rulings readable, none `PENDING` once the spec is signed off. [`scripts/_gate_rulings.py`](scripts/_gate_rulings.py) is the parser `run-local-gates` shares. Exit `1` on problems. |
-| [`scripts/base-freshness.py`](scripts/base-freshness.py) | `.github/zethus/scripts/` | Fetches, counts the commits in `HEAD..origin/<base>`, and stops the stage if there are more than `branchModel.maxBehind`. Prints the merge-base to diff against, and whether the branch was rewritten since its last push. The agent runs it at **two** points: Stage 0 (Orient) and immediately before the push (`pre-push-gates`) — see [Branch models](#branch-models). `--merge-base-only` prints the merge-base alone and always exits 0, for a stage that needs a diff base and must not be stopped. Exit codes: `0` fresh · `1` stale, rebase first · `2` usage error · `3` no answer (the fetch failed). |
+| [`scripts/base-freshness.py`](scripts/base-freshness.py) | `.github/zethus/scripts/` | Fetches, counts the commits in `HEAD..origin/<base>`, and reports STALE if there are more than `branchModel.maxBehind`, saying what the agent does next: it rebases the branch itself before any other work ([how](skills/pre-push-gates/SKILL.md#bring-a-stale-branch-up-to-date)). Prints the merge-base to diff against, and whether the branch was rewritten since its last push. The agent runs it at **two** points: Stage 0 (Orient) and immediately before the push (`pre-push-gates`) — see [Branch models](#branch-models). `--merge-base-only` prints the merge-base alone and always exits 0, for a stage that needs a diff base and must not be stopped. Exit codes: `0` fresh · `1` stale, the agent rebases first · `2` usage error · `3` no answer (the fetch failed), which is a stop. |
 | [`scripts/new-adr.py`](scripts/new-adr.py) | `.github/zethus/scripts/` | Creates `docs/adr/YYYY-MM-DD-slug.md` and adds its row to the ADR index. Ids are keyed by date, so parallel branches never collide. |
 | [`scripts/new-spec.py`](scripts/new-spec.py) | `.github/zethus/scripts/` | `new-spec.py full\|minimum "Title"` creates `docs/specs/<slug>.md` as `DRAFT`. |
 | [`scripts/docs-pointer-check.py`](scripts/docs-pointer-check.py) | `.github/zethus/scripts/` | Fails on relative Markdown links that don't resolve, including case mismatches that only break on Linux. With `--sync-base`, it also lists docs whose described code changed (report-only). |
@@ -553,7 +554,7 @@ The keys are the same in every location.
 |---|---|---|
 | `branchModel.base` | agent, `zethus-pr-description`, `docs-sync-check`, `base-freshness` | The integration branch. Default: `develop` if it exists, else the default branch. |
 | `branchModel.style` | agent, `implement-phase`, `zethus-pr-description`, `base-freshness` | `"branch-per-change"` (default): a new branch per change, cut from the freshly fetched base, one branch and PR per phase, each phase stacked on the previous one's pushed branch. `"rebase"`: one long-lived branch kept rebased onto the base; phases are commit series on it, every diff is taken against the merge-base with `origin/<base>`, and the PR body says when the branch was rebased. See [Branch models](#branch-models). |
-| `branchModel.maxBehind` | `base-freshness`, agent, `pre-push-gates` | How many commits the branch may be behind `origin/<base>` before a freshness checkpoint (Stage 0, and the pre-push gates) refuses to continue. Default `0`: any commit behind means rebase first. |
+| `branchModel.maxBehind` | `base-freshness`, agent, `pre-push-gates` | How many commits the branch may be behind `origin/<base>` before a freshness checkpoint (Stage 0, and the pre-push gates) rebases it before continuing. Default `0`: any commit behind means the agent rebases first. |
 | `gates.steps[]` | `run-local-gates` | Ordered `{name, command, exitCode?}`. `command` is a string or an argv list; there's no shell. |
 | `gates.lint` / `.build` / `.test` / `.mandatedChecks[]` | `run-local-gates` | Amphion's gate keys, read when `gates.steps` is absent. A mandated check with only a prose `expect` shows as **MANUAL** (not checked). |
 | `spec.dir`, `spec.templates.{full,minimum}` | `new-spec` | Default `docs/specs`, and the kit's templates. |
@@ -596,7 +597,15 @@ which is what makes two checkpoints enough and seven pure interruption
 ([the cadence decision](docs/base-freshness-cadence.md)). A stage that needs the merge-base to
 diff against gets it from `--merge-base-only`, which prints that one line and always exits 0.
 Raise `branchModel.maxBehind` only as a recorded decision; the default of `0` means any commit
-behind stops the checkpoint.
+behind is caught at the checkpoint.
+
+When a checkpoint finds the branch stale, the agent brings it up to date itself and carries on: it
+rebases onto `origin/<base>` (`--update-refs` for a stack), resolves conflicts keeping both sides'
+intent, re-runs the check and the gates, and pushes a rewritten branch with `--force-with-lease`,
+saying so in the PR. It stops only when the fetch fails, or when a conflict needs a decision the
+spec and the diff can't make; it then names the hunk and why, with the rebase paused cleanly or
+aborted ([the steps](skills/pre-push-gates/SKILL.md#bring-a-stale-branch-up-to-date),
+[the decision](docs/base-freshness-cadence.md#amendment-2026-11-10-zethus-rebases-a-stale-branch-itself)).
 
 ```json
 { "branchModel": { "base": "develop", "style": "rebase", "maxBehind": 0 } }

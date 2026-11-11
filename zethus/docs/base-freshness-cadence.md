@@ -6,10 +6,10 @@
 | Date | 2026-10-07 |
 | Deciders | Ceryce Armstrong |
 | Source | Ceryce's report of using the kit, 2026-10-07 |
-| Enforced where | [`../com.github.copilot/agents/zethus.agent.md`](../com.github.copilot/agents/zethus.agent.md) ("Check the base at two points"), [`../copilot-instructions.md`](../copilot-instructions.md), [`../skills/pre-push-gates/SKILL.md`](../skills/pre-push-gates/SKILL.md) step 0, and `--merge-base-only` in [`../scripts/base-freshness.py`](../scripts/base-freshness.py) |
+| Enforced where | [`../com.github.copilot/agents/zethus.agent.md`](../com.github.copilot/agents/zethus.agent.md) ("Check the base at two points"), [`../copilot-instructions.md`](../copilot-instructions.md), [`../skills/pre-push-gates/SKILL.md`](../skills/pre-push-gates/SKILL.md) step 0 and *Bring a stale branch up to date*, `--merge-base-only` and the STALE message in [`../scripts/base-freshness.py`](../scripts/base-freshness.py), and the stale-base refusal in [`../com.github.copilot/hooks/stop_guard.py`](../com.github.copilot/hooks/stop_guard.py) |
 | Supersedes | the original cadence: `base-freshness.py` at the start of every stage, plus separately inside several skills |
 | Superseded by | — |
-| Amended | 2026-10-19: Docs moved before Gates, so the stages between the checkpoints are now 1–5 and 7 ([run each check once per phase](run-once-per-phase.md)). The two checkpoints are unchanged. |
+| Amended | 2026-10-19: Docs moved before Gates, so the stages between the checkpoints are now 1–5 and 7 ([run each check once per phase](run-once-per-phase.md)). The two checkpoints are unchanged. 2026-11-10: the agent rebases a stale branch itself instead of asking the person to ([below](#amendment-2026-11-10-zethus-rebases-a-stale-branch-itself)). The two checkpoints, and that neither is skippable, are unchanged. |
 
 This repo keeps no `docs/adr/` of its own (`zethus/scripts/new-adr.py` writes ADRs into a
 *consuming* project), so the kit's own decisions are recorded here, in ADR shape.
@@ -81,3 +81,55 @@ moves costs nothing yet: the next checkpoint catches it before any of it is publ
 The gate stops catching anything at the push (meaning Stage 0 is sufficient in practice), or a
 change routinely runs long enough that a base confirmed at Stage 0 is reliably stale by the gates —
 in which case the right fix is a cheap non-blocking *notice* mid-change, not a third gate.
+
+## Amendment, 2026-11-10: Zethus rebases a stale branch itself
+
+| Field | Value |
+|---|---|
+| Status | Accepted |
+| Deciders | Ceryce Armstrong |
+| Source | Ceryce's report, paraphrased, 2026-11-10 |
+
+**What was wrong.** At either checkpoint, a STALE result was a stop: the agent told the person how
+many commits behind the branch was and asked them to rebase it, and `rebase` style said outright
+that the person rebases. Ceryce's report, paraphrased: Zethus shouldn't break off its work to make
+the person rebase the branch; when it notices the branch is behind its configured base, it should
+fix that itself.
+
+Bringing a branch up to date is mechanical work the agent can do and check: it has the fetch, the
+diff, the spec and the gates. Handing it over cost a round trip at exactly the two points the
+change is busiest, and at the pre-push checkpoint it stranded finished, green work behind a step
+nobody needed to be asked for.
+
+**Decision.** When `base-freshness` reports STALE, at Stage 0 or before the push and in either
+branch style, the agent brings the branch up to date itself and carries on. The steps are in
+[pre-push-gates, *Bring a stale branch up to date*](../skills/pre-push-gates/SKILL.md#bring-a-stale-branch-up-to-date):
+
+- `branch-per-change`: rebase onto the freshly fetched `origin/<base>` (a stack from its top with
+  `--update-refs`), or cut a fresh branch from it and move the work across when that is cleaner.
+- `rebase`: `git rebase origin/<base>`, with `--update-refs` for anything stacked on it.
+- Both: resolve conflicts keeping both sides' intent, re-run `base-freshness` until it is FRESH,
+  re-run the gates if work was already written, push a rewritten branch with `--force-with-lease`,
+  and say in the PR body that it was rebased.
+
+It still stops in two cases, because a rebase can't settle them:
+
+- **No answer (exit 3).** The fetch failed, so there is no known base to rebase onto.
+- **A conflict that needs a decision the spec and diff can't make,** such as the base changing the
+  very behaviour this change edits, incompatibly. It names the file, the hunk and why, and leaves
+  the rebase paused cleanly at that commit (every other file resolved and staged, nothing partly
+  resolved committed or pushed) or aborted, never half-applied.
+
+**What doesn't change.** The two checkpoints, and that neither is skippable. A stale base is still
+never built on or pushed: what changed is who brings it up to date, not whether it is. The
+re-run of `base-freshness` after the rebase finishes the same checkpoint; it is not a third one.
+
+**Enforcement.** The STALE line `base-freshness.py` prints says what the agent is about to do, not
+what a person should do. The `agentStop` hook refuses a stop whose `Why:` is a stale base, unless it
+names a failed fetch or a conflict. `tests/test_zethus_self_rebase.py` holds the agent files, the
+working agreement and the skills to it, including that no agent file asks the person to rebase.
+
+**Kept small in the agent file on purpose.** The change to `zethus.agent.md` is four lines that
+used to hand the rebase over: the stop-table row, the STALE row of the exit-code table, the
+`rebase`-style Stage 0 bullet, and the refusal-table row. The procedure lives in the skill, the
+script and this record, so a customized copy of the agent file can take the change by hand.

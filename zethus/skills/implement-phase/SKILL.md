@@ -28,7 +28,9 @@ procedure keeps each phase small and keeps its deviations visible.
 - The base was confirmed fresh when the branch was created or rebased (Stage 0). **Don't re-run
   the freshness gate to start a phase** — it runs twice per change, at Stage 0 and again before
   the push ([pre-push-gates](../pre-push-gates/SKILL.md)), which is where a base that moved while
-  you were building gets caught.
+  you were building gets caught. Either checkpoint that finds the branch stale rebases it then and
+  there, by you, not the person
+  ([how](../pre-push-gates/SKILL.md#bring-a-stale-branch-up-to-date)).
 
 ## Procedure
 
@@ -103,4 +105,7 @@ the one that counts. Next: that verify step.
 If the classification table in step 4 is too coarse for the situation, Amphion's `flag-or-fix`
 skill is the fuller decision framework. If a previous session or delegate died partway through,
 Amphion's `resume-interrupted-phase` rebuilds progress from git rather than from anyone's summary.
+If `git status` says a rebase is in progress, a checkpoint paused it at a conflict that needed the
+person's ruling: apply the ruling and `git rebase --continue`, then re-run the gates
+([pre-push-gates](../pre-push-gates/SKILL.md#bring-a-stale-branch-up-to-date), steps 4 to 6).
 Both come from the same author and install alongside this kit. See the Zethus README.

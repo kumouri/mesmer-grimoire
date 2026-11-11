@@ -18,7 +18,14 @@ code.
 
 ``branchModel.style`` is ``"branch-per-change"`` (default: a new branch per change, cut from the
 freshly fetched base) or ``"rebase"`` (one long-lived branch, kept rebased onto the base). Both
-styles run the same check; only the advice on how to catch up differs.
+styles run the same check; only the steps for catching up differ.
+
+**A STALE result is not handed to a person.** The agent that runs this brings the branch up to date
+itself and carries on, so the STALE line says what it is about to do, not what someone should do:
+rebase onto ``<remote>/<base>``, resolve any conflicts, re-run this check, re-run the gates if work
+was already written, and push a rewritten branch with ``--force-with-lease``. The full procedure is
+"Bring a stale branch up to date" in ``skills/pre-push-gates/SKILL.md``. Only a failed fetch (exit
+3), or a conflict the spec and the diff can't settle, stops the work.
 
 **The gate runs at two points, not at every stage:** Stage 0 (Orient), so the branch is cut from
 or rebased onto a fresh base, and ``pre-push-gates``, so the pushed diff and the PR are against
@@ -26,7 +33,7 @@ the current base. Nothing in between re-runs it. A stage that needs only the **m
 diff against asks for it with ``--merge-base-only``: that mode prints the merge-base and exits 0
 whatever the branch's freshness, so it can never stop a stage.
 
-Exit codes: 0 fresh (behind <= maxBehind) · 1 stale: rebase before doing anything else ·
+Exit codes: 0 fresh (behind <= maxBehind) · 1 stale: the agent rebases before anything else ·
 2 usage error (not a git repo, bad config, base not found) · 3 no answer: the fetch failed, so
 freshness is unknown and must not be assumed. With ``--merge-base-only`` the only non-zero code
 is 2: there is no gate to fail, and a failed fetch falls back to the last one.
@@ -142,14 +149,29 @@ def report(f: Freshness, fetched: bool) -> list[str]:
                  "that it was rebased" if f.rewritten else "contained in HEAD")
         lines.append(f"  upstream {f.upstream} — {state}")
     if f.stale:
-        how = (f"git rebase {f.ref}, re-run the gates, then git push --force-with-lease"
-               if f.style == "rebase" else
-               f"rebase onto {f.ref}, or cut a fresh branch from it and move the work across")
-        lines.append(f"STALE — {f.behind} commit(s) behind {f.ref}. Rebase before doing anything "
-                     f"else: {how}.")
+        lines.extend(stale_plan(f))
     else:
         lines.append(f"FRESH — HEAD is within {f.max_behind} commit(s) of {f.ref}.")
     return lines
+
+
+def stale_plan(f: Freshness) -> list[str]:
+    """What the agent does next about a stale branch: it rebases it itself, then carries on."""
+    if f.style == "rebase":
+        how = (f"git rebase {f.ref} (--update-refs if branches are stacked on it), resolve any "
+               f"conflicts, re-run the gates, then git push --force-with-lease and say in the PR "
+               f"body that it was rebased")
+    else:
+        how = (f"rebase onto {f.ref} (a stack from its top with --update-refs), or cut a fresh "
+               f"branch from it and move the work across; resolve any conflicts, re-run "
+               f"base-freshness to confirm, and re-run the gates if work was already written")
+    return [
+        f"STALE — {f.behind} commit(s) behind {f.ref}. Bringing the branch up to date now, before "
+        f"any other work: {how}.",
+        "  then carry on. Stop only for a conflict the spec and the diff can't settle: name the "
+        "hunk and why, with the rebase paused cleanly or aborted, never half-applied "
+        "(pre-push-gates: Bring a stale branch up to date).",
+    ]
 
 
 def merge_base_report(f: Freshness, fetched: bool) -> list[str]:
@@ -165,7 +187,8 @@ def merge_base_report(f: Freshness, fetched: bool) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="base-freshness",
-                                description="Stop work on a branch that is behind its base.")
+                                description="Say whether the branch is behind its base, so the "
+                                            "agent rebases it before any other work.")
     p.add_argument("--repo", help="repository root (default: nearest .git ancestor of cwd)")
     p.add_argument("--config", help="config file")
     p.add_argument("--remote", default="origin", help="remote holding the base (default: origin)")

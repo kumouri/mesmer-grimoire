@@ -1,6 +1,6 @@
 ---
 name: pre-push-gates
-description: Run every lint, build and test gate CI would run, locally on the working tree, before pushing — and report the result honestly, where a skipped gate is not a passed gate. Uses run-local-gates for a PASS/FAIL table to paste into the PR. Use before any push, before opening or updating a PR, or when asked "is this ready".
+description: Run every lint, build and test gate CI would run, locally on the working tree, before pushing — and report the result honestly, where a skipped gate is not a passed gate. Uses run-local-gates for a PASS/FAIL table to paste into the PR. Also holds the procedure for bringing a stale branch up to date yourself (rebase, resolve conflicts, re-run the gates), used at both freshness checkpoints. Use before any push, before opening or updating a PR, or when asked "is this ready".
 ---
 
 # Pre-push gates
@@ -23,10 +23,11 @@ red. The run that clears the push starts after the last edit, on the exact tree 
 
 0. **Check the base is fresh:** `python <kit root>/scripts/base-freshness.py`.
    Gates run on a stale base check a tree that won't be the one that merges, and the PR describes
-   a diff against a base that has moved. Exit 1 (STALE) means stop: rebase onto `origin/<base>`
-   first, then come back here. On a stack of phase branches, rebase the whole stack from its top
-   (`git rebase --update-refs origin/<base>`) and push each branch with `--force-with-lease`. Exit 3 means the fetch failed and freshness is unknown; say so, and
-   don't treat the base as fresh.
+   a diff against a base that has moved. Exit 1 (STALE) means bring the branch up to date
+   **yourself**, now, with [the procedure below](#bring-a-stale-branch-up-to-date), then go on to
+   step 1. Don't stop for it, and don't hand the rebase to the person. Exit 3 means the fetch
+   failed and freshness is unknown; say so, and don't treat the base as fresh. That one is a stop,
+   because no rebase can fix it.
 
    **This is one of the change's two freshness checkpoints** — the other is Stage 0, when the
    branch is created or rebased. The stages in between don't check, because staleness costs
@@ -54,6 +55,55 @@ red. The run that clears the push starts after the last edit, on the exact tree 
 
 A green verdict is progress, not a report to hand over and wait on. Next, in the same turn once the verdict lets you push: commit, push, and open the PR with
 [zethus-pr-description](../zethus-pr-description/SKILL.md).
+
+## Bring a stale branch up to date
+
+Both freshness checkpoints use this: Stage 0 (Orient), before any work, and step 0 above, before
+the push. A stale base is never built on and never pushed, and catching the branch up is your job,
+not the person's ([why](../../docs/base-freshness-cadence.md#amendment-2026-11-10-zethus-rebases-a-stale-branch-itself)).
+`base-freshness` has just fetched, so `origin/<base>` is current.
+
+1. **Keep uncommitted work safe.** `git stash push --include-untracked`, and `git stash pop` after
+   the rebase. A pop that conflicts is resolved like any other conflict (step 3).
+2. **Rebase, by branch style:**
+
+   | Style | What you run |
+   |---|---|
+   | `branch-per-change`, one branch | `git rebase origin/<base>`. When replaying the commits one by one is the messier route (many commits each conflicting on the same lines), cut a fresh branch instead: keep the old tip (`git branch <branch>-pre-rebase`), `git switch -C <branch> origin/<base>`, and move the work across with `git cherry-pick <old merge-base>..<branch>-pre-rebase`. Delete the kept tip once step 6 is green |
+   | `branch-per-change`, a stack of phase branches | From the top of the stack, `git rebase --update-refs origin/<base>`, which moves every phase branch in one go |
+   | `rebase` | `git rebase origin/<base>` on the long-lived branch, with `--update-refs` if other branches are stacked on it |
+
+3. **Resolve conflicts yourself, keeping both sides' intent.** For each conflicted file, read what
+   the base changed (`git log -p <old merge-base>..origin/<base> -- <file>`) and what this change
+   does (its own commit, and the spec), then write the result that keeps both: the base's change
+   and this change's behaviour. `git add` it and `git rebase --continue`. Most conflicts are of this
+   kind: both sides edited nearby lines, or the base renamed or moved something the change touches.
+4. **Stop only for a conflict you can't decide.** That is one where the base changed the very
+   behaviour this change edits, in a way the two can't both keep, and neither the spec nor the diff
+   says which wins. Then:
+   - Leave the rebase clean and resumable, never half-applied. Stay paused at that commit with
+     every other file in it resolved and staged and the undecided hunk's conflict markers intact,
+     so `git rebase --continue` finishes it once the person rules. Commit nothing partly resolved,
+     build nothing on the paused tree, and push nothing. If the tree has to be usable meanwhile,
+     `git rebase --abort` returns the branch exactly to where it was.
+   - Ask with the question tool: the file and the hunk (its line range), what the base did (commit
+     id and subject), what this change does there, why the spec and the diff don't settle it, and
+     your recommendation first. That is the stop-table row *a rebase conflict needs a decision*.
+5. **Confirm:** re-run `python <kit root>/scripts/base-freshness.py`. It must report FRESH. This is
+   the same checkpoint finishing, not a third one.
+6. **Re-run what the rebase made stale.** If work was already written (always at the pre-push
+   checkpoint, and at Stage 0 when resuming a branch with commits of its own), run
+   `run-local-gates` again on the rebased tree: a green run from before the rebase cleared a tree
+   that no longer exists. Take diffs, research notes and the PR body against the new merge-base.
+7. **Push with a lease, and say it was rebased.** A branch that was already pushed has been
+   rewritten: push it (each branch of a stack) with `git push --force-with-lease`, never a plain
+   `--force`. The PR body says it was rebased, onto what, and which conflicts you resolved and how
+   ([zethus-pr-description](../zethus-pr-description/SKILL.md)).
+
+Then carry on where you were: at Stage 0, the next stage; here, step 1. A stale base stops the
+turn in only two cases: exit 3 (the fetch failed, so there is nothing to rebase onto), and a
+conflict you can't decide (step 4). The number of commits behind, a conflict you can resolve, and a
+force-push of the branch you are working on are not stops.
 
 ## Rules
 
