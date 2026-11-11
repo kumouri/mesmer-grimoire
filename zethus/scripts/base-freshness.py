@@ -25,7 +25,9 @@ itself and carries on, so the STALE line says what it is about to do, not what s
 rebase onto ``<remote>/<base>``, resolve any conflicts, re-run this check, re-run the gates if work
 was already written, and push a rewritten branch with ``--force-with-lease``. The full procedure is
 "Bring a stale branch up to date" in ``skills/pre-push-gates/SKILL.md``. Only a failed fetch (exit
-3), or a conflict the spec and the diff can't settle, stops the work.
+3), or a conflict the spec and the diff can't settle, stops the work, and a failed fetch only once
+the agent has retried and diagnosed it and what's left is access only the person holds ("When the
+fetch fails", same skill). The NO ANSWER line says that, too.
 
 **The gate runs at two points, not at every stage:** Stage 0 (Orient), so the branch is cut from
 or rebased onto a fresh base, and ``pre-push-gates``, so the pushed diff and the PR are against
@@ -174,6 +176,18 @@ def stale_plan(f: Freshness) -> list[str]:
     ]
 
 
+def fetch_plan(remote: str) -> list[str]:
+    """What the agent does next about a failed fetch: diagnose it itself, stop only for access."""
+    return [
+        "Freshness is unknown, so don't treat the base as fresh. Retrying and diagnosing it now: "
+        f"fetch once more, then git remote -v and git ls-remote --heads {remote}; fix a wrong "
+        "remote name (--remote) or base (branchModel.base) and re-run this check.",
+        "  Stop only for what this machine can't supply (a missing or rejected credential, a VPN "
+        "or proxy), and name that one thing and what was tried. --no-fetch is not a way round: "
+        "the last fetch is not a fresh base (pre-push-gates: When the fetch fails).",
+    ]
+
+
 def merge_base_report(f: Freshness, fetched: bool) -> list[str]:
     """The merge-base alone, for a stage that needs a diff base and must not be gated."""
     return [
@@ -220,8 +234,7 @@ def main(argv: list[str] | None = None) -> int:
                     fetched = False
                 else:
                     print(f"base freshness: NO ANSWER — could not fetch {args.remote}: {detail}\n"
-                          "Freshness is unknown. Don't treat the base as fresh; fix the fetch, or "
-                          "re-run with --no-fetch and say the result is as of the last fetch.")
+                          + "\n".join(fetch_plan(args.remote)))
                     return 3
         result = check(repo, config, remote=args.remote, base=args.base,
                        max_behind=args.max_behind)

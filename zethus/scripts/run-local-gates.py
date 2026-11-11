@@ -10,7 +10,9 @@ Where the gates come from, in order:
    string or an argv list. An optional ``"exitCode"`` sets the expected exit code (default 0).
 2. The Amphion-shaped keys ``gates.lint`` / ``gates.build`` / ``gates.test`` (run in that order),
    plus ``gates.mandatedChecks[]``. A mandated check with no ``exitCode`` has only a prose
-   ``expect``, which a script cannot judge — it is listed as MANUAL, and counted as not checked.
+   ``expect``, which a script cannot judge. It is still **run**, and its output printed, but listed
+   as MANUAL and counted as not checked: the agent reading the table judges that output against the
+   ``expect`` itself and reports its verdict. Nobody is left to run it by hand.
 3. Discovery from repo evidence: ``package.json`` scripts, ``Makefile`` targets, Python
    (ruff / pytest / unittest), Gradle, Maven, .NET, Go, Cargo. A Maven or Gradle wrapper in the
    repo (``mvnw.cmd`` / ``gradlew.bat`` on Windows, ``mvnw`` / ``gradlew`` elsewhere) is preferred
@@ -264,12 +266,11 @@ def resolve(argv0: str, repo: Path, *, windows: bool | None = None,
 
 
 def run_gate(gate: Gate, repo: Path, timeout: float | None) -> None:
-    if gate.manual is not None:
-        gate.status, gate.note = "MANUAL", f"expect: {gate.manual}"
-        return
     exe = resolve(gate.argv[0], repo)
     if exe is None:
-        gate.status, gate.note = "SKIP", f"`{gate.argv[0]}` not found on PATH"
+        gate.status = "SKIP"
+        gate.note = f"`{gate.argv[0]}` not found on PATH" + (
+            f"; expect: {gate.manual}" if gate.manual is not None else "")
         return
     start = time.monotonic()
     try:
@@ -288,6 +289,10 @@ def run_gate(gate: Gate, repo: Path, timeout: float | None) -> None:
         return
     gate.seconds = time.monotonic() - start
     gate.output = proc.stdout or ""
+    if gate.manual is not None:
+        # A script can't judge prose: run it anyway, so the reader judges real output.
+        gate.status, gate.note = "MANUAL", f"ran, exit {proc.returncode}; judge it against expect: {gate.manual}"
+        return
     if proc.returncode == gate.expect_exit:
         gate.status = "PASS"
         if gate.expect_exit:
@@ -330,10 +335,24 @@ def verdict(gates: list[Gate], selected: bool, waivers: dict | None = None) -> t
         return f"GREEN except gate(s) the approved plan lets stay red: {', '.join(allowed)} — {tail}", 4
     if unchecked:
         return (f"GREEN on what ran, but {len(unchecked)} gate(s) NOT checked: "
-                + ", ".join(unchecked) + " — not a full run; say so in the PR"), 3
+                + ", ".join(unchecked) + " — not a full run. " + unchecked_plan(gates)), 3
     if selected:
         return f"GREEN on the {len(gates)} selected gate(s) — not a full run", 0
     return "GREEN — every gate ran and passed", 0
+
+
+def unchecked_plan(gates: list[Gate]) -> str:
+    """What the agent does about gates that didn't pass or fail: its own work, not the reviewer's."""
+    steps = []
+    if any(g.status == "SKIP" for g in gates):
+        steps.append("for each SKIP, install the missing toolchain (the repo's wrapper, its version "
+                     "manager or the package manager) and re-run")
+    if any(g.status == "MANUAL" for g in gates):
+        steps.append("for each MANUAL gate, judge its output below against its expect and put your "
+                     "verdict, with the output, in the PR's Evidence")
+    plan = "; ".join(steps)
+    return (plan[:1].upper() + plan[1:] + ". Only a gate this machine really can't run goes under "
+            "What was not checked in the PR, with why")
 
 
 def _cell(text: str) -> str:
@@ -350,7 +369,7 @@ def render(gates: list[Gate], header: str, source: str, verbose: bool) -> str:
     out += ["", f"{counts['PASS']} passed, {counts['FAIL']} failed, {counts['SKIP']} skipped, "
                 f"{counts['MANUAL']} manual (of {len(gates)})"]
     for g in gates:
-        if g.output and (verbose or g.status == "FAIL"):
+        if g.output and (verbose or g.status in ("FAIL", "MANUAL")):
             lines = g.output.rstrip().splitlines()
             shown = lines if verbose else lines[-TAIL_LINES:]
             label = "output" if verbose or len(lines) <= TAIL_LINES else f"last {TAIL_LINES} lines"

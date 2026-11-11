@@ -28,6 +28,12 @@ or ask. Never guess one.
   result, wait by blocking on the harness's output read with a long delay (`read_powershell` on the
   Copilot CLI), repeating until it exits, without narrating each wait. Past the wait bound, report
   where it stands as a normal stop.
+- Work you can do with your own tools is yours, never a task handed to the person: running or
+  re-running a command, installing a missing toolchain, regenerating or formatting a file, fixing a
+  red gate or red CI on your PR, looking a value up in the repo or its config. Stop for the person
+  only at what only they can give (sign-off, a decision, an approval, a credential or access they
+  hold), after doing everything up to it, and name that one thing
+  ([why](docs/do-the-work-yourself.md)).
 - End a turn only to wait on the person (sign-off, a decision, an answer), on a blocker you can't
   clear, or because the work is done. A stale base is not one of those: you rebase it yourself. Whenever you end one, its last lines say where you
   stopped, what's next and why.
@@ -76,7 +82,8 @@ or ask. Never guess one.
   before doing anything else, and carry on: rebase onto `origin/<base>` (`--update-refs` for a
   stack), resolve any conflicts keeping both sides' intent, re-run the check and, if work was
   already written, the gates, and push a rewritten branch with `--force-with-lease`, saying so in
-  the PR. Never hand the rebase to the person. Stop only when the fetch fails, or when a conflict
+  the PR. Never hand the rebase to the person. Stop only when the fetch still fails after you have
+  retried and diagnosed it (then name the credential or access it needs), or when a conflict
   needs a decision the spec and the diff can't make; then name the hunk and why, with the rebase
   paused cleanly or aborted, never half-applied. The steps are in the `pre-push-gates` skill.
   Neither checkpoint is skippable; the stages between them don't re-run it. Diff against the merge-base it

@@ -19,8 +19,8 @@ Recovers, each as a rule-ledger-shaped row cited to `file:line`:
   `kind: orchestration`.
 - **JSP scriptlets (`<% ... %>`)** containing a conditional, loop, or JDBC call — business logic
   living inline in the page, exactly the risk this target ranks worst for, `kind: calculation`,
-  `confidence: Medium` (a scriptlet's *presence* of logic is certain; its exact behaviour needs a
-  person reading the block, same discipline `recover-business-rules` already asks for).
+  `confidence: Medium` (a scriptlet's *presence* of logic is certain; its exact behaviour needs
+  the block itself read, by the agent, with the same discipline `recover-business-rules` asks for).
 - **JSTL `<c:if test="...">` / `<c:choose>`** — conditional view logic, `kind: validation`,
   `confidence: Medium`.
 - **`session.getAttribute`/`setAttribute`** (shared scan, `_session_state.py`) — one row per
@@ -131,8 +131,8 @@ def read_jsp(text: str, display: str) -> list[Rule]:
         rules.append(Rule(id=f"SCRIPTLET-{lineno}",
                           rule="scriptlet contains conditional/loop/JDBC logic inline in the page",
                           kind="calculation", where=f"{display}:{lineno}", confidence="Medium",
-                          why="a control-flow keyword or JDBC call found inside <% %>; the "
-                              "scriptlet's exact behaviour needs a person reading the block"))
+                          why="a control-flow keyword or JDBC call found inside <% %>; read the "
+                              "block itself (recover-business-rules) for its exact behaviour"))
     for m in JSTL_IF_RE.finditer(text):
         lineno = line_of(text, m.start())
         rules.append(Rule(id=f"JSTL-{lineno}", rule=f"<c:if test=\"{m.group('test')}\"> gates page content",

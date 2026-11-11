@@ -24,9 +24,12 @@ stored-procedure disposition. Check it first:
 python <kit root>/scripts/hla-input-check.py
 ```
 
-Exit 0 prints the default (`keep`, `wrap`, or `port`). Exit 1 means **stop and ask for the HLA** —
-never assume `wrap` or `port` yourself, and never fall back to "port everything" or "keep
-everything." A recovered rule can still override the default for one specific procedure; record that
+Exit 0 prints the default (`keep`, `wrap`, or `port`). Exit 1 means **don't assume a disposition**:
+never `wrap` or `port` on your own, and never fall back to "port everything" or "keep everything."
+A missing or moved HLA is yours to find first, from the candidates the message lists; fix
+`modernization.hlaDoc` and re-run. Ask the person only for an HLA the repo doesn't have, or for the
+disposition itself, then write their answer into the HLA as the
+`Default stored-procedure disposition:` line and re-run. A recovered rule can still override the default for one specific procedure; record that
 override as its own ADR (`write-adr`), because a blanket policy hides exactly the
 behaviour-preservation risk the constitution exists to name.
 

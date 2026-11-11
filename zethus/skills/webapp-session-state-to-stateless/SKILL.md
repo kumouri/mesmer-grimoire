@@ -44,7 +44,8 @@ sign-off explicitly, don't let them default to 'no state.'"
 behind an interface; replace the mechanism later, as a separate phase) or `replace` (modernize the
 mechanism immediately) — is read from the target HLA, with **no hardcoded default**. Check it with
 [`webapp-strangler-planner`](../webapp-strangler-planner/SKILL.md#hla-required)'s
-`webapp-hla-input-check.py` call; a missing answer stops the pipeline and asks, recommending shim.
+`webapp-hla-input-check.py` call; a missing answer stops the pipeline and asks, recommending shim,
+once you've found the HLA itself (the check lists candidates) and written any answer back into it.
 
 Every `identity-claim`-destination session attribute belongs behind this shim, not in a service's own
 session state — that's what keeps an authz mistake from becoming a silent behaviour change alongside

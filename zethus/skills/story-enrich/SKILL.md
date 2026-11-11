@@ -24,8 +24,11 @@ Try these in order, and use the first that works:
    output flags: run its setup first and use only its read commands here. The script can't tell
    which tool a `jira` binary is, and that skill's commands are for `ankitpokhrel/jira-cli`, so if
    they aren't recognised, treat the CLI as unavailable and go on to REST or pasted text.
-3. **Pasted text.** If neither is available, ask the person to paste the story's title,
-   description, acceptance criteria, and key (if it has one). This is a normal path, not a
+3. **Pasted text.** If neither is available, look in the repo first: a draft under `stories.dir`
+   or the spec the story traces to may already hold it. Failing that, ask the person to paste the
+   story's title, description, acceptance criteria, and key (if it has one), and name the one thing
+   that would let you fetch it yourself next time (the `JIRA_*` variables `jira-access.py` reports
+   missing, or a Jira MCP tool). This is a normal path, not a
    fallback to apologize for — plenty of repos have no Jira access wired up at all.
 
 ## Step 2: research

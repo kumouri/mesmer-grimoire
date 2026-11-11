@@ -61,8 +61,9 @@ sonar auth status     # sanity check — confirms the env vars are wired up, pri
 If `sonar auth status` fails, stop and report the failure verbatim rather than falling back to
 `sonar auth login` (that opens an interactive browser flow — wrong for an agent session).
 
-Install (`sonar` only — `sonar-scanner` is usually already provisioned by your build tooling; if
-not, get it from the official SonarQube Server/Cloud scanner docs):
+Install (`sonar` only — `sonar-scanner` is usually already provisioned by the build tooling: look
+for it yourself, Maven's `sonar:sonar` goal, Gradle's `org.sonarqube` plugin or npm's
+`sonarqube-scanner`, and use that before installing anything):
 
 ```powershell
 irm https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/heads/master/user-scripts/install.ps1 | iex
@@ -70,7 +71,9 @@ sonar --version                          # verify
 ```
 
 (also available via `brew install sonarqube-cli` on macOS/Linux, or `mise use -g sonarqube-cli@latest`
-cross-platform.) Only install when asked: that line downloads and runs a script, so read it first.
+cross-platform.) That line downloads and runs a script, so read it first, then offer the install
+once with the question tool ("Install sonarqube-cli" / "Don't install"), and on a picked yes run it
+yourself.
 
 ## Triggering analysis
 
@@ -176,9 +179,9 @@ separately to the command itself:
 3. **Never chain a mutation off a read in the same turn** without that pause, even if the read made
    the next step obvious. "I found issue X, transitioning it to resolved" without a stop is the
    failure mode this rule exists to prevent.
-4. **State what changed and how to verify it** after a mutation runs — which issue/hotspot, what
-   transition, and the read command to confirm it stuck (e.g. re-run `sonar list issues` with the
-   same filter and confirm the item is gone or its status changed).
+4. **Verify it yourself, then state what changed** after a mutation runs — which issue/hotspot,
+   what transition, and what the read-back showed: run the read command (e.g. `sonar list issues`
+   with the same filter) and confirm the item is gone or its status changed.
 
 Common mutating calls, all through the passthrough:
 
@@ -206,10 +209,10 @@ reopening an issue you just confirmed).
 | `401 Unauthorized` / `sonar auth status` fails | Token missing, expired, or wrong `SONARQUBE_CLI_SERVER`/`SONARQUBE_CLI_ORG` pairing | Check the env vars are actually set in this shell (`$env:SONARQUBE_CLI_TOKEN`, etc.); report which var looks wrong rather than retrying blindly |
 | `403 Forbidden` on a transition/mutation | Token's permission doesn't cover that action (e.g. hotspot transitions need "Administer Security Hotspot") | Report plainly — do not attempt to escalate scope or find a workaround endpoint |
 | Project key not found / empty `list projects` result for a known key | Wrong key, wrong branch, or the token can't see that project (visibility/permissions) | Re-run `sonar list projects -q "<partial name>"` to confirm the real key before assuming the project doesn't exist |
-| Quality gate shows "not computed yet" / no gate data | The project hasn't been analyzed yet, or the specific branch/PR you asked about has no analysis | This is not an error to retry — say plainly that no analysis exists for that ref yet, and suggest `sonar-scanner` if triggering one is in scope |
+| Quality gate shows "not computed yet" / no gate data | The project hasn't been analyzed yet, or the specific branch/PR you asked about has no analysis | This is not an error to retry — say plainly that no analysis exists for that ref yet; if triggering one is in scope, offer to run `sonar-scanner` yourself, under the confirm discipline above |
 | `/api/issues/search` errors past `p*ps` near 10000 | Hit the hard pagination cap | Narrow the query (severity/rule/date range) instead of paging further |
-| `sonar-scanner` hangs with `-Dsonar.qualitygate.wait=true` | Server-side background task queue is backed up, or webhook/CE processing is slow | This is expected occasionally; don't kill and retry immediately — report the wait rather than guessing |
-| `sonar` command not found, or `--version` reports below the expected floor | `sonarqube-cli` not installed, or an old copy on PATH — this skill needs SonarQube Server 25.1+ compatibility | Report as a setup gap; if the target server predates 25.1, fall back to `curl`/`Invoke-RestMethod` against the self-describing Web API at `<SONAR_HOST_URL>/web_api` instead of assuming `sonar` will work |
+| `sonar-scanner` hangs with `-Dsonar.qualitygate.wait=true` | Server-side background task queue is backed up, or webhook/CE processing is slow | This is expected occasionally; don't kill and retry immediately. Keep waiting, read-only: poll `api/ce/component?component=<key>` for the task's status, up to the same bound as any background wait, and report only past it |
+| `sonar` command not found, or `--version` reports below the expected floor | `sonarqube-cli` not installed, or an old copy on PATH — this skill needs SonarQube Server 25.1+ compatibility | Offer the install (above). Meanwhile, and if the target server predates 25.1, fall back to `curl`/`Invoke-RestMethod` against the self-describing Web API at `<SONAR_HOST_URL>/web_api` instead of assuming `sonar` will work |
 
 ## Secrets rule
 

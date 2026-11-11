@@ -32,8 +32,10 @@ of scheduler: recover the dependency and calendar rules; only where those rules 
    phase writes that, informed by this skeleton.
 3. **A reported `CYCLE` blocks the mapping — don't resolve it by guessing an order.** A cycle in a
    Control-M export usually means a misread dependency convention (see the tool's docstring for the
-   default-`OUTCOND` convention it assumes) or a genuine scheduling bug worth its own rule. Either
-   way, it's a person's call, not a silent pick.
+   default-`OUTCOND` convention it assumes) or a genuine scheduling bug worth its own rule. Test the
+   first yourself before asking: compare the cycle's `<INCOND>`/`<OUTCOND>` names with that
+   convention, and re-run with the corrected reading if it was misread. A cycle that survives is the
+   person's call, not a silent pick: ask with the cycle, the evidence and your recommended order.
 4. **Every calendar attribute (`WDAYS`, `MONTHS`, `TIME`, `CONFCAL`) is a scheduling rule,** not
    metadata to skip — "the nightly run skips weekends" only survives modernization if it's written
    down. Cite it into the constitution's **Scheduling / invocation contract** row.
@@ -52,8 +54,8 @@ of scheduler: recover the dependency and calendar rules; only where those rules 
 - **Assuming crontab's implicit ordering (declaration order) is the dependency order.** Crontab has
   no native inter-job dependency mechanism; if jobs depend on each other only by careful time
   offsets, that offset *is* the rule, and a fragile one worth flagging, not silently preserving.
-- **Picking an order to break a reported cycle.** Stop and ask; a cycle is either a misread
-  convention or a real bug, and guessing hides which.
+- **Picking an order to break a reported cycle.** Rule out a misread convention yourself (step 3),
+  then ask; guessing hides whether it was the convention or a real bug.
 - **Treating the mapping skeleton as done.** It's a starting shape for the phase that writes the
   actual Spring Batch flow or state machine, not a finished artifact.
 

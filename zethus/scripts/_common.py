@@ -154,6 +154,45 @@ def git(repo: Path, *args: str) -> subprocess.CompletedProcess | None:
         return None
 
 
+HLA_HINT_RE = re.compile(r"high[- ]level architecture|^\s*(?:default stored-procedure disposition"
+                         r"|auth strategy)\s*:", re.I | re.M)
+
+
+def hla_candidates(repo: Path, limit: int = 5) -> list[str]:
+    """Tracked docs that look like a target HLA: its title, one of its required lines, or "hla" in
+    the file name. An HLA check lists these so the agent finds the document itself before it asks.
+    """
+    proc = git(repo, "ls-files", "--", "*.md", "*.txt", "*.adoc")
+    if proc is None or proc.returncode != 0:
+        return []
+    found = []
+    for name in proc.stdout.splitlines():
+        path = repo / name
+        try:
+            if path.stat().st_size > 1_000_000:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if "hla" in path.stem.lower() or HLA_HINT_RE.search(text):
+            found.append(name)
+            if len(found) == limit:
+                break
+    return found
+
+
+def hla_lookup(repo: Path, problem: str) -> str:
+    """The next step when the configured HLA is missing: look in the repo first, then ask."""
+    found = hla_candidates(repo)
+    if found:
+        return (f"{problem} The repo has HLA-looking docs: {', '.join(found)}. Read them; if one "
+                "is the target HLA, set modernization.hlaDoc to it (or pass --hla) and re-run. Ask "
+                "the person only if none of them is.")
+    return (f"{problem} No tracked doc looks like an HLA (searched *.md, *.txt and *.adoc for "
+            "'High-Level Architecture' and the required lines), so ask the person where it is, "
+            "with the question tool. Not assuming a default.")
+
+
 def write_new(path: Path, text: str) -> None:
     """Create ``path``; refuse to overwrite. Newlines are always LF."""
     if path.exists():
