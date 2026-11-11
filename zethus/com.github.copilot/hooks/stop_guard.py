@@ -22,6 +22,8 @@ Modes (the one argument):
   one.
 - ``prompt`` (``userPromptSubmitted``): the fallback for a host whose stop event can't block. If
   the previous turn ended without a real stop, say so in ``additionalContext`` on the next prompt.
+  A prompt that is the CLI's own shell-completion ``<system_notification>`` gets none: the turn it
+  starts is the end of a wait, not a turn after a silent stop.
 
 It also refuses a stop that asks leave to move a failing local gate's remediation into the current
 phase (a Stage 3+ turn whose closing lines pair a gate or its tool with fix/remediation, a phase move
@@ -42,6 +44,14 @@ after the wait bound ran out. That ends the turn at a real stop only if its ``Wh
 still running in the background *and* the closing lines give how long was waited ("waited 30
 minutes"). "Waiting on the background install" with no duration is the silent stop, and is refused
 with a reason that says to block on the output read instead.
+
+The exception is a command the *person* moved to the background. The Copilot CLI then tells the
+model not to read it ("moved to background by the user … do NOT call any more tools for this
+command"), so the read is shut and ending the turn is the only door left; its completion arrives as
+a ``<system_notification>`` that starts the next turn by itself (probed on 1.0.110-1). Refusing that
+stop left the model with neither door, and it spun in reasoning with no tool call. So while the
+transcript shows a shell the person moved and no completion for it yet, any stop is let through
+(:func:`person_moved_wait`), whatever the reply says: the harness asks for no reply about it.
 
 Not known: the transcript's exact shape on every host. An unreadable or unrecognised transcript
 means *allow*. Fail-open: any error prints nothing and exits 0.
@@ -76,6 +86,12 @@ GATE_ASK = (re.compile(r"\b(gates?|sonar\w*|lint\w*|quality)\b"),
 BACKGROUND_RE = re.compile(r"\b(in the background|background (?:command|job|shell|install|build|task)"
                            r"|shellid|read_powershell|read_bash)\b")
 BACKGROUND_WHY_RE = re.compile(r"\b(?:still running|in the background|background)\b")
+# The Copilot CLI's tool results for a shell the person took off the turn, and its shell ids.
+PERSON_MOVED_RE = re.compile(r"moved to background by the user|after the user moved it off the main turn"
+                             r"|read interrupted by user steering", re.IGNORECASE)
+SHELL_ID_RE = re.compile(r"shellId:\s*([^\s>.,)]+)", re.IGNORECASE)
+# The prompt the Copilot CLI submits by itself when a background shell finishes.
+NOTIFICATION_RE = re.compile(r"<system_notification>[\s\S]*\bshellId\b", re.IGNORECASE)
 WAITED_RE = re.compile(r"\bwaited\b[^.\n]{0,40}?\b\d+(?:\.\d+)?\s*"
                        r"(?:s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?)\b")
 # A Why about a stale base that hands the rebase back. Only a failed fetch or a conflict excuses it.
@@ -130,6 +146,46 @@ def last_reply(event: dict) -> str:
                 if body.strip():
                     last = body
     return last
+
+
+def shell_completed(row: dict, body: str, sid: str) -> bool:
+    """The row reports that shell ``sid`` finished: a completion notification or a final read."""
+    data = row.get("data") if isinstance(row.get("data"), dict) else row
+    kind = data.get("kind") if isinstance(data, dict) else None
+    if isinstance(kind, dict) and str(kind.get("shellId")) == sid and "complete" in str(kind.get("type")):
+        return True
+    return bool(re.search(rf"shellId:\s*{re.escape(sid)}\)?\s+(?:has\s+)?(?:completed|exited|failed)",
+                          body, re.IGNORECASE))
+
+
+def person_moved_wait(event: dict) -> bool:
+    """A shell the person moved to the background is still running, so the harness forbids reading it."""
+    path = event.get("transcriptPath") or event.get("transcript_path")
+    if not path or not Path(str(path)).is_file():
+        return False
+    moved: set[str] = set()
+    call_shell: dict[str, str] = {}  # toolCallId -> the shellId its arguments named
+    with open(str(path), encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(row, dict):
+                continue
+            data = row.get("data") if isinstance(row.get("data"), dict) else row
+            args = data.get("arguments")
+            if isinstance(args, dict) and args.get("shellId") is not None and data.get("toolCallId"):
+                call_shell[str(data["toolCallId"])] = str(args["shellId"])
+            body = "\n".join(texts(row))
+            for sid in list(moved):
+                if shell_completed(row, body, sid):
+                    moved.discard(sid)
+            if PERSON_MOVED_RE.search(body):
+                # A steered read's result names no shell; its call's arguments do.
+                moved.update(SHELL_ID_RE.findall(body)
+                             or [call_shell[c] for c in [str(data.get("toolCallId"))] if c in call_shell])
+    return bool(moved)
 
 
 def is_zethus_turn(reply: str) -> bool:
@@ -193,7 +249,7 @@ def refusals_file(event: dict) -> Path:
 
 def refuse(event: dict, reply: str) -> str:
     """The block decision, or ``""`` to let the turn end."""
-    if not is_zethus_turn(reply):
+    if not is_zethus_turn(reply) or person_moved_wait(event):
         return ""
     gate_ask = asks_to_defer_gate_fix(reply)
     rebase_ask = hands_back_rebase(reply)
@@ -230,8 +286,8 @@ def refuse(event: dict, reply: str) -> str:
     if waits_on_background(reply):
         reason = ("Zethus: a command running in the background is not a stop. Don't end the turn to wait "
                   "for it: block on the harness's output read for it (`read_powershell` with its shellId "
-                  "and a long delay on the Copilot CLI), again and again until it exits, with no "
-                  "narration per wait, then carry on. If it has outlived the wait bound, close with the "
+                  "and delay 600 on the Copilot CLI; it returns as soon as the command exits), again "
+                  "and again until it exits, with no narration per wait, then carry on. If it has outlived the wait bound, close with the "
                   "Stopped at / Next / Why block, saying the command is still running in the background "
                   "and how long you waited. "
                   f"(Refusal {seen + 1} of {MAX_REFUSALS}; after that the turn is let through.)")
@@ -249,8 +305,10 @@ def refuse(event: dict, reply: str) -> str:
 def remind(event: dict) -> str:
     """For the next prompt: ``additionalContext`` if the last turn ended without a real stop."""
     reply = last_reply(event)
-    if not reply or not is_zethus_turn(reply):
+    if not reply or not is_zethus_turn(reply) or person_moved_wait(event):
         return ""
+    if NOTIFICATION_RE.search(str(event.get("prompt") or "")):
+        return ""  # the harness resuming a turn that waited on a command; the wait is over
     if asks_to_defer_gate_fix(reply):
         text = ("Zethus: your last turn asked leave to move a failing gate's remediation into the phase. "
                 "Don't wait for it: fix the failing gate in the phase being pushed, as small a fix as "
@@ -271,7 +329,7 @@ def remind(event: dict) -> str:
     if waits_on_background(reply):
         text = ("Zethus: your last turn ended to wait on a background command, which is not a stop. Unless "
                 "this message is a question, resume the wait first: block on the harness's output read "
-                "for it (`read_powershell` with its shellId and a long delay on the Copilot CLI) until it "
+                "for it (`read_powershell` with its shellId and delay 600 on the Copilot CLI) until it "
                 "exits, then carry on.")
         return json.dumps({"additionalContext": text,
                            "hookSpecificOutput": {"hookEventName": "UserPromptSubmit",

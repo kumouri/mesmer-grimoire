@@ -50,6 +50,8 @@ stopped, what's next and why, and a plugin hook refuses a turn that ends without
 ([never stop silently](docs/never-stop-silently.md)). A command still running in the background
 is not a stop either: it waits by blocking on the harness's output read until the command exits,
 and only reports past a stated bound ([how](docs/never-stop-silently.md#addendum-2026-11-06-waiting-on-a-background-command)).
+If you move the command to the background yourself, the harness forbids that read, so it ends the
+turn and the command's completion notification resumes it ([why](docs/never-stop-silently.md#addendum-2026-11-11-when-the-person-moves-the-command-to-the-background)).
 
 Your questions come first. Ask something mid-task, above all about the agent's own behaviour, and
 answering it becomes the current task: answered fully, investigated if needed, before the agent

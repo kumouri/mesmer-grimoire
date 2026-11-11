@@ -78,18 +78,17 @@ checked), and **keep doing every other piece of work that doesn't depend on them
 remains and the session's goal isn't complete. This removes no approval: sign-off still comes
 before code, and a person still merges.
 
-**Waiting on a background command is work, not a stop.** When a command you started runs in the
-background and you need its result (an install, a build, a long test run), wait by blocking on the
-harness's output read, again and again, until the command exits ([why](../../docs/never-stop-silently.md#addendum-2026-11-06-waiting-on-a-background-command)).
-On the Copilot CLI that is `read_powershell` with the command's `shellId` and a long `delay` in
-seconds (the tool's own guidance is 120 or more; it documents no cap, so read the limit from the
-error if one comes back). Wait quietly: one line when you start waiting, none per read. Don't end the
-turn, and don't start other work that reads the command's result or the files it is changing
-([independent work](#run-independent-work-at-the-same-time) still runs beside it). A short `delay`
-is for a one-off status check, not for waiting. If the command outlives the bound, which is the one
-the person gave or, with none, 30 minutes of waiting, stop the wait and report: the stop block says
-the command is still running in the background, how long you waited, what it is waiting on, and
-what comes next, and the `Why:` line is that row of the table below.
+**Waiting on a background command is work, not a stop.** When you need the result of a command
+running in the background, block on the harness's output read until the command exits
+([why](../../docs/never-stop-silently.md#addendum-2026-11-11-when-the-person-moves-the-command-to-the-background)):
+on the Copilot CLI, `read_powershell` with its `shellId` and `delay: 600`, its cap, again and again.
+The read returns when the command exits, so it is a held wait, not a poll. Wait quietly. Don't end
+the turn, and don't start work that reads its result or the files it is changing
+([independent work](#run-independent-work-at-the-same-time) still runs). **Each step of a wait is a
+tool call or the end of the turn, never thinking with neither.** End the turn only if the harness
+says the person moved the command to the background, or to stop calling tools for it: its completion
+notification starts the next turn. Past the bound (the person's, else 30 minutes of waiting),
+report: the command is still running in the background, how long you waited, what's next.
 
 You end a turn only at one of these points:
 
@@ -102,6 +101,7 @@ You end a turn only at one of these points:
 | A refusal from the table below | The person's next instruction |
 | You answered the person's question ([below](#the-persons-questions-come-first)) | Their answer to your offer to resume |
 | A background command outlived the wait bound, and you waited that long | The command, still running in the background |
+| The person moved a command to the background; the harness says not to read it | Its completion notification |
 | The goal is complete: the PR for the last phase is pushed and open (not merged) and the spec has no further phase | Nothing: the change is done |
 
 "Committed", "gates green", "tests pass", "phase complete" and a progress report are not rows in
