@@ -101,6 +101,10 @@ phase being pushed, even though a decision looks like a wall: [every local gate 
 push](gate-remediation-in-the-plan.md), so there is nothing to ask. The Stage 2 planning stop is
 exempt, since asking for that ruling there is the point.
 
+It refuses a stop whose `Why:` is a stale base, too: the agent [rebases a stale branch
+itself](base-freshness-cadence.md#amendment-2026-11-10-zethus-rebases-a-stale-branch-itself). A
+`Why:` that names a failed fetch or a rebase conflict it can't decide is still a real stop.
+
 Limits, stated plainly:
 
 - The hook cannot see the plan. The kit keeps it in the host's todo tool, which a hook can't read,

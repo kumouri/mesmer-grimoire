@@ -42,7 +42,9 @@ stop this stage. `git merge-base HEAD origin/<base>` after a fetch gives the sam
 run the gating form here: freshness is checked at Stage 0 and at the gates, not at every stage.
 
 **A rebased branch.** If `branchModel.style` is `rebase`, or `base-freshness` reported the upstream
-as *rewritten since the last push* at the gates, the branch has been rebased. Push it with
+as *rewritten since the last push* at the gates, or you rebased the branch yourself at a freshness
+checkpoint ([pre-push-gates](../pre-push-gates/SKILL.md#bring-a-stale-branch-up-to-date)), the
+branch has been rebased. Push it with
 `git push --force-with-lease`, never a plain `--force`. Then, in the PR body (under *What*), and in
 a PR comment if the PR already exists, say:
 

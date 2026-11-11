@@ -28,8 +28,8 @@ or ask. Never guess one.
   result, wait by blocking on the harness's output read with a long delay (`read_powershell` on the
   Copilot CLI), repeating until it exits, without narrating each wait. Past the wait bound, report
   where it stands as a normal stop.
-- End a turn only to wait on the person (sign-off, a decision, an answer, a rebase), on a blocker
-  you can't clear, or because the work is done. Whenever you end one, its last lines say where you
+- End a turn only to wait on the person (sign-off, a decision, an answer), on a blocker you can't
+  clear, or because the work is done. A stale base is not one of those: you rebase it yourself. Whenever you end one, its last lines say where you
   stopped, what's next and why.
 
 ## Independent work runs at the same time
@@ -72,8 +72,14 @@ or ask. Never guess one.
 - **Never work on a stale base.** Run `python <kit root>/scripts/base-freshness.py` at the two
   points staleness costs something, and only those: **Stage 0 (Orient)**, before any work, and
   **immediately before a push or PR** (`pre-push-gates`). If it reports STALE (more than
-  `branchModel.maxBehind` commits behind, default 0), rebase before doing anything else. Neither
-  checkpoint is skippable; the stages between them don't re-run it. Diff against the merge-base it
+  `branchModel.maxBehind` commits behind, default 0), bring the branch up to date **yourself**
+  before doing anything else, and carry on: rebase onto `origin/<base>` (`--update-refs` for a
+  stack), resolve any conflicts keeping both sides' intent, re-run the check and, if work was
+  already written, the gates, and push a rewritten branch with `--force-with-lease`, saying so in
+  the PR. Never hand the rebase to the person. Stop only when the fetch fails, or when a conflict
+  needs a decision the spec and the diff can't make; then name the hunk and why, with the rebase
+  paused cleanly or aborted, never half-applied. The steps are in the `pre-push-gates` skill.
+  Neither checkpoint is skippable; the stages between them don't re-run it. Diff against the merge-base it
   prints — `--merge-base-only` prints that alone, and never stops a stage — never against a local
   branch.
 

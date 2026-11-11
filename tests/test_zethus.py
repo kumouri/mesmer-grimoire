@@ -440,8 +440,9 @@ class BaseFreshness(TempRepo):
         code, out = self.check()
         self.assertEqual(code, 1, out)
         self.assertIn("STALE — 1 commit(s) behind origin/develop", out)
-        self.assertIn("Rebase before doing anything else", out)
-        self.assertIn("or cut a fresh branch from it", out, "branch-per-change advice")
+        self.assertIn("Bringing the branch up to date now, before any other work", out)
+        self.assertIn("or cut a fresh branch from it", out, "branch-per-change plan")
+        self.assertIn("re-run base-freshness to confirm", out)
 
     def test_no_fetch_reports_the_last_fetch_and_says_so(self):
         self.land_on_base(2)
@@ -470,8 +471,9 @@ class BaseFreshness(TempRepo):
         self.land_on_base(1)
         code, out = self.check()
         self.assertEqual(code, 1, out)
-        self.assertIn("git rebase origin/develop, re-run the gates, then git push "
-                      "--force-with-lease", out)
+        self.assertIn("git rebase origin/develop (--update-refs", out)
+        self.assertIn("re-run the gates, then git push --force-with-lease and say in the PR body "
+                      "that it was rebased", out)
 
         self.git(self.work, "rebase", "-q", "origin/develop")
         code, out = self.check()
