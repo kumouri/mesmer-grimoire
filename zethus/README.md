@@ -43,7 +43,9 @@ where recording the ADRs and checking those doc edits finish Stage 2 and Phase 0
 turn only at a listed stop: an approval wall (sign-off, a decision, a merge), a question it can't
 answer with a citation, a failed fetch or a rebase conflict it can't decide, a failure it couldn't
 resolve, a refusal, a question answered, or the goal complete. A stale base is not a stop: it
-rebases the branch itself and carries on. A finished phase, a commit or a green gate is progress, not a stop: it keeps
+rebases the branch itself and carries on. Nor is any job it can do with its own tools: it runs,
+installs, regenerates and fixes those itself, red CI on its own PR included, and stops for you only
+at what only you can give, named exactly ([do the work yourself](docs/do-the-work-yourself.md)). A finished phase, a commit or a green gate is progress, not a stop: it keeps
 going through everything it can do, gathers every wall it reached and presents them together, and
 carries on with the unblocked work meanwhile. Each time it does stop, it ends with where it
 stopped, what's next and why, and a plugin hook refuses a turn that ends without that
@@ -182,7 +184,7 @@ plan, this is a rule in the agent file rather than a script check: the kit has n
 | [`scripts/new-spec.py`](scripts/new-spec.py) | `.github/zethus/scripts/` | `new-spec.py full\|minimum "Title"` creates `docs/specs/<slug>.md` as `DRAFT`. |
 | [`scripts/docs-pointer-check.py`](scripts/docs-pointer-check.py) | `.github/zethus/scripts/` | Fails on relative Markdown links that don't resolve, including case mismatches that only break on Linux. With `--sync-base`, it also lists docs whose described code changed (report-only). |
 | [`zethus.config.example.json`](zethus.config.example.json) | `.github/zethus.config.json` | Project facts: integration branch, gate commands, spec and ADR dirs, the doc-to-code map, the AI co-author trailer and commit signature. |
-| [`plugin.json`](plugin.json), [`com.github.copilot/hooks/`](com.github.copilot/hooks/session_start.py) | — | The [plugin](#install-the-plugin-default): its manifest, the `sessionStart` hook that injects the working agreement and says where the scripts and templates are (and the plugin version), and the [`agentStop` / `userPromptSubmitted` stop guard](docs/never-stop-silently.md#enforcement-the-stop-guard-hook) that refuses a turn ending at a progress point. |
+| [`plugin.json`](plugin.json), [`com.github.copilot/hooks/`](com.github.copilot/hooks/session_start.py) | — | The [plugin](#install-the-plugin-default): its manifest, the `sessionStart` hook that injects the working agreement and says where the scripts and templates are (and the plugin version), and the [`agentStop` / `userPromptSubmitted` stop guard](docs/never-stop-silently.md#enforcement-the-stop-guard-hook) that refuses a turn ending at a progress point or on a job the agent could do itself. |
 | [`agents/`](agents/zethus.agent.md), [`hooks/hooks.json`](hooks/hooks.json) | — | Generated copies of the agent and the hook registration at the plugin root, for IntelliJ ([why](#one-plugin-two-layouts)). |
 | [`install.py`](install.py) | — | Copies all of the above into place: into a repo (`--target`) or for your user account (`--user`, with `--uninstall` and `--migrate-to-plugin`). Never clobbers a file it didn't write, and writes nothing if there are conflicts. `--with-mnemosyne` also sets up [Mnemosyne](#add-mnemosyne-in-the-same-step). |
 
@@ -252,8 +254,9 @@ same name, and the agreement would load twice, so the two never both act:
   from the dropdown. If the agent then shows twice, run it again with `--drop-agent`.
 - In a repo with the kit in `.github/zethus/`, the plugin's hook prints nothing: the repo's copy is
   in charge there.
-- If it finds a user-mode copy, the hook injects only a line asking the model to tell you to
-  migrate. That covers a plugin installed by VS Code or IntelliJ, which the installer may not see.
+- If it finds a user-mode copy, the hook injects only a line telling the agent to offer to run
+  the migration itself, as a picked choice, since it deletes files outside the repo. That covers a
+  plugin installed by VS Code or IntelliJ, which the installer may not see.
 
 #### What each install gives, on each host
 
@@ -602,7 +605,8 @@ behind is caught at the checkpoint.
 When a checkpoint finds the branch stale, the agent brings it up to date itself and carries on: it
 rebases onto `origin/<base>` (`--update-refs` for a stack), resolves conflicts keeping both sides'
 intent, re-runs the check and the gates, and pushes a rewritten branch with `--force-with-lease`,
-saying so in the PR. It stops only when the fetch fails, or when a conflict needs a decision the
+saying so in the PR. It stops only when the fetch still fails after it has retried and diagnosed
+it (naming the credential or access it needs), or when a conflict needs a decision the
 spec and the diff can't make; it then names the hunk and why, with the rebase paused cleanly or
 aborted ([the steps](skills/pre-push-gates/SKILL.md#bring-a-stale-branch-up-to-date),
 [the decision](docs/base-freshness-cadence.md#amendment-2026-11-10-zethus-rebases-a-stale-branch-itself)).

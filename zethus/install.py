@@ -73,7 +73,7 @@ that add the plugin if it can't find one. Edited files stay and still shadow, so
 are named and the exit code is 1. A repo install beside the plugin only gets a note: the committed
 copy wins in that repo, and the plugin's hook stays quiet there. A plugin that VS Code or IntelliJ
 installed itself may not be recorded where this looks; the plugin's hook catches that case and
-asks the model to tell you.
+has the agent offer to run the migration for you.
 
 **``--with-mnemosyne``** (either mode) then calls ``mnemosyne/install.py`` from the same clone,
 passing on ``--target`` or ``--user``, ``--dry-run``, ``--uninstall``, ``--mnemosyne-repo`` (as its

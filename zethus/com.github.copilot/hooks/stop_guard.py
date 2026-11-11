@@ -36,6 +36,16 @@ says to do the rebase, unless that ``Why:`` names one of the two walls a stale b
 failed fetch (no answer from ``base-freshness``) or a conflict the spec and the diff can't settle.
 A sign-off or done stop that only mentions a rebase already made is left alone.
 
+Nor is a job the agent can do with its own tools (``docs/do-the-work-yourself.md``). Three more
+stops are refused for that reason:
+
+- a ``Why:`` that waits on the person to *do* something (run, re-run, install, regenerate, format,
+  fix, update, configure, check…), unless it also names what only the person can give: a
+  credential or access, a sign-off, an approval, a merge, a decision;
+- a ``Why:`` that names a failed fetch but not the cause left for the person (a credential, the
+  network, a VPN…), since the agent retries and diagnoses a failed fetch itself first;
+- a done stop whose closing lines report red or failing CI on the PR, which is the agent's to fix.
+
 A turn that is legitimately waiting on a background command is not a turn that ended: the model is
 inside a tool call (the output read), so this hook never sees it. What the hook can see is the report
 after the wait bound ran out. That ends the turn at a real stop only if its ``Why:`` says the command is
@@ -84,6 +94,29 @@ STALE_WHY_RE = re.compile(r"\b(stale (?:base|branch)|(?:base|branch) is stale|re
 STALE_WALL_RE = re.compile(r"\b(conflict\w*|hunks?|fetch\w*|no answer"
                            # a Why that only mentions a rebase already done, at another wall
                            r"|sign-?off|goal is complete|change is done|work is done|no further phase)\b")
+# A Why that waits on the person to do work the agent has the tools for.
+HANDOFF_WHY_RE = re.compile(
+    r"\b(?:(?:for|on)\s+(?:you|the person|the user|them|someone)\s+to"
+    r"|(?:you|the person|the user|someone)\s+(?:needs?|has|have|must|should|will need)\s+to"
+    r"|please|over to you(?:\s+to)?|once you|after you|until you)\s+"
+    r"(?:re-?run|run|install|re-?generate|regenerate|format|fix|update|rebase|resolve|configure"
+    r"|set up|add|create|commit|push|check|verify|retry|restart|migrate|download|apply|enable"
+    r"|edit|clean|build|test|paste)\b")
+# What only the person can give. A hand-off that names one of these is a real wall.
+HUMAN_ONLY_RE = re.compile(
+    r"\b(?:credential\w*|tokens?|passwords?|secrets?|2fa|mfa|sso|sign(?:-| )?in|log(?:-| )?in|vpn"
+    r"|prox(?:y|ies)|network access|access|permissions?|grant\w*|sign-?off|approv\w*|merg\w*"
+    r"|decision|decide|ruling|choice|choose|physical\w*|hardware|device)\b")
+# A Why about a failed fetch. Only one that names the cause left for the person is a stop.
+FETCH_FAIL_RE = re.compile(r"\b(?:fetch(?:ing)? (?:failed|fails|error\w*)|failed to fetch"
+                           r"|(?:could not|couldn't|can't|cannot) fetch|gave no answer|no answer)\b")
+FETCH_CAUSE_RE = re.compile(r"\b(?:credential\w*|tokens?|auth\w*|passwords?|permissions?|access"
+                            r"|denied|forbidden|401|403|sso|2fa|mfa|vpn|prox(?:y|ies)|network"
+                            r"|offline|unreachable|dns|host)\b")
+# A done stop over red CI on the PR.
+DONE_RE = re.compile(r"\b(?:goal is complete|change is done|work is done|no further phase)\b")
+CI_RED_RE = re.compile(r"\b(?:ci|checks?|pipeline|workflow)\b[^.\n]{0,40}?\b(?:red|fail\w*|broken)\b"
+                       r"|\b(?:red|failing|failed)\s+(?:ci|checks?|pipeline|workflow)\b")
 WALLS = ("sign-off", "sign off", "signoff", "approval", "approve", "decision", "option", "answer",
          "question", "citation", "cite", "conflict", "fetch", "refus", "stuck", "merge",
          "waiting for your", "waiting on you", "change is done", "work is done", "goal is complete",
@@ -181,6 +214,47 @@ def hands_back_rebase(reply: str) -> bool:
     return bool(STALE_WHY_RE.search(reason)) and not STALE_WALL_RE.search(reason)
 
 
+def why_of(reply: str) -> str:
+    why = WHY_RE.search(closing_lines(reply))
+    return why.group("why").lower() if why else ""
+
+
+def hands_off_work(reply: str) -> bool:
+    """The closing ``Why:`` waits on the person to do work the agent could do itself."""
+    reason = why_of(reply)
+    return bool(HANDOFF_WHY_RE.search(reason)) and not HUMAN_ONLY_RE.search(reason)
+
+
+def bare_fetch_stop(reply: str) -> bool:
+    """The closing ``Why:`` stops for a failed fetch without naming what is left for the person."""
+    reason = why_of(reply)
+    return bool(FETCH_FAIL_RE.search(reason)) and not FETCH_CAUSE_RE.search(reason)
+
+
+def done_over_red_ci(reply: str) -> bool:
+    """A done stop whose closing lines report red CI on the PR, not yet fixed."""
+    tail = closing_lines(reply).lower()
+    return (bool(DONE_RE.search(why_of(reply))) and bool(CI_RED_RE.search(tail))
+            and "fixed" not in tail)
+
+
+HANDOFF_REASON = ("Zethus: that stop hands the person a job you can do with your own tools. Run, "
+                  "re-run, install, regenerate, format or fix it yourself, now, then carry on. Stop "
+                  "for the person only at what only they can give (a credential or access they "
+                  "hold, a sign-off, an approval, a merge, a decision), after doing everything up "
+                  "to it, and name that one thing in the Why line (docs/do-the-work-yourself.md). ")
+FETCH_REASON = ("Zethus: a failed fetch is yours to diagnose before it is a stop. Retry it once, "
+                "read the error, check `git remote -v` and `git ls-remote --heads <remote>`, and fix "
+                "a wrong remote or base; then re-run base-freshness. Stop only for what this machine "
+                "can't supply, and name it in the Why line: a missing or rejected credential, or a "
+                "network or VPN the person must join (pre-push-gates, \"When the fetch fails\"). ")
+CI_REASON = ("Zethus: the change isn't done while CI is red on its PR, and fixing it is yours, not "
+             "the reviewer's. Read the failing check's log (`gh run view <run-id> --log-failed`), "
+             "reproduce it locally, fix it on that phase's branch, re-run `run-local-gates`, push, "
+             "and say in a PR comment what failed and what fixed it (zethus-pr-description, step 4). "
+             "Only merging, or waiting out or waiving a check, is the person's call. ")
+
+
 def next_action(reply: str) -> str:
     found = NEXT_RE.findall(reply)
     return found[-1].strip() if found else "the next stage or phase in your plan"
@@ -197,7 +271,9 @@ def refuse(event: dict, reply: str) -> str:
         return ""
     gate_ask = asks_to_defer_gate_fix(reply)
     rebase_ask = hands_back_rebase(reply)
-    if is_real_stop(reply) and not gate_ask and not rebase_ask:
+    labor = (HANDOFF_REASON if hands_off_work(reply) else FETCH_REASON if bare_fetch_stop(reply)
+             else CI_REASON if done_over_red_ci(reply) else "")
+    if is_real_stop(reply) and not gate_ask and not rebase_ask and not labor:
         return ""
     counter = refusals_file(event)
     try:
@@ -226,6 +302,9 @@ def refuse(event: dict, reply: str) -> str:
                   "the spec and the diff can't make; then name the hunk and why, with the rebase paused "
                   "cleanly or aborted. The steps are in pre-push-gates, \"Bring a stale branch up to date\". "
                   f"(Refusal {seen + 1} of {MAX_REFUSALS}; after that the turn is let through.)")
+        return json.dumps({"decision": "block", "reason": reason})
+    if labor:
+        reason = labor + f"(Refusal {seen + 1} of {MAX_REFUSALS}; after that the turn is let through.)"
         return json.dumps({"decision": "block", "reason": reason})
     if waits_on_background(reply):
         reason = ("Zethus: a command running in the background is not a stop. Don't end the turn to wait "
@@ -263,6 +342,14 @@ def remind(event: dict) -> str:
         text = ("Zethus: your last turn stopped for a stale base, which is not a stop. Unless this "
                 "message is a question, rebase the branch yourself first (pre-push-gates, \"Bring a "
                 "stale branch up to date\"), re-run base-freshness and the gates, then carry on.")
+        return json.dumps({"additionalContext": text,
+                           "hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                                                  "additionalContext": text}})
+    labor = (HANDOFF_REASON if hands_off_work(reply) else FETCH_REASON if bare_fetch_stop(reply)
+             else CI_REASON if done_over_red_ci(reply) else "")
+    if labor:
+        text = ("Zethus: your last turn stopped for a job that was yours. Unless this message is a "
+                "question, do that first. " + labor.split(": ", 1)[1])
         return json.dumps({"additionalContext": text,
                            "hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                                   "additionalContext": text}})

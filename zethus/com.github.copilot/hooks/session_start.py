@@ -11,7 +11,7 @@ An install.py copy already delivers all of this, so the hook steps aside rather 
 
 - a repo with the kit in ``.github/zethus/`` has its own instructions and skills: print nothing;
 - a user-mode copy in ``~/.copilot`` has loaded the agreement and shadows this plugin's skills:
-  print only how to remove it.
+  print only an instruction to offer to remove it, and to run the removal on a picked yes.
 
 Fail-open: any error prints nothing and exits 0, so it can never break a session.
 """
@@ -65,8 +65,11 @@ def context(event: dict) -> str:
         return ""
     if user_copy():
         return ("Zethus is installed twice: this plugin, and a user-mode copy in ~/.copilot whose "
-                "skills shadow the plugin's. Tell the user once, and that this removes the copy: "
-                f"python {ROOT.as_posix()}/install.py --user --migrate-to-plugin")
+                "skills shadow the plugin's. Once this session, offer to remove the copy yourself, "
+                "with the question tool: 'Remove the copy (Recommended)' runs "
+                f"python {ROOT.as_posix()}/install.py --user --migrate-to-plugin, and 'Keep both' "
+                "changes nothing. It deletes files outside the repo, so only a picked yes runs it; "
+                "on yes, run it, report what it removed, and carry on.")
     return agreement()
 
 

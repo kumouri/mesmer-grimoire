@@ -252,8 +252,9 @@ applies separately to the command itself:
 2. Get the user's go-ahead in this turn. Ask it with the harness's question tool ([why](../../docs/ask-with-the-question-tool.md)): two options, "Run it" (describe the exact effect) and "Don't run it" (nothing changes), neither preselected. Only a picked "Run it" runs it; a dismissed picker, no answer or a run with no one to ask means don't. With no question tool, ask a numbered list that accepts the number or any clear wording, never an exact phrase. A prior general instruction (e.g. "keep the noisy
    monitor quiet") does not count as standing authorization for a specific mute action today.
 3. If they decline or don't respond, don't run it — report back that it's pending.
-4. Only then issue the mutating call, and report back what it returned (event ID, downtime ID) so
-   the user can verify or reverse it later.
+4. Only then issue the mutating call, read it back yourself (`pup downtime list`, an events search)
+   to confirm it took, and report what it returned (event ID, downtime ID) and what the read-back
+   showed. Reversing it later is a new mutation, under the same steps.
 5. **Never** pass `--yes`/`-y` or set `$env:DD_AUTO_APPROVE = "true"` to skip Pup's own confirmation
    prompts automatically — those exist for exactly the moment this skill is supposed to pause and
    ask the user instead. Likewise never use `--agent`-mode auto-approval as a way to route around
