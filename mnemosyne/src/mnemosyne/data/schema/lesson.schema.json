@@ -100,7 +100,7 @@
         "pr": {"type": "string", "description": "PR url/number that promoted it."}
       }
     },
-    "author": {"type": "string", "description": "Who captured the lesson: $MNEMOSYNE_AUTHOR, else 'unknown'. Never the OS login name."},
+    "author": {"type": "string", "description": "Who captured the lesson: $MNEMOSYNE_AUTHOR, else the memory repo git user.name, then GIT_AUTHOR_NAME, else 'unknown'. Never the OS login name."},
     "created": {"type": "string", "format": "date", "description": "ISO date captured."},
     "updated": {"type": "string", "format": "date", "description": "ISO date last changed."},
     "uses": {"type": "integer", "minimum": 0, "default": 0, "description": "Baseline recall count as authored/seeded. Live recall usage is tracked in the gitignored memory/usage.local.json sidecar so reads never churn this committed file; stats/prune merge the two."},

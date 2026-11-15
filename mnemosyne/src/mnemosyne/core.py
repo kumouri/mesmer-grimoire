@@ -1311,6 +1311,11 @@ def _capture(cfg: Config, repo: Path, fields: dict, *, category_default, memory_
     lessons, tier = load_all(repo)
     taken = [l.get("id") for l in read_jsonl(local_path(repo))] + list(committed_lessons(repo))
     lesson, shared = build_lesson(cfg, lessons, fields, category_default, memory_default, taken)
+    if lesson.get("author") == NEUTRAL_AUTHOR and not os.environ.get("MNEMOSYNE_AUTHOR"):
+        # Capture is a write path; hooks never call it. Resolve the memory repo's git identity.
+        rc, name, _ = git(repo, "config", "user.name")
+        lesson["author"] = (name if rc == 0 and name else
+                            os.environ.get("GIT_AUTHOR_NAME") or NEUTRAL_AUTHOR)
     if shared:
         lesson = scrub_lesson(lesson, repo)
 

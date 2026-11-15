@@ -117,7 +117,8 @@ id and records `source.exported_from`. When ids do collide, the reviewed shared 
 every view, and `validate` reports the collision rather than letting the local lesson vanish.
 
 **Nothing leaves the local tier unscrubbed.** `promote`, `export` and `capture --shared` pass every
-outgoing lesson through `core.scrub_lesson`. The author is `$MNEMOSYNE_AUTHOR`, else `unknown`,
+outgoing lesson through `core.scrub_lesson`. The author is `$MNEMOSYNE_AUTHOR`, else the memory repo’s git `user.name`, then
+`GIT_AUTHOR_NAME`, else `unknown`,
 never the OS login. Absolute anchor paths become repo-relative or are dropped, and home-directory,
 drive, UNC and WSL paths in free text become `<path>`. A clean scrub is not clearance to publish;
 the review PR stays the gate.

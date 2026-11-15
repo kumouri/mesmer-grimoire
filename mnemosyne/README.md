@@ -237,7 +237,8 @@ Everything is also available as the Python API (`mn.recall/capture/reflect/promo
 and as MCP tools.
 
 Environment: `MNEMOSYNE_REPO` (primary repo), `MNEMOSYNE_CONFIG` (config path), `MNEMOSYNE_AUTHOR`
-(lesson author; without it lessons record `unknown`, never your login name), `MNEMOSYNE_CACHE` (where url-stores are cloned; default `~/.mnemosyne/stores`),
+(lesson author override; otherwise the memory repo’s git `user.name`, then `GIT_AUTHOR_NAME`,
+then `unknown`; never the OS login), `MNEMOSYNE_CACHE` (where url-stores are cloned; default `~/.mnemosyne/stores`),
 `MNEMOSYNE_LOCK_TIMEOUT` (seconds a save waits for the store lock; default 10), and
 `MNEMOSYNE_CAPTURE` (`off` turns the capture hooks off; recall is unaffected).
 

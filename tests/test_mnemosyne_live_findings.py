@@ -63,3 +63,24 @@ class ParaphraseEscape(unittest.TestCase):
             self.assertIn("possible duplicate?", text)
             self.assertEqual(core.local_path(repo).read_bytes(), before)
             self.assertFalse(core.usage_path(repo).exists())
+
+
+class AuthorProvenance(unittest.TestCase):
+    def test_identity_resolution_and_neutral_floor(self):
+        import subprocess
+        cfg = load_named_example("default")
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ, {"MNEMOSYNE_AUTHOR": "", "GIT_AUTHOR_NAME": ""}):
+            repo = Path(d)
+            core.init_repo(repo)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.name", "alice"], check=True)
+            for identity, expected in [({}, "alice"), ({"MNEMOSYNE_AUTHOR": "bob"}, "bob")]:
+                with patch.dict(os.environ, identity):
+                    result = core.capture(cfg, repo, pair()[0], force=True)
+                    self.assertEqual(core.show(cfg, repo, result["id"])["author"], expected)
+            # No git identity (including a user's global config) must still capture.
+            with patch.object(core, "git", return_value=(1, "", "")):
+                for identity, expected in [({"GIT_AUTHOR_NAME": "carol"}, "carol"), ({}, "unknown")]:
+                    with patch.dict(os.environ, identity):
+                        result = core.capture(cfg, repo, pair()[0], force=True)
+                        self.assertEqual(core.show(cfg, repo, result["id"])["author"], expected)
