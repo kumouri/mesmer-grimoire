@@ -308,8 +308,11 @@ class NothingLeavesTheLocalTierUnscrubbed(GitWorld):
     def test_capture_never_records_the_login_name(self):
         dev = self.root / "dev"
         core.init_repo(dev)
-        lid = self.capture(dev, "Emit structured JSON logs from every service", "logging")
-        self.assertEqual(core.show(self.cfg, dev, lid)["author"], "unknown")
+        # Isolate the configured identity from both the machine's global git config and login.
+        with patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_AUTHOR_NAME": "bob"}):
+            lid = self.capture(dev, "Emit structured JSON logs from every service", "logging")
+        self.assertEqual(core.show(self.cfg, dev, lid)["author"], "bob")
+        self.assertNotEqual(core.show(self.cfg, dev, lid)["author"], self.LOGIN)
 
     def test_export_to_a_store_is_scrubbed(self):
         store = self.root / "team-store"
