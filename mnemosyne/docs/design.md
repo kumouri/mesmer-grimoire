@@ -252,6 +252,13 @@ normalized content, and the second run logs `duplicate` and stops. A marker expi
 seconds, so a real repeat counts again. The claim fails open, because a double-fire costs a noisy
 line and a lost event costs a signal. The module docstring has the details.
 
+S4 instruction candidates have a separate guard: an exact normalized full instruction line
+already in the repo's own standing files is skipped, and other lines are claimed once per repo
+path and host-provided session id. Missing session ids fail open. Hash-only markers persist under
+the spool's instructions folder; no candidate history is scanned or deleted. The decision is
+`duplicate-instruction`, so candidate suppression does not trigger the bridge's event-duplicate
+early return or change repeated-question recall.
+
 For now it runs in **shadow mode**: candidates and decisions are recorded, but nothing becomes a
 lesson and nothing is asked. `candidate label` and `candidate stats` turn a week of that into each
 signal's count and precision, which decides what later phases may store automatically.

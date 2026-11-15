@@ -312,6 +312,13 @@ candidate was worth keeping, before any of it is automated.
   spool is never committed. `candidates.jsonl` holds candidates and labels; `decisions.jsonl` holds
   one line per hook run; a `fired` folder holds the short-lived markers that stop one event being
   handled twice.
+- **Repeated standing instructions:** S4 candidates are claimed once per host-provided session,
+  repo path and complete matched instruction line (not the truncated excerpt). An exact line in
+  that repo's AGENTS.md, CLAUDE.md or Copilot instruction file is already standing guidance and
+  does not become a candidate. A changed line still qualifies; without a session id only the
+  standing-file check applies. Hash-only claims live in the spool's `instructions` folder and
+  do not expire with the short event guard. Suppression logs `duplicate-instruction` and leaves
+  recall running. Existing candidates are never removed.
 - **What a candidate holds:** pointers only (signal, tool, repo-relative path, exit code, a short
   command head such as `npm test`), never tool output. The prompt signals keep a short excerpt of
   the user's words, with machine paths replaced by `<path>`. A candidate that carries a credential

@@ -661,13 +661,13 @@ class DoubleFire(_Project):
                 "resultType": "success", "textResultForLlm": f"<shellId: 1 completed with exit code {code}>"}))
         self.assertEqual(self.signals(), ["S6"])
 
-    def test_a_real_repeat_after_the_window_counts_again(self):
+    def test_a_real_instruction_repeat_after_the_window_stays_session_deduped(self):
         event = self.ev(prompt="from now on always rebase")
         self.capture("prompt", event)
         self.age_markers()
         self.capture("prompt", event)
-        self.assertEqual(self.signals(), ["S4", "S4"])
-        self.assertEqual(self.verdicts(), ["candidate", "candidate"])
+        self.assertEqual(self.signals(), ["S4"])
+        self.assertEqual(self.verdicts(), ["candidate", "duplicate-instruction"])
 
     def test_expired_markers_are_cleared(self):
         for n in range(5):
@@ -679,8 +679,8 @@ class DoubleFire(_Project):
     def test_a_guard_that_cannot_claim_lets_the_event_through(self):
         (cd.ensure_capture_dir(self.root) / cd.FIRED).write_text("not a folder", encoding="utf-8")
         for _ in range(2):
-            self.capture("prompt", self.ev(prompt="from now on always rebase"))
-        self.assertEqual(self.signals(), ["S4", "S4"])
+            self.capture("prompt", self.ev(prompt="No, choose the other approach."))
+        self.assertEqual(self.signals(), ["S5", "S5"])
 
     def test_a_session_less_event_falls_back_to_the_project(self):
         event = {"cwd": str(self.root), "prompt": "from now on always rebase"}
