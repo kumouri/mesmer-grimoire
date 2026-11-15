@@ -105,7 +105,9 @@ the review branch with git plumbing from the default branch (`origin/HEAD`, else
 exactly the promoted lesson, with `LESSONS.md` rendered to match. So nothing else that happens to
 be uncommitted rides along, you stay on your branch, and a store's cached clone stays on its
 default branch, where `sync` can see the merge. It returns the step left to run by hand (push, open
-the PR); with `push` set it pushes too. Nothing in the engine opens or merges the PR. A memory repo
+the PR); with `push` set it pushes too. Without `origin`, the branch is still committed locally and every surface reports that a remote
+is needed before a PR can exist; no push is attempted or suggested.
+Nothing in the engine opens or merges the PR. A memory repo
 outside git has no review to wait for, so there `promote` moves the lesson straight into the shared
 tier as `proposed`.
 

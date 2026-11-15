@@ -218,7 +218,7 @@ a git `url` (cloned into a cache by `sync`) or a `path` to an existing repo:
 | `recall` | Context in → ranked, budgeted lesson digest out (the hot path). |
 | `capture` / `add` | Save a decision/convention/… to the local tier. |
 | `reflect` | Save a learned-from-failure lesson (needs `--reflection-of`). |
-| `promote <id…>` | Propose local lesson(s) for the shared tier, or `--to <tier>` / `--from-file <manifest>` to export up to a store. Commits each lesson alone on a review branch (your working tree and branch are untouched) and prints the push step; `--push` pushes too. Merging the PR is the approval. |
+| `promote <id…>` | Propose local lesson(s) for the shared tier, or `--to <tier>` / `--from-file <manifest>` to export up to a store. Commits each lesson alone on a review branch (your working tree and branch are untouched) and prints the push step when `origin` exists; `--push` pushes too. With no `origin`, reports the locally committed branch and asks you to configure a remote first. Merging the PR is the approval. |
 | `sync` | The only network path: `git pull` the shared memory, clone or pull every configured store, and retire local originals whose review PR has merged. |
 | `stores` | List configured shared stores (broader tiers) + whether each is fetched yet. |
 | `render` | Regenerate `memory/LESSONS.md` from the JSONL. |

@@ -1454,12 +1454,18 @@ def stage_review_pr(cfg: Config, repo: Path, branch: str, message: str, lessons,
         raise EngineError(f"{repo} has no commit to cut a review branch from: commit it first")
     _review_commit(cfg, repo, branch, base, lessons, message)
     out["base"] = base
-    out["commands"] = [f'git -C "{repo}" push -u origin {branch} && gh pr create --fill --head {branch}']
+    out["has_origin"] = "origin" in git(repo, "remote")[1].splitlines()
+    if out["has_origin"]:
+        out["commands"] = [f'git -C "{repo}" push -u origin {branch} && gh pr create --fill --head {branch}']
+    else:
+        out["error"] = f"No origin remote: branch {branch} is committed locally; configure origin before a PR can exist."
     return out
 
 
 def push_review_pr(repo: Path, pr: dict) -> dict:
     """Push a staged review branch to origin; record `pushed`, or the failure in `error`."""
+    if not pr.get("has_origin", True):
+        return pr
     rc, _, err = git(repo, "push", "-u", "origin", pr["branch"])
     if rc == 0:
         pr["pushed"] = True

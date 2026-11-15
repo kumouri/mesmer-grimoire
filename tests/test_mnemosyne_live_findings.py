@@ -84,3 +84,34 @@ class AuthorProvenance(unittest.TestCase):
                     with patch.dict(os.environ, identity):
                         result = core.capture(cfg, repo, pair()[0], force=True)
                         self.assertEqual(core.show(cfg, repo, result["id"])["author"], expected)
+
+
+class PromoteWithoutOrigin(unittest.TestCase):
+    def test_local_branch_and_review_state_survive_without_bad_next_steps(self):
+        from tests.test_mnemosyne_review_flow import GIT_ENV, git
+        cfg = load_named_example("default")
+        for push in (False, True):
+            with self.subTest(push=push), tempfile.TemporaryDirectory() as d, patch.dict(os.environ, GIT_ENV):
+                repo = Path(d)
+                git(repo, "init", "-q")
+                core.init_repo(repo)
+                git(repo, "add", "-A")
+                git(repo, "commit", "-q", "-m", "initialize")
+                saved = core.capture(cfg, repo, pair()[0])
+                original = git(repo, "rev-parse", "HEAD")
+                result = core.promote(cfg, repo, saved["id"], push=push)
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    cli._print_shared_promote(result, push)
+                text = buf.getvalue()
+                self.assertNotIn("gh pr create", text)
+                self.assertNotIn("push -u", text)
+                self.assertIn("No origin remote", text)
+                self.assertIn(result["branch"], text)
+                self.assertEqual(git(repo, "rev-parse", "HEAD"), original)
+                local = core.show(cfg, repo, saved["id"])
+                self.assertEqual(local["review"]["state"], "proposed")
+                shared = git(repo, "show", result["branch"] + ":memory/lessons.jsonl")
+                import json
+                self.assertEqual(json.loads(shared)["review"]["state"], "approved")
+                self.assertEqual(git(repo, "remote"), "")
