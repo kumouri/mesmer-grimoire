@@ -194,8 +194,16 @@ keep signal above noise.
    (exit 3 / `LowValueError`) unless forced; a genuine domain failure (a trigger that didn't fire)
    is not matched and saves normally.
 2. **Dedup by reinforcement.** On capture, the engine finds the best same-category near-duplicate
-   (title+lesson Jaccard blended with tag Jaccard) and, at/above the threshold, **reinforces** it
+   (title+lesson Jaccard blended with tag Jaccard, plus a gated shorter-text containment score) and, at/above the threshold, **reinforces** it
    — bumping a counter (and eventually confidence) instead of adding a record.
+   The containment path requires the same category, at least two shared tags, three shared
+   non-tag key terms, reciprocal title support (two terms each), and 35% shorter-text coverage. Its score is 55% square-root text
+   containment + 25% tag containment + 20% text Jaccard; the larger of this and the original
+   score is used. It handles elaborated restatements without embeddings, a network call or a
+   changed threshold. This remains lexical: shared words do not prove equivalent advice.
+   Recall adds a one-line `possible duplicate?` hint for the nearest same-category active pair
+   involving a recalled lesson between 75% of the reinforce threshold and that threshold.
+   The hint never writes or blocks; normal recall usage tracking is unchanged.
 3. **Track real usage without churning the store.** `recall` writes usage to a **gitignored
    sidecar** (`memory/usage.local.json`); prune/stats merge it with the authored baseline. Reads
    never produce noisy diffs that would fight the PR gate.

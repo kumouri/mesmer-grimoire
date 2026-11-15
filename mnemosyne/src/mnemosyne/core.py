@@ -830,7 +830,14 @@ def _dedup_tokens(*texts):
 
 
 def lesson_similarity(a: dict, b: dict) -> float:
-    """0..1: title+lesson token Jaccard (0.7) blended with trigger.tags Jaccard (0.3)."""
+    """Lexical Jaccard, with a gated containment blend for shorter restatements.
+
+    Metadata alone never establishes identity. The extra path needs the same category,
+    two shared tags, reciprocal title support (two terms each), and three shared
+    non-tag terms, covering at least 35% of the shorter
+    text. Square-root containment tolerates elaboration without a domain synonym table.
+    This is a lexical heuristic, not semantic equivalence; opposite advice can still overlap.
+    """
     ta = _dedup_tokens(a.get("title"), a.get("lesson"))
     tb = _dedup_tokens(b.get("title"), b.get("lesson"))
     if not ta or not tb:
@@ -839,7 +846,20 @@ def lesson_similarity(a: dict, b: dict) -> float:
     ga = set(x.lower() for x in ((a.get("trigger", {}) or {}).get("tags", []) or []))
     gb = set(x.lower() for x in ((b.get("trigger", {}) or {}).get("tags", []) or []))
     tagj = (len(ga & gb) / len(ga | gb)) if (ga | gb) else 0.0
-    return round(0.7 * jac + 0.3 * tagj, 3)
+    baseline = 0.7 * jac + 0.3 * tagj
+    # Exclude metadata and generic instruction words from the corroborating key terms.
+    generic = {"each", "against", "before", "after", "when", "should", "must", "always",
+               "never", "use", "using", "new", "same", "run", "runs", "check", "verify"}
+    keys = (ta & tb) - _dedup_tokens(" ".join(ga | gb)) - generic
+    coverage = len(ta & tb) / min(len(ta), len(tb))
+    title_a = _dedup_tokens(a.get("title")) - generic
+    title_b = _dedup_tokens(b.get("title")) - generic
+    title_support = len(title_a & tb) >= 2 and len(title_b & ta) >= 2
+    if (title_support and a.get("category") == b.get("category") and len(ga & gb) >= 2
+            and len(keys) >= 3 and coverage >= 0.35):
+        tag_coverage = len(ga & gb) / min(len(ga), len(gb))
+        baseline = max(baseline, 0.55 * coverage ** 0.5 + 0.25 * tag_coverage + 0.2 * jac)
+    return round(baseline, 3)
 
 
 def find_duplicate(cfg: Config, lesson: dict, lessons):
@@ -917,6 +937,9 @@ def render_digest(cfg: Config, ranked, repo, tier, fmt, budget) -> str:
 
     ids = ", ".join(l["id"] for l, _, _ in ranked)
     head = f"RECALL: {len(ranked)} reflexion lesson(s) applied to this context ({ids}). Source: {banner(repo)}."
+    nudges = [w for _, _, why in ranked for w in why if w.startswith("possible duplicate?")]
+    if nudges:
+        head += " " + nudges[0]
     lines = [head, ""]
     for l, sc, why in ranked:
         t = tier.get(l["id"], "shared")
@@ -1169,6 +1192,20 @@ def recall(cfg: Config, repo: Path, ctx: dict, top=None, min_score=None, bump=Tr
             continue
         collapsed.append(cand)
     ranked = collapsed[:top]
+    # A read-only hint about the closest sub-threshold neighbour of a recalled lesson.
+    nearest = None
+    for lesson, _, _ in ranked:
+        for other in lessons:
+            if (other.get("status") != "active" or other.get("id") == lesson["id"]
+                    or other.get("category") != lesson.get("category")):
+                continue
+            similarity = lesson_similarity(lesson, other)
+            if cfg.dup_threshold * 0.75 <= similarity < cfg.dup_threshold:
+                if nearest is None or similarity > nearest[0]:
+                    nearest = (similarity, lesson["id"], other["id"])
+    if nearest:
+        similarity, first, second = nearest
+        ranked[0][2].append(f"possible duplicate? {first} / {second} ({similarity:.3f}); review on demand")
     if bump:
         bump_usage(repo, [l["id"] for l, _, _ in ranked])
     return ranked, tier
