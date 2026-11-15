@@ -14,6 +14,7 @@ FILES   memory/.capture/ in the memory repo. The directory carries its own `.git
           decisions.jsonl   append-only: one line per hook invocation (`mnemosyne doctor` reads it),
                             rotated to decisions.1.jsonl past DECISION_LOG_MAX bytes
           state.json        tool failures awaiting a matching success, per session (signal S6)
+          instructions/     hash-only, repo/session/full-line S4 claims (no event-window expiry)
           fired/            one empty marker per recent hook event, the double-fire guard (below)
           *.lock            empty files to lock, never the data itself: see WRITES, and _rotate
 GUARD   a host that reads two hook files (a repo's .github/hooks and ~/.copilot/hooks) runs the
@@ -569,6 +570,53 @@ def first_fire(repo: Path, mode: str, ev: dict, root: Path) -> bool:
     return True
 
 
+# ----------------------------------------------------------------------------- instruction candidate guard
+
+
+def instruction_repeat(repo: Path, root: Path, session: str, prompt: str):
+    """Suppress only an identical S4 instruction line, never an arbitrary prompt excerpt.
+
+    Own-repo standing files are authoritative even in a new session. Otherwise a host-provided
+    session id scopes an exclusive content marker. Missing ids and IO errors fail open. Markers
+    contain only hashes, not instruction text; they are separate from expiring event claims.
+    This suppresses candidates only: the bridge's duplicate-event recall contract stays intact.
+    """
+    match = _S4_RE.search(prompt)
+    if not match:
+        return None
+    start = prompt.rfind("\n", 0, match.start()) + 1
+    end = prompt.find("\n", match.end())
+    instruction = " ".join(prompt[start:end if end >= 0 else len(prompt)].split()).casefold()
+    top, _ = _git_dir(root)
+    project = top or root
+    for name in ("AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md"):
+        try:
+            path = project / name
+            if path.stat().st_size > 262144:
+                continue
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError):
+            continue
+        if any(" ".join(line.split()).casefold() == instruction for line in lines):
+            return "instruction already present in this repo's standing instructions"
+    if not session:
+        return None
+    parts = [os.path.normcase(str(project.resolve())), session, instruction]
+    key = hashlib.sha256(json.dumps(parts).encode("utf-8")).hexdigest()
+    try:
+        directory = ensure_capture_dir(repo) / "instructions"
+        directory.mkdir(exist_ok=True)
+    except OSError:
+        return None
+    try:
+        os.close(os.open(str(directory / key), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    except FileExistsError:
+        return "instruction already candidated in this session and repo"
+    except OSError:
+        pass
+    return None
+
+
 # ----------------------------------------------------------------------------- the hook entry
 
 
@@ -612,7 +660,13 @@ def capture_event(mode: str, ev: dict, *, host=None, env=None, root=None):
             rec.update(decision="dropped", detail=f"credential shape ({shape}); nothing recorded",
                        signals=[h[0] for h in hits])
         for sig, phrase, snip in ([] if shape else hits):
-            add(sig, {"match": phrase, "excerpt": snip})
+            repeat = instruction_repeat(repo, root, session, prompt) if sig == "S4" else None
+            if repeat:
+                # Do not return DUPLICATE: that label also suppresses auto-recall in the bridge.
+                rec.update(decision="duplicate-instruction", detail=repeat)
+                rec["signals"].append(sig)
+            else:
+                add(sig, {"match": phrase, "excerpt": snip})
 
     elif mode == "post-tool":
         name = tool_name(ev)

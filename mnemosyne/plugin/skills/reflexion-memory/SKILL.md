@@ -93,7 +93,8 @@ mnemosyne stores                             # list configured shared stores + w
 ```
 
 Promotion commits the lesson alone on a review branch, keeps the local copy marked `proposed`, and
-prints the push/PR step. Merging the PR is the approval, and a human reviewer does it before the
+prints the push/PR step if `origin` exists. Without a remote it names the local branch and asks
+you to configure `origin` before opening a PR. Merging the PR is the approval, and a human reviewer does it before the
 lesson becomes team-wide truth. **Stores** are additional git repos (e.g. `team`, `enterprise`)
 declared in `mnemosyne.config.json`; `recall` federates over the ones `sync` has fetched (it never
 touches the network), `--to <tier>` exports up to one (opening the PR in *that* repo), and the
