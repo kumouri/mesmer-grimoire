@@ -271,6 +271,9 @@ def _load_manifest(path):
 
 def _print_pr(pr, push, header, where=""):
     """Print the engine's stage_review_pr report: the push outcome, or the steps to run by hand."""
+    if pr.get("has_origin") is False:
+        print(f"  {pr['error']}")
+        return
     if push:
         if pr["pushed"]:
             print(f"  pushed branch {pr['branch']}{where}")

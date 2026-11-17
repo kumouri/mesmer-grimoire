@@ -218,7 +218,7 @@ a git `url` (cloned into a cache by `sync`) or a `path` to an existing repo:
 | `recall` | Context in → ranked, budgeted lesson digest out (the hot path). |
 | `capture` / `add` | Save a decision/convention/… to the local tier. |
 | `reflect` | Save a learned-from-failure lesson (needs `--reflection-of`). |
-| `promote <id…>` | Propose local lesson(s) for the shared tier, or `--to <tier>` / `--from-file <manifest>` to export up to a store. Commits each lesson alone on a review branch (your working tree and branch are untouched) and prints the push step; `--push` pushes too. Merging the PR is the approval. |
+| `promote <id…>` | Propose local lesson(s) for the shared tier, or `--to <tier>` / `--from-file <manifest>` to export up to a store. Commits each lesson alone on a review branch (your working tree and branch are untouched) and prints the push step when `origin` exists; `--push` pushes too. With no `origin`, reports the locally committed branch and asks you to configure a remote first. Merging the PR is the approval. |
 | `sync` | The only network path: `git pull` the shared memory, clone or pull every configured store, and retire local originals whose review PR has merged. |
 | `stores` | List configured shared stores (broader tiers) + whether each is fetched yet. |
 | `render` | Regenerate `memory/LESSONS.md` from the JSONL. |
@@ -237,7 +237,8 @@ Everything is also available as the Python API (`mn.recall/capture/reflect/promo
 and as MCP tools.
 
 Environment: `MNEMOSYNE_REPO` (primary repo), `MNEMOSYNE_CONFIG` (config path), `MNEMOSYNE_AUTHOR`
-(lesson author; without it lessons record `unknown`, never your login name), `MNEMOSYNE_CACHE` (where url-stores are cloned; default `~/.mnemosyne/stores`),
+(lesson author override; otherwise the memory repo’s git `user.name`, then `GIT_AUTHOR_NAME`,
+then `unknown`; never the OS login), `MNEMOSYNE_CACHE` (where url-stores are cloned; default `~/.mnemosyne/stores`),
 `MNEMOSYNE_LOCK_TIMEOUT` (seconds a save waits for the store lock; default 10), and
 `MNEMOSYNE_CAPTURE` (`off` turns the capture hooks off; recall is unaffected).
 
@@ -311,6 +312,13 @@ candidate was worth keeping, before any of it is automated.
   spool is never committed. `candidates.jsonl` holds candidates and labels; `decisions.jsonl` holds
   one line per hook run; a `fired` folder holds the short-lived markers that stop one event being
   handled twice.
+- **Repeated standing instructions:** S4 candidates are claimed once per host-provided session,
+  repo path and complete matched instruction line (not the truncated excerpt). An exact line in
+  that repo's AGENTS.md, CLAUDE.md or Copilot instruction file is already standing guidance and
+  does not become a candidate. A changed line still qualifies; without a session id only the
+  standing-file check applies. Hash-only claims live in the spool's `instructions` folder and
+  do not expire with the short event guard. Suppression logs `duplicate-instruction` and leaves
+  recall running. Existing candidates are never removed.
 - **What a candidate holds:** pointers only (signal, tool, repo-relative path, exit code, a short
   command head such as `npm test`), never tool output. The prompt signals keep a short excerpt of
   the user's words, with machine paths replaced by `<path>`. A candidate that carries a credential

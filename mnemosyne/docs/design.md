@@ -105,7 +105,9 @@ the review branch with git plumbing from the default branch (`origin/HEAD`, else
 exactly the promoted lesson, with `LESSONS.md` rendered to match. So nothing else that happens to
 be uncommitted rides along, you stay on your branch, and a store's cached clone stays on its
 default branch, where `sync` can see the merge. It returns the step left to run by hand (push, open
-the PR); with `push` set it pushes too. Nothing in the engine opens or merges the PR. A memory repo
+the PR); with `push` set it pushes too. Without `origin`, the branch is still committed locally and every surface reports that a remote
+is needed before a PR can exist; no push is attempted or suggested.
+Nothing in the engine opens or merges the PR. A memory repo
 outside git has no review to wait for, so there `promote` moves the lesson straight into the shared
 tier as `proposed`.
 
@@ -117,7 +119,8 @@ id and records `source.exported_from`. When ids do collide, the reviewed shared 
 every view, and `validate` reports the collision rather than letting the local lesson vanish.
 
 **Nothing leaves the local tier unscrubbed.** `promote`, `export` and `capture --shared` pass every
-outgoing lesson through `core.scrub_lesson`. The author is `$MNEMOSYNE_AUTHOR`, else `unknown`,
+outgoing lesson through `core.scrub_lesson`. The author is `$MNEMOSYNE_AUTHOR`, else the memory repo’s git `user.name`, then
+`GIT_AUTHOR_NAME`, else `unknown`,
 never the OS login. Absolute anchor paths become repo-relative or are dropped, and home-directory,
 drive, UNC and WSL paths in free text become `<path>`. A clean scrub is not clearance to publish;
 the review PR stays the gate.
@@ -194,8 +197,16 @@ keep signal above noise.
    (exit 3 / `LowValueError`) unless forced; a genuine domain failure (a trigger that didn't fire)
    is not matched and saves normally.
 2. **Dedup by reinforcement.** On capture, the engine finds the best same-category near-duplicate
-   (title+lesson Jaccard blended with tag Jaccard) and, at/above the threshold, **reinforces** it
+   (title+lesson Jaccard blended with tag Jaccard, plus a gated shorter-text containment score) and, at/above the threshold, **reinforces** it
    — bumping a counter (and eventually confidence) instead of adding a record.
+   The containment path requires the same category, at least two shared tags, three shared
+   non-tag key terms, reciprocal title support (two terms each), and 35% shorter-text coverage. Its score is 55% square-root text
+   containment + 25% tag containment + 20% text Jaccard; the larger of this and the original
+   score is used. It handles elaborated restatements without embeddings, a network call or a
+   changed threshold. This remains lexical: shared words do not prove equivalent advice.
+   Recall adds a one-line `possible duplicate?` hint for the nearest same-category active pair
+   involving a recalled lesson between 75% of the reinforce threshold and that threshold.
+   The hint never writes or blocks; normal recall usage tracking is unchanged.
 3. **Track real usage without churning the store.** `recall` writes usage to a **gitignored
    sidecar** (`memory/usage.local.json`); prune/stats merge it with the authored baseline. Reads
    never produce noisy diffs that would fight the PR gate.
@@ -240,6 +251,13 @@ with an exclusive marker in `memory/.capture/fired/`, keyed on the session and t
 normalized content, and the second run logs `duplicate` and stops. A marker expires after a few
 seconds, so a real repeat counts again. The claim fails open, because a double-fire costs a noisy
 line and a lost event costs a signal. The module docstring has the details.
+
+S4 instruction candidates have a separate guard: an exact normalized full instruction line
+already in the repo's own standing files is skipped, and other lines are claimed once per repo
+path and host-provided session id. Missing session ids fail open. Hash-only markers persist under
+the spool's instructions folder; no candidate history is scanned or deleted. The decision is
+`duplicate-instruction`, so candidate suppression does not trigger the bridge's event-duplicate
+early return or change repeated-question recall.
 
 For now it runs in **shadow mode**: candidates and decisions are recorded, but nothing becomes a
 lesson and nothing is asked. `candidate label` and `candidate stats` turn a week of that into each
