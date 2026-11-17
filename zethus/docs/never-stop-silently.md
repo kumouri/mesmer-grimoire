@@ -105,6 +105,11 @@ It refuses a stop whose `Why:` is a stale base, too: the agent [rebases a stale 
 itself](base-freshness-cadence.md#amendment-2026-11-10-zethus-rebases-a-stale-branch-itself). A
 `Why:` that names a failed fetch or a rebase conflict it can't decide is still a real stop.
 
+Since 2026-11-10 it also refuses a stop that hands the person a job the agent can do itself
+([do the work yourself](do-the-work-yourself.md)): a `Why:` that waits on the person to run,
+install, fix or regenerate something, unless it names what only they can give; a failed-fetch
+`Why:` that doesn't name the credential or network left; and a done stop over red CI.
+
 Limits, stated plainly:
 
 - The hook cannot see the plan. The kit keeps it in the host's todo tool, which a hook can't read,

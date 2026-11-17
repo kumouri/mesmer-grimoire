@@ -205,7 +205,7 @@ It fetches, counts the commits in `HEAD..origin/<base>`, and compares that with
 |---|---|---|
 | 0 | FRESH | Carry on. Use the merge-base it prints as the diff base from here on. |
 | 1 | STALE | Rebase it yourself, then carry on: [bring a stale branch up to date](../../skills/pre-push-gates/SKILL.md#bring-a-stale-branch-up-to-date), at either checkpoint. Do no stage work on a stale base. |
-| 3 | No answer: the fetch failed | Say so. Don't proceed as if the base were fresh. |
+| 3 | No answer: the fetch failed | Retry and diagnose it yourself: [when the fetch fails](../../skills/pre-push-gates/SKILL.md#when-the-fetch-fails). Don't proceed as if the base were fresh. |
 | 2 | Usage error | Fix the config (`branchModel.*`) or name the base, then re-run. |
 
 **Stages 1–5 and 7 don't run it.** They carry the merge-base forward from Stage 0, and Stage 7

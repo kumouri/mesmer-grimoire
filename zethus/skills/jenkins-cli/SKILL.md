@@ -40,8 +40,9 @@ java -version
 ```
 
 If this fails, the jar-based commands (trigger, abort via CLI, console `-f` tail, `who-am-i`) can't
-run — report that a JRE is missing rather than installing one unattended. The REST-based commands
-(everything using `Invoke-RestMethod`/`Invoke-WebRequest` below) need no JRE at all and still work.
+run. Don't install a JRE unattended, and don't stop for it either: use the REST equivalent below
+for the task (trigger, stop, console text and `/whoAmI/api/json` all have one), which needs no JRE
+at all. Only a task with no REST path warrants offering a JRE install, once, with the question tool.
 
 Confirm the three env vars are set, then build the Basic-auth header used by every REST call below:
 
@@ -202,8 +203,9 @@ Invoke-RestMethod -Method Post -Uri "$($env:JENKINS_URL)/job/<JOB_NAME>/<BUILD_N
 ```
 
 No dedicated jar `stop` sub-command exists on all Jenkins versions consistently — the REST `/stop`
-endpoint is the reliable path. Confirm the exact build number with the user before firing; aborting
-the wrong number wastes someone else's build.
+endpoint is the reliable path. Work out the exact build number yourself (the job's `lastBuild` and
+its `building` flag), and put that number in the go-ahead you ask for; aborting the wrong number
+wastes someone else's build.
 
 ### 2.9 List the build queue
 
@@ -290,8 +292,9 @@ Concretely:
 2. Get the user's go-ahead in this turn. Ask it with the harness's question tool ([why](../../docs/ask-with-the-question-tool.md)): two options, "Run it" (describe the exact effect) and "Don't run it" (nothing changes), neither preselected. Only a picked "Run it" runs it; a dismissed picker, no answer or a run with no one to ask means don't. With no question tool, ask a numbered list that accepts the number or any clear wording, never an exact phrase. A prior general instruction to "keep builds green" or
    similar does not count as standing authorization for a specific trigger/abort.
 3. If they decline or don't respond, don't run it — report back that it's pending.
-4. Only then issue the mutating call, and report back the queue item ID / build number it returned
-   so the user can follow along.
+4. Only then issue the mutating call, and report back the queue item ID / build number it returned.
+   When the task needs the build's result, resolve the queue item to its build and follow it
+   yourself, read-only, until it finishes.
 
 Reads (§2.1, §2.2, the read path of §2.3, §2.6, §2.7, §2.9, §2.10, §2.11, §2.12, §2.13, §2.14) need
 no confirmation — they change nothing on the Jenkins controller.
@@ -348,9 +351,9 @@ This checklist is for reviewing a session that used the skill, and the skill its
 
 CloudBees CI is a commercial Jenkins distribution. **Everything above in this skill —
 `jenkins-cli.jar`, the stock Jenkins REST API, the `-auth username:apiToken` pattern — works
-unmodified against a CloudBees CI instance.** Download `jenkins-cli.jar` from the operations
-center's own "Jenkins CLI" page rather than assuming a copy from elsewhere matches the target's
-Jenkins core version. CloudBees CI adds a small number of extra REST endpoints and one extra CLI
+unmodified against a CloudBees CI instance.** Get `jenkins-cli.jar` from the target itself
+(`<JENKINS_URL>/jnlpJars/jenkins-cli.jar`, the file its own "Jenkins CLI" page links) rather than
+assuming a copy from elsewhere matches the target's Jenkins core version. CloudBees CI adds a small number of extra REST endpoints and one extra CLI
 subcommand on top of that stock surface — nothing here requires a different tool.
 
 ### Extra auth option: service accounts

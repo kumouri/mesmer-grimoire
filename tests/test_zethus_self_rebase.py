@@ -135,7 +135,7 @@ class TheProcedure(unittest.TestCase):
     def test_the_working_agreement_carries_the_short_form(self):
         text = flat(AGREEMENT)
         for phrase in ("bring the branch up to date **yourself**", "Never hand the rebase to the person",
-                       "Stop only when the fetch fails", "never half-applied",
+                       "Stop only when the fetch still fails after you have retried and diagnosed it", "never half-applied",
                        "A stale base is not one of those: you rebase it yourself"):
             self.assertIn(phrase, text, phrase)
         self.assertNotIn("an answer, a rebase)", text)
@@ -241,7 +241,8 @@ STALE_STOP = ("Stage 6 · Gates — step 0 of 4: base freshness\n\n"
 FETCH_STOP = ("Stage 0 · Orient — step 1 of 3: base freshness\n\n"
               "Stopped at: Stage 0 · Orient — step 1\n"
               "Next: Stage 0 · Orient — step 2, read the config\n"
-              "Why: base-freshness gave no answer: the fetch failed, so the base is unknown")
+              "Why: base-freshness gave no answer: the fetch failed twice with a 403, so the remote "
+              "rejects the token; a new credential is needed")
 CONFLICT_STOP = ("Stage 6 · Gates — step 0 of 4: base freshness\n\n"
                  "Stopped at: Stage 6 · Gates — step 0, rebase paused at commit abc123\n"
                  "Next: Stage 6 · Gates — step 0, git rebase --continue once you rule\n"

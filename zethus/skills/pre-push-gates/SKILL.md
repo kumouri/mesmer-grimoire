@@ -26,8 +26,9 @@ red. The run that clears the push starts after the last edit, on the exact tree 
    a diff against a base that has moved. Exit 1 (STALE) means bring the branch up to date
    **yourself**, now, with [the procedure below](#bring-a-stale-branch-up-to-date), then go on to
    step 1. Don't stop for it, and don't hand the rebase to the person. Exit 3 means the fetch
-   failed and freshness is unknown; say so, and don't treat the base as fresh. That one is a stop,
-   because no rebase can fix it.
+   failed and freshness is unknown, so don't treat the base as fresh: retry and diagnose it
+   yourself ([when the fetch fails](#when-the-fetch-fails)). It is a stop only once what is left
+   is something only the person can give, such as a credential or network access.
 
    **This is one of the change's two freshness checkpoints** — the other is Stage 0, when the
    branch is created or rebased. The stages in between don't check, because staleness costs
@@ -48,8 +49,8 @@ red. The run that clears the push starts after the last edit, on the exact tree 
    | 0 | `GREEN — every gate ran and passed` | Push. |
    | 1 | `RED — fix before pushing: …` | Fix it **in this phase**, with the smallest change that turns it green, even if the plan scheduled that gate's remediation for a later phase, and without asking first. Say in the phase's report that it was pulled forward and why. The failing gate's output tail is printed below the table. Don't push. |
    | 4 | `GREEN except gate(s) the approved plan lets stay red` | The person approved a `push-red` ruling for those gates in the spec's *Gate remediation* table. Push, and say in the PR which gates are red and where the ruling is. |
-   | 3 | `GREEN on what ran, but N gate(s) NOT checked` | Install the missing toolchain and re-run. If that's genuinely impossible, push, and list those gates under *What was not checked* in the PR. |
-   | 2 | No gates found / usage error | Configure `gates.steps`. No gates is not a green run. |
+   | 3 | `GREEN on what ran, but N gate(s) NOT checked` | A `SKIP` gate: install the missing toolchain yourself (the repo's wrapper, its version manager, or the package manager) and re-run. A `MANUAL` gate: the script ran its command and printed the output; judge that output against the gate's `expect` yourself and give your verdict, with the output, in the PR's *Evidence*. Only a gate this machine really can't run goes under *What was not checked*, with why. |
+   | 2 | No gates found / usage error | Configure `gates.steps` yourself, starting from the CI workflow's steps. No gates is not a green run. |
 
 4. **Paste the table into the PR's *Evidence* section,** unedited.
 
@@ -105,6 +106,22 @@ turn in only two cases: exit 3 (the fetch failed, so there is nothing to rebase 
 conflict you can't decide (step 4). The number of commits behind, a conflict you can resolve, and a
 force-push of the branch you are working on are not stops.
 
+## When the fetch fails
+
+`base-freshness` exit 3 means `git fetch` failed, so nothing is known about the base. Find out why
+and fix what is yours before you stop, the same way you'd fix a red gate:
+
+1. **Retry once.** A dropped connection or a timeout often clears on a second try.
+2. **Read the error line it printed,** then check the remote: `git remote -v` names it, and
+   `git ls-remote --heads <remote>` tries it without touching the checkout.
+3. **Fix what you can:** a remote with another name (`--remote`, and offer to record it in
+   config), a base branch that was renamed (`branchModel.base`), or a remote URL with a typo that
+   the other remotes or the repo's docs settle. Re-run `base-freshness` after the fix.
+4. **Stop only for what this machine can't give you,** and name exactly that one thing: a
+   credential that is missing or rejected (a token, SSO or 2FA sign-in), or a network the person
+   must join (a VPN, a proxy). Say what you tried. Don't build on the base, and don't use
+   `--no-fetch` as a way round: the last fetch is not a fresh base.
+
 ## Rules
 
 - **Every local gate is green before a phase pushes, whatever the phase plan says,** unless the
@@ -116,4 +133,7 @@ force-push of the branch you are working on are not stops.
 - **A new gate starts report-only.** If you're adding a gate to the repo, clear the existing
   findings before making it blocking. A gate that is red on the day it lands gets switched off.
 - **Pending CI is not green,** and neither is red CI that "looks unrelated". Neither one merges.
-  Surface it and let a person decide.
+  Red CI on your own PR is yours to fix, like a red local gate
+  ([zethus-pr-description](../zethus-pr-description/SKILL.md#step-4-read-ci-and-fix-a-red-check)):
+  read the failing check's log, reproduce it locally, fix it, re-run the gates and push. What a
+  person decides is only whether to merge, wait or waive.

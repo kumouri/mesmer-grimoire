@@ -17,7 +17,10 @@ only checks that a *pipeline-level* default exists and is one of the three allow
 nothing about any one procedure's override, which lives in the rule ledger instead.
 
 Exit codes: 0 HLA found with a parseable default · 1 no HLA configured, or found but the default
-line is missing/unparseable — stop and ask, don't assume · 2 usage error.
+line is missing/unparseable — don't assume · 2 usage error. On 1 the agent does the lookup
+itself: a missing or moved HLA is searched for in the repo (the message lists the candidates), and
+only the disposition, which is the person's decision, is asked, and then written into the HLA by
+the agent.
 """
 from __future__ import annotations
 
@@ -27,7 +30,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import UsageError, cfg, find_repo_root, load_config, rel  # noqa: E402
+from _common import UsageError, cfg, find_repo_root, hla_lookup, load_config, rel  # noqa: E402
 
 DISPOSITIONS = ("keep", "wrap", "port")
 DEFAULT_LINE_RE = re.compile(
@@ -46,17 +49,20 @@ def find_default_disposition(text: str) -> str | None:
 def check(repo: Path, config: dict, explicit: str | None) -> tuple[int, str]:
     hla = explicit or cfg(config, "modernization.hlaDoc")
     if not hla:
-        return 1, ("no HLA document configured. Set modernization.hlaDoc in the Zethus config, or "
-                   "pass --hla, before Stage 2 can start. Stopping to ask, not assuming a default.")
+        return 1, hla_lookup(repo, "no HLA document configured (modernization.hlaDoc, or --hla); "
+                                   "Stage 2 can't start without one.")
     path = Path(hla) if Path(hla).is_absolute() else repo / hla
     if not path.is_file():
-        return 1, f"modernization.hlaDoc points at {hla!r}, but no such file exists. Stopping to ask."
+        return 1, hla_lookup(repo, f"modernization.hlaDoc points at {hla!r}, but no such file "
+                                   "exists; it may have moved.")
     text = path.read_text(encoding="utf-8", errors="replace")
     disposition = find_default_disposition(text)
     if disposition is None:
         return 1, (f"{rel(path, repo)} exists but has no parseable "
-                   "'Default stored-procedure disposition: keep|wrap|port' line. Stopping to ask "
-                   "rather than assuming one.")
+                   "'Default stored-procedure disposition: keep|wrap|port' line. The disposition "
+                   "is the person's decision: ask it with the question tool (keep, wrap or port, "
+                   "your recommendation from the HLA's own prose first), then write the line into "
+                   "the HLA yourself and re-run. Not assuming one.")
     return 0, (f"HLA input satisfied: {rel(path, repo)}, default stored-procedure disposition "
               f"= {disposition}. Recovered rules may still override this per procedure.")
 

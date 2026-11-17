@@ -9,8 +9,8 @@ This skill wraps the `jira` binary from [`ankitpokhrel/jira-cli`](https://github
 It's the pick over Atlassian's own official `acli` because `acli` is **Jira Cloud only**, and this
 skill also has to work against Jira Data Center/Server — `jira-cli` covers both, with non-interactive
 env-var-only auth that fits a headless agent far better than `acli`'s stdin-piped-token-or-browser-OAuth
-flow. Known gaps: no dedicated "list transitions available on this issue" command short of running
-`move` interactively, no attachment upload/download, no dashboard/filter management (all of which
+flow. Known gaps: no dedicated "list transitions available on this issue" command (read them over
+REST instead, § 5), no attachment upload/download, no dashboard/filter management (all of which
 `acli` does have — if your Jira turns out to be Cloud-only, `acli` is worth a second look for those).
 
 Other tools install a binary that is also called `jira` (go-jira, for one), and its commands differ.
@@ -31,8 +31,10 @@ skill when they reach Jira, and keep their own approval step on top of the confi
    jira --version
    ```
 
-   If this fails with "command not found," stop and report that `jira-cli` isn't installed — do not
-   install it yourself unless explicitly asked. (Install methods, if asked: on Windows,
+   If this fails with "command not found," don't install it unattended, and don't hand the install
+   to the person either: offer it once with the question tool ("Install jira-cli with <method>
+   (Recommended)" / "Don't install"), and on a picked yes run the install yourself and re-run
+   `jira --version`. (Install methods: on Windows,
    `scoop bucket add extras` and then `scoop install jira-cli`; also `brew tap ankitpokhrel/jira-cli`
    and `brew install jira-cli`, `go install github.com/ankitpokhrel/jira-cli/cmd/jira@latest`, or a
    binary from the [releases page](https://github.com/ankitpokhrel/jira-cli/releases).)
@@ -168,11 +170,11 @@ the CLI drops into an interactive prompt that will hang a non-interactive sessio
 
 | Symptom | Likely cause | What to do |
 |---|---|---|
-| `jira me` errors with 401/"unauthorized" | Token expired or wrong `JIRA_AUTH_TYPE` for the instance (e.g. using `basic` against a PAT-only Data Center setup) | Report it; do not attempt to regenerate a token yourself |
-| 403 on a specific project/issue | Account lacks permission on that project, or wrong site (`JIRA_BASE_URL` config points elsewhere) | Confirm the project key and the configured base URL before assuming it's a bug |
+| `jira me` errors with 401/"unauthorized" | Token expired or wrong `JIRA_AUTH_TYPE` for the instance (e.g. using `basic` against a PAT-only Data Center setup) | Rule out the wrong `JIRA_AUTH_TYPE` yourself first (compare it with the instance type). If that isn't it, report that the token needs regenerating, the one thing left; don't attempt to regenerate it yourself |
+| 403 on a specific project/issue | Account lacks permission on that project, or wrong site (`JIRA_BASE_URL` config points elsewhere) | Check the project key (`jira project list`) and the configured base URL yourself before assuming it's a bug; a real permission gap is then the one thing to report |
 | 404 on an issue/project key | Wrong project key, issue deleted, or key belongs to a different project the current config isn't scoped to | Re-check the key casing/prefix; list the project first |
 | 429 / "rate limit" | Too many requests too fast (bulk scripted loops) | Back off and retry with delay; don't tighten a retry loop against it |
-| `move` silently offers no matching transition | Target status name doesn't match a transition available from the issue's current status | Run `jira issue move "<KEY>"` interactively once (human-supervised) to see the real transition list, or view the issue's current status first |
+| `move` silently offers no matching transition | Target status name doesn't match a transition available from the issue's current status | Read the real transition list yourself, read-only: `GET <JIRA_BASE_URL>/rest/api/2/issue/<KEY>/transitions` with the same auth the CLI uses, or view the issue's current status first |
 | CLI drops into an interactive prompt and the process hangs | Missing `--no-input` (create/edit/worklog) or missing `--raw`/`--plain` on a list command | Add the missing flag; never leave a headless call able to wait on stdin |
 | "config not found" / `jira init` never run | No config file generated yet on this machine | Report as a setup gap, don't auto-run `jira init` (it's interactive) |
 | Values look stale after a known change | `JIRA_CONFIG_FILE` pointing at the wrong instance/project when more than one is configured | Check which config is active before assuming Jira itself is wrong |

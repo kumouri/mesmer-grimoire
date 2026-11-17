@@ -23,8 +23,11 @@ no hardcoded default for either — check before Stage 2 closes:
 python <kit root>/scripts/webapp-hla-input-check.py
 ```
 
-Exit 0 prints both. Exit 1 means **stop and ask** — never assume React+Vite, never assume Next.js,
-never assume `shim` or `replace` for auth (the auth ask *recommends* shim, but doesn't assume it).
+Exit 0 prints both. Exit 1 means **don't assume** — never React+Vite, never Next.js, never `shim`
+or `replace` for auth (the auth ask *recommends* shim, but doesn't assume it). What is yours first:
+a missing or moved HLA, which you find in the repo from the candidates the message lists, then fix
+`modernization.hlaDoc` and re-run. Only a missing frontend or auth answer is the person's: ask it
+with the question tool, write the line into the HLA yourself, and re-run.
 A recovered rule can still override the auth default for one specific check, recorded as its own
 ADR. See [`webapp-session-state-to-stateless`](../webapp-session-state-to-stateless/SKILL.md) for
 how the auth strategy interacts with session-state classification (an identity/authz claim lives

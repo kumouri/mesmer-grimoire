@@ -114,7 +114,10 @@ branch style, the agent brings the branch up to date itself and carries on. The 
 
 It still stops in two cases, because a rebase can't settle them:
 
-- **No answer (exit 3).** The fetch failed, so there is no known base to rebase onto.
+- **No answer (exit 3).** The fetch failed, so there is no known base to rebase onto. Since
+  2026-11-10 that is a stop only after the agent has retried and diagnosed the fetch itself, and
+  what is left is a credential or network access only the person has
+  ([do the work yourself](do-the-work-yourself.md)).
 - **A conflict that needs a decision the spec and diff can't make,** such as the base changing the
   very behaviour this change edits, incompatibly. It names the file, the hunk and why, and leaves
   the rebase paused cleanly at that commit (every other file resolved and staged, nothing partly

@@ -37,8 +37,9 @@ alongside the framework one.
    `@PreAuthorize`. `<session-timeout>` is the session lifetime contract; record it even though it
    isn't tied to one specific attribute.
 3. **A scriptlet (`<% ... %>`) with a conditional, loop, or JDBC call is a `kind: calculation` row,
-   `confidence: Medium`.** The reader flags *presence* of logic reliably; its exact behaviour needs
-   a person reading the block — don't paraphrase the scriptlet from its shape alone.
+   `confidence: Medium`.** The reader flags *presence* of logic reliably; for its exact behaviour,
+   read the block yourself, as [recover-business-rules](../recover-business-rules/SKILL.md) does —
+   don't paraphrase the scriptlet from its shape alone.
 4. **JSTL `<c:if>`/`<c:choose>` gate page content — read them as validation rules,** not "just
    markup." A `<c:if test="${user.role == 'ADMIN'}">` block hiding a form section is an authz rule
    in disguise; cite it accordingly rather than under a generic view-logic bucket.

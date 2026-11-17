@@ -87,8 +87,27 @@ covered the earlier commit. The push is what lets the next phase start; the merg
 schedule.
 
 Next: an open PR is progress, not a place to stop. If the spec has another phase, start it in the same turn with
-[implement-phase](../implement-phase/SKILL.md), stacked on this branch. If it has none, say the
-change is done and link the PR.
+[implement-phase](../implement-phase/SKILL.md), stacked on this branch. If it has none, read CI
+([step 4](#step-4-read-ci-and-fix-a-red-check)), then say the change is done and link the PR.
+
+## Step 4: read CI, and fix a red check
+
+CI runs on what you pushed. A red check on your own PR is a gate that went red after the push, and
+fixing it is your job, not the reviewer's.
+
+- **Read the checks:** `gh pr checks <number>`, or the GitHub tool this session has. While they're
+  pending, carry on with the next phase and read them again before your final stop. At the last
+  phase, wait on them the way you wait on a background command (`gh pr checks <number> --watch`),
+  up to the same bound.
+- **A red check:** read the failing job's log (`gh run view <run-id> --log-failed`), reproduce it
+  locally, and fix it on that phase's branch (rebase anything stacked above it with
+  `--update-refs`). Then re-run `run-local-gates`, push, and say in a PR comment what failed and
+  what fixed it. If no local gate caught it, add the missing gate to `gates.steps` so the next run does.
+- **A check you can't reproduce or fix after two tries** goes to the stuck-branch rule
+  ([fresh-eyes-investigation](../fresh-eyes-investigation/SKILL.md)). It is not handed over as is.
+- **Only the person decides** whether to merge, and whether to wait out or waive a check that is
+  red or flaky. Present that with the evidence when it's the one thing left.
+- **No `gh` and no GitHub tool:** say in the final stop that CI wasn't read, and why.
 
 ## Anti-patterns
 
