@@ -90,6 +90,29 @@ Next: an open PR is progress, not a place to stop. If the spec has another phase
 [implement-phase](../implement-phase/SKILL.md), stacked on this branch. If it has none, read CI
 ([step 4](#step-4-read-ci-and-fix-a-red-check)), then say the change is done and link the PR.
 
+## In `pr-later` style: no PR until the person asks
+
+If `branchModel.style` is `pr-later`, this stage opens **no PR**, and no draft PR as a stand-in
+([why](../../docs/phase-advance-without-pr.md)). The repo is one where an open PR draws attention
+before the team wants it. For each phase:
+
+- **Push the working branch** as a backup once the pre-push gates are green, unless the person said
+  not to push. Pushing a branch opens nothing.
+- **Write the body anyway, into the spec, not GitHub.** The phase's *As built* list carries what
+  steps 1 and 2 would put in a PR: the deviations, the gate table, the tests and what they prove,
+  what wasn't checked, and any rebase onto `origin/<base>`.
+- **Next:** if the spec has another phase, start it in the same turn with
+  [implement-phase](../implement-phase/SKILL.md), on the same branch. If it has none, the change is
+  done for now: say so, name the branch and its tip, and offer to open the PR. Opening it is the
+  person's call.
+
+**When the person says to open it** (or changes `branchModel.style`), run
+[pre-push-gates](../pre-push-gates/SKILL.md) on the tip, then follow steps 1 to 4 for **one** PR
+against `<base>` that covers every phase committed so far. Build *Changes* and *Evidence* from each
+phase's *As built* list, with the fresh gate table on top. Mark those phases `in review (PR #n)` in
+the spec. Later phases push to that PR, as in `rebase` style; offer once, with the question tool,
+to change `branchModel.style` to `rebase` in config.
+
 ## Step 4: read CI, and fix a red check
 
 CI runs on what you pushed. A red check on your own PR is a gate that went red after the push, and

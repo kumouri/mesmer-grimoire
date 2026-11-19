@@ -33,7 +33,10 @@ of these, so a minimum spec can be promoted later by adding sections.
    not stop.
 7. **Phases.** Put the smallest useful step first. **Phase 0 changes no behaviour**: it
    instruments, logs, measures or reports, so it is safe to ship alone. Give each later phase what
-   it is gated on: Phase 0 data (the default window is one week), or a named decision.
+   it is gated on: Phase 0 data (the default window is one week), or a named decision. **Every
+   phase logs what it builds**, not only Phase 0: name in each phase's *What* the run log it adds
+   (starting config, decisions, state changes, full errors), built with the code, not when
+   debugging ([why](../../docs/log-from-the-start.md)).
    **Gate remediation.** If any phase remediates something a local gate checks (SonarQube
    findings, lint, types), the plan can't leave that in the phase list: phase 0 couldn't push past
    a red gate. Fill in the spec's **Gate remediation** section, naming each such gate, and in the
@@ -64,6 +67,8 @@ of these, so a minimum spec can be promoted later by adding sections.
 - Set the status to `SIGNED-OFF`, then run `gate-remediation-check.py` on the spec: it fails while a
   ruling is still `PENDING`. The status becomes `PARTIAL(merged: …; in review: …)` as phases are
   pushed and merged, and `BUILT` once the last one merges. A pushed phase is in review, not built.
+  In `pr-later` style, before any PR opens, it is `PARTIAL(on branch: …; committed: …)`
+  ([why](../../docs/phase-advance-without-pr.md)).
 - **Next:** in the same turn, start Phase 0 with [implement-phase](../implement-phase/SKILL.md).
   Write its steps, then begin the first one. These records, and any check you run over them
   (`docs-pointer-check`, `git diff --check`), finish the spec stage. They are not a place to stop.

@@ -27,10 +27,14 @@ recommend and why in one line each.
 
 ## Phases
 
+> Phase 0 changes no behaviour. Every phase logs what it builds: name in *What* the run log it adds
+> (starting config, decisions, state changes, full errors), in the commit that creates the code.
+> Delete this note.
+
 | Phase | What | Behaviour change | Verified by |
 |---|---|---|---|
-| 0 | Instrument / report only | **None** | … |
-| 1 | … | … | … |
+| 0 | Instrument / log / report only | **None** | … |
+| 1 | … (and its run log) | … | … |
 
 ## Gate remediation
 
