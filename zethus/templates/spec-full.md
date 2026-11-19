@@ -4,8 +4,8 @@
 
 > Status is one of `DRAFT` → `SIGNED-OFF` → `PARTIAL(merged: …; in review: …)` → `BUILT`, or
 > `MEMO` for a write-up that proposes nothing to build. A phase pushed to an open PR is
-> `in review`, not merged; the spec is `BUILT` only once its last phase's PR merges. Delete this
-> note.
+> `in review`, not merged; the spec is `BUILT` only once its last phase's PR merges. In `pr-later`
+> style, before any PR opens, it is `PARTIAL(on branch: …; committed: …)`. Delete this note.
 
 ## The ask
 
@@ -76,15 +76,21 @@ The residual risk after this ships, stated rather than implied.
 
 Smallest useful step first. **Phase 0 changes no behaviour**: it records, measures, logs or
 reports, so it is safe to ship alone, and its data sizes the phases after it. Each phase is green
-on its own, and the next starts once it is pushed to its PR, not once it merges.
+on its own, and the next starts once it is pushed to its PR, not once it merges (in `pr-later`
+style, once it is committed with every local gate green, with no PR). **Every phase logs what it
+builds**: name in *What* the run log each phase adds (starting config, decisions, state changes,
+full errors), in the commit that creates the code, not later when debugging.
 
 | Phase | What | Behaviour change | Gated on | Verified by |
 |---|---|---|---|---|
-| 0 | Instrument / report only | **None** | Sign-off of this spec | … |
-| 1 | … | … | Phase 0 data (default window: one week) or a named decision | … |
+| 0 | Instrument / log / report only | **None** | Sign-off of this spec | … |
+| 1 | … (and its run log) | … | Phase 0 data (default window: one week) or a named decision | … |
 
 When a phase is pushed, mark it `in review (PR #n)` here, and `merged (PR #n)` once its PR merges.
-Add an **As built** list: every deviation from this spec, each with its reason.
+In `pr-later` style, with no PR yet, mark it `on branch (<sha>)` once pushed, or
+`committed (<sha>)` while local, never `in review`.
+Add an **As built** list: every deviation from this spec, each with its reason (in `pr-later`
+style, also the phase's gate table and any rebase, since no PR holds them yet).
 
 ## Gate remediation
 

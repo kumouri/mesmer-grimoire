@@ -645,6 +645,8 @@ class KitContract(unittest.TestCase):
         self.assertEqual(fm.get("name"), "zethus")
         self.assertRegex(path.name, r"^[A-Za-z0-9._-]+$")
         self.assertLess(len(path.read_text(encoding="utf-8")), 30000)
+        mirror = KIT / "agents" / path.name     # what IntelliJ reads; the header makes it longer
+        self.assertLess(len(mirror.read_text(encoding="utf-8")), 30000, "the generated mirror too")
         tools = json.loads(fm["tools"])
         self.assertTrue(set(tools) <= {"read", "search", "edit", "execute", "web", "todo", "agent"})
 

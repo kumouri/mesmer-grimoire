@@ -18,7 +18,9 @@ applyTo: "**/*.md"
   they are wrong by the next commit. Say how to measure them instead.
 - **Spec status is one of** `DRAFT`, `SIGNED-OFF`, `PARTIAL(merged: …; in review: …)`, `BUILT`, or
   `MEMO`. A phase pushed to an open PR is `in review`, never `merged` or `BUILT`. A spec is not
-  `BUILT` until the PR that builds its last phase has merged.
+  `BUILT` until the PR that builds its last phase has merged. In `pr-later` style, a phase with no
+  PR yet is `on branch (<sha>)` when pushed or `committed (<sha>)` when local, never `in review`,
+  and the status is `PARTIAL(on branch: …; committed: …)`.
 - **Open questions are edited in place, never deleted.** When one is answered, mark it
   `DECIDED (date, ADR id)` or `DEFERRED (to what)`.
 - **ADRs are append-only in spirit.** To change a decision, write a new ADR that supersedes the old

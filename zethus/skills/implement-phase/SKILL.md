@@ -1,6 +1,6 @@
 ---
 name: implement-phase
-description: Implement exactly one phase of a signed-off spec on its own branch (or as one commit series on a long-lived branch, in rebase style) — Phase 0 first, which changes no behaviour — keeping the diff inside the phase, flagging anything the spec didn't cover instead of silently deciding it, and recording deviations as an "As built" list. Use when a spec has been signed off and it's time to write code, or when resuming a phase.
+description: Implement exactly one phase of a signed-off spec on its own branch (or as one commit series on a long-lived branch, in rebase or pr-later style) — Phase 0 first, which changes no behaviour, and logging first in every phase — keeping the diff inside the phase, flagging anything the spec didn't cover instead of silently deciding it, and recording deviations as an "As built" list. Use when a spec has been signed off and it's time to write code, or when resuming a phase.
 ---
 
 # Implement a phase
@@ -16,6 +16,9 @@ procedure keeps each phase small and keeps its deviations visible.
 - You know which phase you're building, and every earlier phase is **committed, green on the
   local gates, and pushed to its PR**. Its PR does not have to be merged: merging is a person's
   call, made whenever the team's process allows ([why](../../docs/phase-advance-on-push.md)).
+  If `branchModel.style` is `pr-later`, no PR is needed either: every earlier phase is
+  **committed on the working branch with every local gate green**, pushed or not, and no PR is
+  opened for it ([why](../../docs/phase-advance-without-pr.md)).
 - You're on a branch for **this phase only**. If this phase needs a **new** branch (every phase
   after the first), stack it on the previous phase's branch as pushed:
   `git switch -c <this-phase> <previous-phase>`, and open its PR against that branch, so the PR
@@ -24,7 +27,8 @@ procedure keeps each phase small and keeps its deviations visible.
   you're on the branch Stage 0 just cut or rebased, it already sits on a base fetched and confirmed
   minutes ago, so check that it's the branch you expect and don't fetch again. If
   `branchModel.style` is `rebase`, you're instead on the one long-lived branch, and this phase is
-  the next commit series on it, pushed to the same PR (below).
+  the next commit series on it, pushed to the same PR (below). If it is `pr-later`, you're on the
+  one working branch, and this phase is the next commit series on it, with no PR.
 - The base was confirmed fresh when the branch was created or rebased (Stage 0). **Don't re-run
   the freshness gate to start a phase** — it runs twice per change, at Stage 0 and again before
   the push ([pre-push-gates](../pre-push-gates/SKILL.md)), which is where a base that moved while
@@ -38,7 +42,9 @@ procedure keeps each phase small and keeps its deviations visible.
    it is gated on data or a decision that doesn't exist yet, stop and say so.
 2. **Phase 0 changes no behaviour.** It only instruments, logs, measures, reports, or adds tests
    that describe today's behaviour. Test yourself: if Phase 0 shipped and nothing followed, would
-   any user or caller notice? If they would, it isn't Phase 0.
+   any user or caller notice? If they would, it isn't Phase 0. A Phase 0 that only adds logging is
+   a valid Phase 0, but logging isn't only Phase 0's job: every phase logs what it builds
+   ([below](#logging-is-the-first-deliverable-in-every-phase)).
 3. **Write the tests the spec's test plan names for this phase,** in the same change as the code.
    See [test-plan](../test-plan/SKILL.md).
 4. **Stay inside the phase.** If you find something that needs doing but isn't in this phase, don't
@@ -59,11 +65,21 @@ procedure keeps each phase small and keeps its deviations visible.
    long-lived branch, not a branch: name the phase in each
    subject (`feat(retry): phase 1 — …`), don't interleave commits from two phases, and start the
    next phase only once this one is committed, green on the gates, and pushed to the PR. Committing is not the end of a phase: the gates, the push and the PR follow in the same turn.
+   In `pr-later` style the phase is a commit series on the working branch in the same way, but the
+   next phase starts once this one is committed with every local gate green. Then push the branch
+   as a backup, after the pre-push gates, unless the person said not to; **open no PR**, not even a
+   draft, until the person says to.
 6. **Update the spec** in the same branch. Mark the phase `in review (PR #n)`, and any earlier
    phase whose PR has merged since `merged (PR #n)`; add an **As built** list with every deviation
    and its reason. The status names both halves, leaving out an empty one:
    `PARTIAL(merged: phases 0–1; in review: phase 2)`. A pushed phase is in review, not built:
-   leave `BUILT` for when the last phase's PR merges.
+   leave `BUILT` for when the last phase's PR merges. In `pr-later` style there is no PR to name:
+   mark the phase `on branch (<short sha>)` once it is pushed, or `committed (<short sha>)` while
+   it is only local, never `in review` or `merged`. The status reads
+   `PARTIAL(on branch: phases 0–1; committed: phase 2)`, leaving out an empty group. With no PR to
+   hold it, the **As built** list also carries this phase's gate table and any rebase onto
+   `origin/<base>`, so the PR body is ready when the person asks for it
+   ([when the PR opens](../../docs/phase-advance-without-pr.md#when-the-pr-is-eventually-opened)).
 7. **Code in progress doesn't hold work that doesn't run it.** A deployed run, a remote job or a
    long-running task starts as soon as this phase's pending change doesn't touch what it runs.
    Check the image or artifact build and the deploy definition instead of guessing, say in one
@@ -71,11 +87,29 @@ procedure keeps each phase small and keeps its deviations visible.
    collected while local tooling was still changing get re-judged with its final version, and the
    run log says so ([why](../../docs/independent-work-runs-concurrently.md)).
 
+## Logging is the first deliverable, in every phase
+
+Any script, tool or feature this phase creates gets its logging **in the same commit that creates
+it**, before its features, never later when debugging. It finds and fixes errors faster than any
+amount of inference afterwards ([why](../../docs/log-from-the-start.md)).
+
+- **What the log holds, at minimum:** the configuration the run started with, the decisions it made
+  and the input behind each, the state changes that matter (a file written, a record updated, a
+  retry, a fallback taken), and full errors: message, stack trace, and the input that caused them.
+- **How it is written:** line by line as it happens, so it survives a crash, at a path of its own
+  per run for anything long or repeated. Use the project's logging library and levels where it has
+  them, the stdlib logger in a stdlib script. Never log a secret's value: log that it was present.
+- **Existing code without a log:** this phase adds one to the paths it changes. If the spec didn't
+  plan it, it is the first row of step 4's table (needed, small, reversible): do it and list it
+  under **As built**.
+- **A failure with no log:** add the log first, then reproduce, then form a theory.
+
 ## Every local gate is green before this phase pushes
 
 Whatever the phase plan says. Before the push, `run-local-gates` must be green on every gate,
 SonarQube and every other local gate included ([why](../../docs/gate-remediation-in-the-plan.md)).
-If a gate is red:
+In `pr-later` style the same green run is also what lets the next phase start, pushed or not. If a
+gate is red:
 
 1. **Fix it in this phase, without stopping to ask,** even when the plan put that gate's
    remediation in a later phase. A later phase's name is not a waiver.

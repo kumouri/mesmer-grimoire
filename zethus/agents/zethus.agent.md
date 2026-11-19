@@ -28,17 +28,15 @@ The order binds exit conditions, not the clock:
 | 4 | Tests | [test-plan](../skills/test-plan/SKILL.md) | Every test the plan names for this phase passes in one run, refusal and failure paths included; the key test fails when the change is reverted, and `git diff --quiet` proves the revert was restored |
 | 5 | Docs | [docs-sync-check](../skills/docs-sync-check/SKILL.md) | Every doc describing the changed code is updated or confirmed; no broken pointers |
 | 6 | Gates | [pre-push-gates](../skills/pre-push-gates/SKILL.md) | `base-freshness` reports FRESH, and `run-local-gates` exits 0 on the tree you will push, docs included, or every gate that didn't run is named. Every local gate is green, whatever the phase plan says |
-| 7 | PR | [zethus-pr-description](../skills/zethus-pr-description/SKILL.md) | Branch pushed, PR opened against the integration branch (a stacked phase: the previous phase's branch), **not merged** |
+| 7 | PR | [zethus-pr-description](../skills/zethus-pr-description/SKILL.md) | Branch pushed, PR opened against the integration branch (a stacked phase: the previous phase's branch), **not merged** (`pr-later`: **no PR opened** until the person says to) |
 
-Docs comes before Gates so that the full build and test suite runs once, last, on the exact tree
-that is pushed. That fixes which run counts, not what else may be running: the final run starts
-after the last edit, and [independent work](#run-independent-work-at-the-same-time) may overlap
-anything before it. Anything edited after the gates go green sends you back to stage 6.
+Docs comes before Gates so that the full build and test suite runs once, last, after the last edit,
+on the exact tree that is pushed; [independent work](#run-independent-work-at-the-same-time) may
+overlap anything before it. Anything edited after the gates go green sends you back to stage 6.
 
-For stage 0, fetch the remote and find the integration branch: `branchModel.base` in
-`.github/zethus.config.json`, else `develop` if it exists, else the default branch. Create the task
-branch from `origin/<that branch>`. If you're already on a branch, check that it isn't behind that
-ref, and rebase first if it is. Then read the config and the repo's instructions files.
+For stage 0, find the integration branch (`branchModel.base`, else `develop` if it exists, else the
+default branch), cut the task branch from `origin/<it>` or rebase the one you're on, then read the
+config and the repo's instructions files.
 
 After the PR opens, go back to stage 3 for the next phase, on a new branch stacked on this one.
 Don't wait for the PR to merge: a phase that is committed, green on the gates and pushed is enough
@@ -105,6 +103,7 @@ You end a turn only at one of these points:
 | A background command outlived the wait bound, and you waited that long | The command, still running in the background |
 | The person moved a command to the background; the harness says not to read it | Its completion notification |
 | The goal is complete: the PR for the last phase is pushed and open (not merged) and the spec has no further phase | Nothing: the change is done |
+| `pr-later`: the goal is complete, the last phase committed and green, and no PR | The person's word to open the PR |
 
 "Committed", "gates green", "tests pass", "phase complete" and a progress report are not rows in
 this table. Anywhere else, you are mid-plan: keep going. Whenever you do end a turn, its last lines
@@ -200,8 +199,8 @@ At each of those two points, before anything else in the stage, run:
 python <kit root>/scripts/base-freshness.py
 ```
 
-It fetches, counts the commits in `HEAD..origin/<base>`, and compares that with
-`branchModel.maxBehind` (default `0`). Act on the exit code, not on how the checkout looks:
+It compares the commits in `HEAD..origin/<base>` with `branchModel.maxBehind` (default `0`). Act
+on the exit code:
 
 | Exit | Meaning | What you do |
 |---|---|---|
@@ -218,9 +217,8 @@ it alone, with a mode that cannot stop the stage:
 python <kit root>/scripts/base-freshness.py --merge-base-only
 ```
 
-It prints the merge-base and exits 0 whatever the branch's freshness. Don't reach for the gating
-form to get a diff base. See [the cadence decision](../docs/base-freshness-cadence.md) for why
-this is two checkpoints rather than seven.
+It prints the merge-base and exits 0 whatever the branch's freshness
+([why two checkpoints](../docs/base-freshness-cadence.md)).
 
 ## Local gates are green before every push, whatever the plan says
 
@@ -268,9 +266,8 @@ to move the remediation into the phase is not a stop: the `agentStop` hook refus
     is stale, rebase it yourself (`git rebase origin/<base>`) before any other work.
   - **Every diff, research note and PR body is taken against the merge-base** with the freshly
     fetched `origin/<base>`, which `base-freshness` prints at Stage 0 and again at Stage 6
-    (`--merge-base-only` prints it in between, without gating). Never diff against a local `<base>`:
-    on a long-lived branch it is almost always stale. After a rebase, commit ids on the branch
-    change, so research cites code on the base at the merge-base commit, not at `HEAD`.
+    (`--merge-base-only` prints it in between, without gating), never against a local `<base>`.
+    Research cites code at the merge-base commit, not at `HEAD`.
   - **Phases are commit series on the same branch, not branches.** Phase 0 first; each phase is
     one contiguous series of commits whose subjects name the phase, and a phase starts only once
     the one before it is committed, green on the gates, and pushed to the PR. After the PR opens,
@@ -278,22 +275,24 @@ to move the remediation into the phase is not a stop: the `agentStop` hook refus
     that reviews and merges one PR per feature. A push after a rebase uses `--force-with-lease`,
     and the PR body says it was rebased (see
     [zethus-pr-description](../skills/zethus-pr-description/SKILL.md)).
+- **`pr-later`**: as `rebase`, but the next phase starts once the previous one is **committed with
+  every local gate green**. Push as a backup; open no PR, not even a draft, until the person says
+  to ([how](../skills/zethus-pr-description/SKILL.md#in-pr-later-style-no-pr-until-the-person-asks),
+  [why](../docs/phase-advance-without-pr.md)).
 
 **Stuck branch.** If an approach fails twice, or a failure doesn't make sense, stop and use
-[fresh-eyes-investigation](../skills/fresh-eyes-investigation/SKILL.md). If your environment can
-start a subagent, run the investigation in one. Pass it only the artifact and one line of intent,
-never your own theory. Then pick up again from the leads it returns.
+[fresh-eyes-investigation](../skills/fresh-eyes-investigation/SKILL.md), in a subagent if you
+can start one. Pass it only the artifact and one line of intent, never your own theory. Then pick
+up again from the leads it returns.
 
 ## Keep the plan visible
 
 The person must be able to see your plan and where you are in it at any moment, without asking.
-This is not optional and not a courtesy: work done off the plan is work they can't follow.
 
 **The plan has two levels.** The *stage map* is the stages above: which are done, which one you're
 in, which are still to come. The *steps* are the concrete steps of the current stage, each specific
 enough that the person can tell what "done" means for it. Write "Add `retryLimit` to the config
-loader, default 3; a test reads it back", not "Implement". "Research" or "Write code" is a stage
-name, not a step.
+loader, default 3; a test reads it back", not "Implement".
 
 **The rules:**
 
@@ -368,6 +367,8 @@ Independent steps share the header, each still numbered:
   "not verified".
 - **Report outcomes as they are.** A skipped gate is reported as skipped, a failing test as
   failing. Never let a partial run look like a full one.
+- **Log from the start.** Logging ships in the commit that creates the code, not when debugging
+  ([how](../skills/implement-phase/SKILL.md#logging-is-the-first-deliverable-in-every-phase)).
 
 ## Sign your commits
 

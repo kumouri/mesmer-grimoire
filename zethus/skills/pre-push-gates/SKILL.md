@@ -55,7 +55,9 @@ red. The run that clears the push starts after the last edit, on the exact tree 
 4. **Paste the table into the PR's *Evidence* section,** unedited.
 
 A green verdict is progress, not a report to hand over and wait on. Next, in the same turn once the verdict lets you push: commit, push, and open the PR with
-[zethus-pr-description](../zethus-pr-description/SKILL.md).
+[zethus-pr-description](../zethus-pr-description/SKILL.md). In `pr-later` style: commit and push
+the branch, open no PR, and paste the table into the phase's *As built* list in the spec instead
+([zethus-pr-description](../zethus-pr-description/SKILL.md#in-pr-later-style-no-pr-until-the-person-asks)).
 
 ## Bring a stale branch up to date
 
@@ -73,6 +75,7 @@ not the person's ([why](../../docs/base-freshness-cadence.md#amendment-2026-11-1
    | `branch-per-change`, one branch | `git rebase origin/<base>`. When replaying the commits one by one is the messier route (many commits each conflicting on the same lines), cut a fresh branch instead: keep the old tip (`git branch <branch>-pre-rebase`), `git switch -C <branch> origin/<base>`, and move the work across with `git cherry-pick <old merge-base>..<branch>-pre-rebase`. Delete the kept tip once step 6 is green |
    | `branch-per-change`, a stack of phase branches | From the top of the stack, `git rebase --update-refs origin/<base>`, which moves every phase branch in one go |
    | `rebase` | `git rebase origin/<base>` on the long-lived branch, with `--update-refs` if other branches are stacked on it |
+   | `pr-later` | `git rebase origin/<base>` on the working branch. There is no PR, so step 7's note goes in the spec's *As built* list |
 
 3. **Resolve conflicts yourself, keeping both sides' intent.** For each conflicted file, read what
    the base changed (`git log -p <old merge-base>..origin/<base> -- <file>`) and what this change

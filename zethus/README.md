@@ -82,6 +82,18 @@ the team's call, on the team's schedule, so a process that merges only when a wh
 doesn't block the work. A pushed phase is marked *in review* in the spec, never *built*. See
 [the next phase starts on push](docs/phase-advance-on-push.md).
 
+On a busy, closely watched repo where a PR shouldn't open yet, `branchModel.style: "pr-later"`
+drops the PR gate too: the next phase starts once the previous one is committed on the working
+branch with every local gate green. The branch is pushed as a backup, but no PR opens, not even a
+draft, until you say so; the spec marks those phases *on branch* or *committed*, never *in review*.
+See [the next phase can start with no PR open](docs/phase-advance-without-pr.md) and
+[Branch models](#branch-models).
+
+Logging is the first deliverable of anything the agent builds: every new script, tool or feature
+gets a run log (starting config, decisions, state changes, full errors) in the commit that creates
+it, not when debugging, because it finds and fixes errors faster. See
+[log from the start](docs/log-from-the-start.md).
+
 Independent work doesn't wait in line. The stages order exit conditions, and uncommitted code alone
 doesn't hold anything. Two or three independent tasks may run at once when neither reads the
 other's output or the files the other is changing, such as docs while the local gates run (when the
@@ -171,7 +183,7 @@ plan, this is a rule in the agent file rather than a script check: the kit has n
 | [`skills/write-spec-full`](skills/write-spec-full/SKILL.md) | `.github/skills/` | Verbatim ask, measured problem, facts, assumptions checked, options, phases, rollback, out of scope, open questions, then stop for sign-off. |
 | [`skills/write-adr`](skills/write-adr/SKILL.md) | `.github/skills/` | One imperative decision sentence, options, consequences, *enforced where*, *revisit when*. Pastes cleanly into a wiki or ticket. |
 | [`skills/fresh-eyes-investigation`](skills/fresh-eyes-investigation/SKILL.md) | `.github/skills/` | Artifact plus one line of intent in; ranked leads out, each established or conjecture. Never a diagnosis; an empty list is valid. |
-| [`skills/implement-phase`](skills/implement-phase/SKILL.md) | `.github/skills/` | One phase per branch, stacked on the previous phase's (or per commit series, in `rebase` style), Phase 0 first; the next phase starts once this one is pushed, not merged. Stay inside the phase; classify anything unplanned; keep an *As built* list. |
+| [`skills/implement-phase`](skills/implement-phase/SKILL.md) | `.github/skills/` | One phase per branch, stacked on the previous phase's (or per commit series, in `rebase` and `pr-later` style), Phase 0 first; the next phase starts once this one is pushed, not merged (in `pr-later`, once it is committed with green gates, with no PR). Logging goes in with the code, in every phase. Stay inside the phase; classify anything unplanned; keep an *As built* list. |
 | [`skills/test-plan`](skills/test-plan/SKILL.md) | `.github/skills/` | Per-phase tests covering the change, the failure path, the refusal, and what must not change, plus a mutation check. |
 | [`skills/pre-push-gates`](skills/pre-push-gates/SKILL.md) | `.github/skills/` | Every CI gate run locally, on the working tree, before a push. A skip is not a pass. Also how the agent brings a stale branch up to date itself, at either freshness checkpoint. |
 | [`skills/zethus-pr-description`](skills/zethus-pr-description/SKILL.md) | `.github/skills/` | An evidence-first PR body diffed against the real integration branch, including *What was not checked*. |
@@ -558,7 +570,7 @@ The keys are the same in every location.
 | Key | Used by | Meaning |
 |---|---|---|
 | `branchModel.base` | agent, `zethus-pr-description`, `docs-sync-check`, `base-freshness` | The integration branch. Default: `develop` if it exists, else the default branch. |
-| `branchModel.style` | agent, `implement-phase`, `zethus-pr-description`, `base-freshness` | `"branch-per-change"` (default): a new branch per change, cut from the freshly fetched base, one branch and PR per phase, each phase stacked on the previous one's pushed branch. `"rebase"`: one long-lived branch kept rebased onto the base; phases are commit series on it, every diff is taken against the merge-base with `origin/<base>`, and the PR body says when the branch was rebased. See [Branch models](#branch-models). |
+| `branchModel.style` | agent, `implement-phase`, `zethus-pr-description`, `base-freshness` | `"branch-per-change"` (default): a new branch per change, cut from the freshly fetched base, one branch and PR per phase, each phase stacked on the previous one's pushed branch. `"rebase"`: one long-lived branch kept rebased onto the base; phases are commit series on it, every diff is taken against the merge-base with `origin/<base>`, and the PR body says when the branch was rebased. `"pr-later"`: one working branch like `rebase`, but the next phase starts once the previous one is committed with green gates, the branch is pushed as a backup, and no PR opens until you say so. See [Branch models](#branch-models). |
 | `branchModel.maxBehind` | `base-freshness`, agent, `pre-push-gates` | How many commits the branch may be behind `origin/<base>` before a freshness checkpoint (Stage 0, and the pre-push gates) rebases it before continuing. Default `0`: any commit behind means the agent rebases first. |
 | `gates.steps[]` | `run-local-gates` | Ordered `{name, command, exitCode?}`. `command` is a string or an argv list; there's no shell. |
 | `gates.lint` / `.build` / `.test` / `.mandatedChecks[]` | `run-local-gates` | Amphion's gate keys, read when `gates.steps` is absent. A mandated check with only a prose `expect` shows as **MANUAL** (not checked). |
@@ -574,20 +586,25 @@ The keys are the same in every location.
 
 Zethus assumes nothing about how long a branch lives. It insists only that the base is fresh.
 
-| | `branch-per-change` (default) | `rebase` |
-|---|---|---|
-| Branches | A new one per change, cut from `origin/<base>` | One long-lived branch, rebased onto `origin/<base>` every few days |
-| Phases | One branch and one PR each, Phase 0 first; each branch stacked on the previous phase's, its PR targeting that branch | One commit series each, on the same branch, Phase 0 first, pushed to the same PR |
-| Next phase starts | Once the previous phase is committed, green on the gates and pushed. Its PR need not be merged | The same |
-| Diff base | `origin/<base>...HEAD`; for a stacked phase, `origin/<previous-phase>...HEAD` | The merge-base with the freshly fetched `origin/<base>`, never a local ref |
-| Merging | A person merges the stack bottom-up, when their process allows; GitHub retargets the next PR to `<base>` | A person merges the one PR, when the feature is done |
-| After a rebase | Rebase the stack from its top with `git rebase --update-refs origin/<base>`; push each branch with `--force-with-lease` | Push with `--force-with-lease`; the PR body names the new base |
+| | `branch-per-change` (default) | `rebase` | `pr-later` |
+|---|---|---|---|
+| Branches | A new one per change, cut from `origin/<base>` | One long-lived branch, rebased onto `origin/<base>` every few days | One working branch, rebased onto `origin/<base>` like `rebase` |
+| Phases | One branch and one PR each, Phase 0 first; each branch stacked on the previous phase's, its PR targeting that branch | One commit series each, on the same branch, Phase 0 first, pushed to the same PR | One commit series each, on the same branch, Phase 0 first; no PR |
+| Next phase starts | Once the previous phase is committed, green on the gates and pushed. Its PR need not be merged | The same | Once the previous phase is committed with green gates. No PR and no merge needed; pushing is a backup, not a gate |
+| PR | One per phase | One per feature | None until you say to open one; then one per feature, as in `rebase` |
+| Spec says | `in review (PR #n)`, then `merged (PR #n)` | The same | `on branch (<sha>)` once pushed, `committed (<sha>)` while local; `in review` only once the PR opens |
+| Diff base | `origin/<base>...HEAD`; for a stacked phase, `origin/<previous-phase>...HEAD` | The merge-base with the freshly fetched `origin/<base>`, never a local ref | The same as `rebase` |
+| Merging | A person merges the stack bottom-up, when their process allows; GitHub retargets the next PR to `<base>` | A person merges the one PR, when the feature is done | The same as `rebase`, once the PR exists |
+| After a rebase | Rebase the stack from its top with `git rebase --update-refs origin/<base>`; push each branch with `--force-with-lease` | Push with `--force-with-lease`; the PR body names the new base | Push with `--force-with-lease` if it was pushed; the spec's *As built* list names the new base |
 
-Neither style waits for a merge to start the next phase. See
+No style waits for a merge to start the next phase. See
 [the next phase starts on push](docs/phase-advance-on-push.md) for why, and for a stack whose lower
-PR was squash-merged.
+PR was squash-merged. Use `pr-later` on a busy, closely watched repo where an open PR, even a
+draft, would draw reviewers or automation before the team wants it; see
+[the next phase can start with no PR open](docs/phase-advance-without-pr.md) for what happens when
+the PR is finally opened.
 
-In both, the agent runs `base-freshness.py` at **exactly two** points per change:
+In every style, the agent runs `base-freshness.py` at **exactly two** points per change:
 
 1. **Stage 0 · Orient** — before any work, so the branch is cut from, or rebased onto, a base just
    confirmed current;

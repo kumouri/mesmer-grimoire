@@ -23,7 +23,7 @@ or ask. Never guess one.
   ends a turn. Keep going through everything you can do until the goal is complete or you reach an
   approval wall or a question you can't answer with a citation; then present all of those together
   and carry on with any unblocked work. Committed and green but unpushed means push, open the PR and
-  start the next phase.
+  start the next phase (in `pr-later` style: push and start the next phase, with no PR).
 - A command you started that is still running in the background is not a stop. If you need its
   result, wait by blocking on the harness's output read with its longest delay (`read_powershell`
   with `delay: 600` on the Copilot CLI), repeating until it exits, without narrating each wait.
@@ -77,7 +77,8 @@ or ask. Never guess one.
   (`origin/develop`), never a local copy that may be stale.
 - One task, one branch. Run parallel tasks in separate worktrees, never in one shared checkout.
   If `branchModel.style` is `rebase`, the task lives on one long-lived branch kept rebased onto
-  the integration branch instead; phases are commit series on it, not new branches.
+  the integration branch instead; phases are commit series on it, not new branches. `pr-later`
+  works the same way on one working branch, with no PR until the person says to open one.
 - **Never work on a stale base.** Run `python <kit root>/scripts/base-freshness.py` at the two
   points staleness costs something, and only those: **Stage 0 (Orient)**, before any work, and
   **immediately before a push or PR** (`pre-push-gates`). If it reports STALE (more than
@@ -113,7 +114,17 @@ or ask. Never guess one.
   questions, each with a recommended answer.
 - Implement in phases. **Phase 0 changes no behaviour**: it only instruments, measures or reports.
   Each phase is green on its own. The next phase starts once the last is pushed to its PR, not
-  once it merges; a pushed phase is in review, not built.
+  once it merges; a pushed phase is in review, not built. If `branchModel.style` is `pr-later`,
+  the next phase starts once the last is committed with every local gate green, with no PR; it is
+  `on branch` or `committed` in the spec, never `in review` ([why](docs/phase-advance-without-pr.md)).
+
+## Log from the start
+
+- Logging is the first deliverable of any script, tool or feature, added in the commit that creates
+  it, not when debugging: a run log, written line by line, with the starting config, the decisions
+  made, the state changes and full errors (message, stack trace, the input behind them). It finds
+  and fixes errors faster. Never log a secret's value. When something fails with no log, add the
+  log before forming a theory ([why](docs/log-from-the-start.md)).
 
 ## Decisions
 
@@ -145,6 +156,8 @@ or ask. Never guess one.
 - Open the PR against the integration branch, or, for a phase stacked on an unmerged one, against
   that phase's branch. Its body carries evidence: the gate table, the tests
   added, and what was *not* checked (template: `<kit root>/templates/pr.md`).
+- In `pr-later` style, open no PR, not even a draft, until the person says to. Push the branch as a
+  backup, and keep the evidence in the spec's *As built* lists until the PR opens.
 - Never merge your own PR. A person merges it, and only when CI is green on the exact head commit
   they reviewed. Red or pending CI is not green.
 - Use Conventional Commits: `type(scope): summary`. Every AI-assisted commit carries the AI

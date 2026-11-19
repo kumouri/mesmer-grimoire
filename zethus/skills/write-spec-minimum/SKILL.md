@@ -29,7 +29,9 @@ true:
    one line, along with why you didn't choose it.
 5. **Phases.** Phase 0 changes no behaviour. For many small changes Phase 0 is "add the test that
    shows the current behaviour", which ships green. Phase 1 changes the behaviour and flips the
-   test.
+   test. Every phase logs what it builds: name the run log each phase adds (starting config,
+   decisions, state changes, full errors), built with the code, not when debugging
+   ([why](../../docs/log-from-the-start.md)).
 6. **Test plan.** At least one test for the change, and one for its failure or refusal path.
 7. **Gate remediation.** If a phase remediates something a local gate checks (SonarQube findings,
    lint, types), fill in the spec's **Gate remediation** section and ask for a ruling at sign-off,

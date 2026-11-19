@@ -17,8 +17,10 @@ rewritten since it was last pushed (a rebase: the PR body must say so). Neither 
 code.
 
 ``branchModel.style`` is ``"branch-per-change"`` (default: a new branch per change, cut from the
-freshly fetched base) or ``"rebase"`` (one long-lived branch, kept rebased onto the base). Both
-styles run the same check; only the steps for catching up differ.
+freshly fetched base), ``"rebase"`` (one long-lived branch, kept rebased onto the base) or
+``"pr-later"`` (one working branch kept rebased onto the base, with no PR open yet; see
+``docs/phase-advance-without-pr.md``). Every style runs the same check; only the steps for catching
+up differ, and a ``pr-later`` branch has no PR body to note a rebase in, so the spec records it.
 
 **A STALE result is not handed to a person.** The agent that runs this brings the branch up to date
 itself and carries on, so the STALE line says what it is about to do, not what someone should do:
@@ -50,7 +52,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import UsageError, cfg, find_repo_root, git, load_config  # noqa: E402
 
-STYLES = ("branch-per-change", "rebase")
+STYLES = ("branch-per-change", "rebase", "pr-later")
 DEFAULT_STYLE = "branch-per-change"
 
 
@@ -147,7 +149,9 @@ def report(f: Freshness, fetched: bool) -> list[str]:
         f" — diff, research and PR bodies against this, e.g. git diff {f.ref}...HEAD",
     ]
     if f.upstream is not None:
-        state = ("rewritten since the last push: push with --force-with-lease and say in the PR "
+        where = ("the spec's As built list (no PR is open)" if f.style == "pr-later"
+                 else "the PR")
+        state = (f"rewritten since the last push: push with --force-with-lease and say in {where} "
                  "that it was rebased" if f.rewritten else "contained in HEAD")
         lines.append(f"  upstream {f.upstream} — {state}")
     if f.stale:
@@ -163,6 +167,10 @@ def stale_plan(f: Freshness) -> list[str]:
         how = (f"git rebase {f.ref} (--update-refs if branches are stacked on it), resolve any "
                f"conflicts, re-run the gates, then git push --force-with-lease and say in the PR "
                f"body that it was rebased")
+    elif f.style == "pr-later":
+        how = (f"git rebase {f.ref} on the working branch, resolve any conflicts, re-run the gates, "
+               f"then git push --force-with-lease if the branch was pushed; no PR is open, so note "
+               f"the rebase in the spec's As built list, and open no PR for it")
     else:
         how = (f"rebase onto {f.ref} (a stack from its top with --update-refs), or cut a fresh "
                f"branch from it and move the work across; resolve any conflicts, re-run "
