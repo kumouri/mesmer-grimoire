@@ -13,11 +13,18 @@ wasn't checked.
 
 ## Step 1: diff against the right base
 
-Work out the integration branch. Don't assume `main`:
+Work out this branch's base. Don't assume `main`, and don't assume the integration branch:
 
-1. `branchModel.base` in `.github/zethus.config.json`, if set;
-2. otherwise `develop`, if it exists;
-3. otherwise the default branch (`git remote show origin`, the *HEAD branch* line).
+1. the `branchModel.bases` entry that matches this branch, most specific first: a child of a
+   long-lived branch has that branch as its base ([per-branch bases](../../docs/per-branch-bases.md));
+2. otherwise `branchModel.base`, the default base;
+3. otherwise `develop`, if it exists;
+4. otherwise the default branch (`git remote show origin`, the *HEAD branch* line).
+
+`base-freshness` already resolved it at the gates, with its reason on the `why` line; reuse that.
+`python <kit root>/scripts/base-freshness.py --base-for <branch>` prints it alone and never gates.
+If the gates printed `RETARGET`, the parent has merged and the base is the next one up: target the
+PR there, and say in the body that it was retargeted and from what.
 
 Read `git log --oneline origin/<base>..HEAD` and `git diff origin/<base>...HEAD`. The three-dot
 diff is against the merge-base, so it describes *your* changes, not everything that landed on the
@@ -48,7 +55,8 @@ branch has been rebased. Push it with
 `git push --force-with-lease`, never a plain `--force`. Then, in the PR body (under *What*), and in
 a PR comment if the PR already exists, say:
 
-- that the branch was rebased, and onto what: `origin/<base>` at the new merge-base (short SHA);
+- that the branch was rebased, and onto what: `origin/<base>` at the new merge-base (short SHA),
+  and, for a chain, that `<base>` is the long-lived parent, or the base it was retargeted to;
 - whether the rebase changed anything beyond the base moving (conflicts resolved, commits dropped
   or reworded). If it did, say where; the approval covered the earlier commits.
 
@@ -81,7 +89,7 @@ Delete any other heading that is empty.
 
 ## Step 3: open it — don't merge it
 
-Push the branch and open the PR against the integration branch, or, for a stacked phase, against
+Push the branch and open the PR against this branch's base (step 1), or, for a stacked phase, against
 the previous phase's branch; name that PR under *Stacked on*, since this one merges after it. **Don't merge it, even if you can.** A person merges, and only when CI is green on the exact
 head commit they reviewed. If you push again after review, say so in a comment: the approval
 covered the earlier commit. The push is what lets the next phase start; the merge is the team's to

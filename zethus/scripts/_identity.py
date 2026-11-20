@@ -47,7 +47,7 @@ import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from _common import CONFIG_ENV, UsageError, rel, user_home
+from _common import CONFIG_ENV, RunLog, UsageError, rel, user_home  # noqa: F401 (RunLog re-exported)
 
 LOG_ENV = "ZETHUS_IDENTITY_LOG"
 FORGE_ENV = "ZETHUS_IDENTITY_FORGE"
@@ -94,40 +94,6 @@ class Identity:
         return {"resolved": self.resolved, "display": self.display, "name": self.name,
                 "handle": self.handle, "source": self.source, "step": self.step,
                 "agent": AGENT, "trace": self.trace}
-
-
-class RunLog:
-    """A line-buffered run log. Never raises: a log that can't be written must not cost a run."""
-
-    def __init__(self, path: Path | None):
-        self.path = path
-        self.run_id = f"{_dt.datetime.now().strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"
-        self._fh = None
-        self.error = ""
-        if path is not None:
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                self._fh = open(path, "a", encoding="utf-8", buffering=1, newline="\n")
-            except OSError as exc:
-                self.error = f"run log not written ({path.name}: {exc.strerror or exc})"
-
-    def __call__(self, message: str) -> None:
-        if self._fh is None:
-            return
-        stamp = _dt.datetime.now().isoformat(timespec="seconds")
-        try:
-            self._fh.write(f"{stamp} [{self.run_id}] {message}\n")
-            self._fh.flush()
-        except OSError:
-            pass
-
-    def close(self) -> None:
-        if self._fh is not None:
-            try:
-                self._fh.close()
-            except OSError:
-                pass
-            self._fh = None
 
 
 def log_path(explicit: str | None = None) -> Path | None:

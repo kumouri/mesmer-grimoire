@@ -26,14 +26,14 @@ The order binds exit conditions, not the clock:
 | 4 | Tests | [test-plan](../../skills/test-plan/SKILL.md) | Every test the plan names for this phase passes in one run, refusal and failure paths included; the key test fails when the change is reverted, and `git diff --quiet` proves the revert was restored |
 | 5 | Docs | [docs-sync-check](../../skills/docs-sync-check/SKILL.md) | Every doc describing the changed code is updated or confirmed; no broken pointers |
 | 6 | Gates | [pre-push-gates](../../skills/pre-push-gates/SKILL.md) | `base-freshness` reports FRESH, and `run-local-gates` exits 0 on the tree you will push, docs included, or every gate that didn't run is named. Every local gate is green, whatever the phase plan says |
-| 7 | PR | [zethus-pr-description](../../skills/zethus-pr-description/SKILL.md) | Branch pushed, PR opened against the integration branch (a stacked phase: the previous phase's branch), **not merged** (`pr-later`: **no PR opened** until the person says to) |
+| 7 | PR | [zethus-pr-description](../../skills/zethus-pr-description/SKILL.md) | Branch pushed, PR opened against the branch's base (a stacked phase: the previous phase's branch), **not merged** (`pr-later`: **no PR opened** until the person says to) |
 
 Docs comes before Gates so the full suite runs once, last, on the exact tree that is pushed.
 Anything edited after the gates go green sends you back to stage 6.
 
-For stage 0, find the integration branch (`branchModel.base`, else `develop` if it exists, else the
-default branch), cut the task branch from `origin/<it>` or rebase the one you're on, then read the
-config and the repo's instructions files.
+For stage 0, find the branch's base with `base-freshness.py --base-for <branch>`
+([per-branch bases](../../docs/per-branch-bases.md)), cut the task branch from `origin/<it>` or
+rebase the one you're on, then read the config and the repo's instructions files.
 
 After the PR opens, go back to stage 3 for the next phase, on a new branch stacked on this one.
 Don't wait for the PR to merge: a phase that is committed, green on the gates and pushed is enough
@@ -194,8 +194,8 @@ At each of those two points, before anything else in the stage, run:
 python <kit root>/scripts/base-freshness.py
 ```
 
-It compares the commits in `HEAD..origin/<base>` with `branchModel.maxBehind` (default `0`). Act
-on the exit code:
+It compares `HEAD..origin/<base>`, this branch's base, with `branchModel.maxBehind` (default `0`).
+Act on the exit code:
 
 | Exit | Meaning | What you do |
 |---|---|---|
@@ -248,7 +248,7 @@ to move the remediation into the phase is not a stop: the `agentStop` hook refus
 `branch-per-change`.
 
 - **`branch-per-change`** (default): what the stage table and stage 0 above describe. A new
-  branch per change, cut from the freshly fetched integration branch; each phase on its own branch
+  branch per change, cut from its freshly fetched base; each phase on its own branch
   and PR. Phases are **stacked**: phase N+1 branches from phase N's pushed branch, and its PR
   targets phase N's branch, so it shows that phase alone. The next phase starts once the previous
   one is pushed, not merged. A person merges the stack bottom-up whenever their process allows;
@@ -266,9 +266,8 @@ to move the remediation into the phase is not a stop: the `agentStop` hook refus
   - **Phases are commit series on the same branch, not branches.** Phase 0 first; each phase is
     one contiguous series of commits whose subjects name the phase, and a phase starts only once
     the one before it is committed, green on the gates, and pushed to the PR. After the PR opens,
-    go back to stage 3 on the same branch and push the next phase to that PR. This suits a team
-    that reviews and merges one PR per feature. A push after a rebase uses `--force-with-lease`,
-    and the PR body says it was rebased (see
+    go back to stage 3 on the same branch and push the next phase to that PR. A push after a
+    rebase uses `--force-with-lease`, and the PR body says it was rebased (see
     [zethus-pr-description](../../skills/zethus-pr-description/SKILL.md)).
 - **`pr-later`**: as `rebase`, but the next phase starts once the previous one is **committed with
   every local gate green**. Push as a backup; open no PR, not even a draft, until the person says
@@ -418,7 +417,7 @@ switch to another agent to proceed without it. Don't argue further, and don't qu
 ## Config you read
 
 Read `.github/zethus.config.json` (or `.claude/amphion.config.json` if that is what the repo has)
-for `branchModel.base`, `branchModel.style`, `branchModel.maxBehind`, `gates.*`, `spec.dir`,
+for `branchModel.base`, `branchModel.bases`, `branchModel.style`, `branchModel.maxBehind`, `gates.*`, `spec.dir`,
 `adr.dir`, `docSync.map`, `commits.aiTrailer`, `commits.signature`, `plan.checklist`, `identity.*`. If a key
 you need is missing, work it out from the repository, confirm it with the person in one question (the question tool, as above),
 and offer to write it into the config.

@@ -72,12 +72,15 @@ or ask. Never guess one.
 
 ## Start from a fresh base
 
-- Branch from the **integration branch**: `branchModel.base` in config; otherwise `develop` if it
-  exists; otherwise the default branch. Fetch first and use the fully-qualified ref
-  (`origin/develop`), never a local copy that may be stale.
+- Branch from the **branch's base**: its `branchModel.bases` entry, most specific first (a child
+  of a long-lived branch gets that branch); otherwise `branchModel.base`, the integration branch;
+  otherwise `develop` if it exists; otherwise the default branch. `base-freshness.py --base-for
+  <branch>` prints it and why. Fetch first and use the fully-qualified ref (`origin/develop`),
+  never a local copy that may be stale. A child is kept fresh against its parent, the parent
+  against its own base ([per-branch bases](docs/per-branch-bases.md)).
 - One task, one branch. Run parallel tasks in separate worktrees, never in one shared checkout.
   If `branchModel.style` is `rebase`, the task lives on one long-lived branch kept rebased onto
-  the integration branch instead; phases are commit series on it, not new branches. `pr-later`
+  its base instead; phases are commit series on it, not new branches. `pr-later`
   works the same way on one working branch, with no PR until the person says to open one.
 - **Never work on a stale base.** Run `python <kit root>/scripts/base-freshness.py` at the two
   points staleness costs something, and only those: **Stage 0 (Orient)**, before any work, and
@@ -166,8 +169,9 @@ or ask. Never guess one.
 
 ## Pull requests
 
-- Open the PR against the integration branch, or, for a phase stacked on an unmerged one, against
-  that phase's branch. Its body carries evidence: the gate table, the tests
+- Open the PR against the branch's base, or, for a phase stacked on an unmerged one, against
+  that phase's branch. If `base-freshness` printed `RETARGET`, the parent merged: target the next
+  base up. Its body carries evidence: the gate table, the tests
   added, and what was *not* checked (template: `<kit root>/templates/pr.md`).
 - In `pr-later` style, open no PR, not even a draft, until the person says to. Push the branch as a
   backup, and keep the evidence in the spec's *As built* lists until the PR opens.

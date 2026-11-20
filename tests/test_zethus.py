@@ -725,11 +725,13 @@ class KitContract(unittest.TestCase):
             if path.parent.name == "pre-push-gates":
                 continue
             for line in path.read_text(encoding="utf-8").splitlines():
-                if "scripts/base-freshness.py" in line and "--merge-base-only" not in line:
+                if ("scripts/base-freshness.py" in line and "--merge-base-only" not in line
+                        and "--base-for" not in line):
                     offenders.append(f"{path.parent.name}: {line.strip()[:80]}")
         self.assertEqual(offenders, [], "only Stage 0 (the agent file) and pre-push-gates may gate "
                                         "on freshness; a stage that needs the diff base uses "
-                                        "--merge-base-only")
+                                        "--merge-base-only, and one that needs the base's name "
+                                        "--base-for")
 
         readme = (KIT / "README.md").read_text(encoding="utf-8")
         for key in ("branchModel.style", "branchModel.maxBehind", "--merge-base-only"):

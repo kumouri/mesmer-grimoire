@@ -191,7 +191,7 @@ class TheFailedFetch(unittest.TestCase):
             run("remote", "add", "origin", str(root / "gone.git"), cwd=work)
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-                code = fresh.main(["--repo", str(work)])
+                code = fresh.main(["--repo", str(work), "--log", "off"])
         out = buf.getvalue()
         self.assertEqual(code, 3, out)
         for phrase in ("NO ANSWER", "Retrying and diagnosing it now", "git remote -v",

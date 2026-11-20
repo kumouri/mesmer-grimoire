@@ -9,7 +9,7 @@
 | Enforced where | [`../com.github.copilot/agents/zethus.agent.md`](../com.github.copilot/agents/zethus.agent.md) ("Check the base at two points"), [`../copilot-instructions.md`](../copilot-instructions.md), [`../skills/pre-push-gates/SKILL.md`](../skills/pre-push-gates/SKILL.md) step 0 and *Bring a stale branch up to date*, `--merge-base-only` and the STALE message in [`../scripts/base-freshness.py`](../scripts/base-freshness.py), and the stale-base refusal in [`../com.github.copilot/hooks/stop_guard.py`](../com.github.copilot/hooks/stop_guard.py) |
 | Supersedes | the original cadence: `base-freshness.py` at the start of every stage, plus separately inside several skills |
 | Superseded by | — |
-| Amended | 2026-10-19: Docs moved before Gates, so the stages between the checkpoints are now 1–5 and 7 ([run each check once per phase](run-once-per-phase.md)). The two checkpoints are unchanged. 2026-11-10: the agent rebases a stale branch itself instead of asking the person to ([below](#amendment-2026-11-10-zethus-rebases-a-stale-branch-itself)). The two checkpoints, and that neither is skippable, are unchanged. |
+| Amended | 2026-10-19: Docs moved before Gates, so the stages between the checkpoints are now 1–5 and 7 ([run each check once per phase](run-once-per-phase.md)). The two checkpoints are unchanged. 2026-11-10: the agent rebases a stale branch itself instead of asking the person to ([below](#amendment-2026-11-10-zethus-rebases-a-stale-branch-itself)). The two checkpoints, and that neither is skippable, are unchanged. 2026-11-19: each branch has its own base ([per-branch bases](per-branch-bases.md)); the two checkpoints run per branch, against that base, and `--base-for`, like `--merge-base-only`, never gates. |
 
 This repo keeps no `docs/adr/` of its own (`zethus/scripts/new-adr.py` writes ADRs into a
 *consuming* project), so the kit's own decisions are recorded here, in ADR shape.
@@ -61,8 +61,8 @@ moves costs nothing yet: the next checkpoint catches it before any of it is publ
   then happens with the work already written. This is the deliberate trade: it is one rebase, at a
   point where the branch has to be touched anyway, instead of a possible stop at every stage.
 - **New obligations:**
-  - `--merge-base-only` must stay non-gating. It prints the merge-base and exits 0 whatever the
-    branch's freshness, and a failed fetch falls back to the last one rather than returning 3.
+  - `--merge-base-only` must stay non-gating (so must `--base-for`, since 2026-11-19). It prints
+    the merge-base and exits 0 whatever the branch's freshness, and a failed fetch falls back to the last one rather than returning 3.
     Any stage that needs a diff base uses that mode, never the gating form.
   - The two checkpoints stay non-skippable. The agent's refusal table covers "skip the freshness
     check" at both; a tolerance remains a config decision (`branchModel.maxBehind`), recorded once.
