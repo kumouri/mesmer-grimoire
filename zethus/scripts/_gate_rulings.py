@@ -17,7 +17,14 @@ The section is either ``None — …`` (no phase remediates anything a gate chec
     |---|---|---|---|
     | sonarqube | Phase 2 | push-red | yes — Ceryce, 2026-11-05 |
 
-``Approved`` is ``PENDING`` until the person answers, then ``yes`` plus who and when. Stdlib only.
+``Approved`` is ``PENDING`` until the person answers, then ``yes`` plus who and when.
+
+**Phase -1** (``docs/phase-minus-one.md``) adds a sibling section, ``## Pre-existing gate
+failures``: what already failed on the untouched base, from ``baseline-gates.py survey``. It is
+``None — …`` or a table of ``Gate | File | Rule | Phase -1``, where the last cell is ``fix`` (Phase
+-1 fixes it) or ``ask`` (it can't be fixed safely; its gate has a Gate remediation row above, with
+*Remediation phase* ``Phase -1``, asked at sign-off). The Phases table's Phase -1 row is not a
+phase that leaves a gate for later, so :func:`remediation_phase_rows` skips it. Stdlib only.
 """
 from __future__ import annotations
 
@@ -28,6 +35,10 @@ from pathlib import Path
 RULINGS = ("push-red", "limited-phase-0", "reorder", "other")
 ACTIVE_STATUSES = ("SIGNED-OFF", "PARTIAL")
 SECTION_RE = re.compile(r"^##\s+Gate remediation\s*$", re.IGNORECASE | re.MULTILINE)
+PRE_EXISTING_HEADING = "Pre-existing gate failures"
+PRE_EXISTING_RE = re.compile(r"^##\s+Pre-existing gate failures\s*$", re.IGNORECASE | re.MULTILINE)
+PRE_EXISTING_ACTIONS = ("fix", "ask")
+PHASE_MINUS_ONE_RE = re.compile(r"^(?:phase\s*)?[-−–]\s*1$", re.IGNORECASE)
 STATUS_RE = re.compile(r"\*\*Status:\*\*\s*`?([A-Za-z-]+)")
 # A phase row that reads like remediation of something a gate checks.
 REMEDIATION_RE = re.compile(
@@ -102,13 +113,67 @@ def parse(text: str, spec: str = "") -> tuple[list[Ruling], bool, bool]:
     return rows, True, first.lower().startswith("none")
 
 
+def is_phase_minus_one_row(line: str) -> bool:
+    """A Phases row for Phase -1: its first cell is ``-1`` or ``Phase -1``."""
+    cells = _cells(line)
+    return bool(cells) and bool(PHASE_MINUS_ONE_RE.match(cells[0].strip("*` ")))
+
+
+def names_phase_minus_one(cell: str) -> bool:
+    """A *Remediation phase* cell that names Phase -1."""
+    return bool(re.search(r"(?:^|phase\s*)[-−–]\s*1\b", cell.strip("*` "), re.IGNORECASE))
+
+
+def has_phase_minus_one(text: str) -> bool:
+    return any(line.strip().startswith("|") and is_phase_minus_one_row(line)
+               for line in section(text, "Phases").splitlines())
+
+
 def remediation_phase_rows(text: str) -> list[str]:
-    """Phase-table rows that read like remediation of what a gate checks."""
+    """Phase-table rows that read like remediation of what a gate checks.
+
+    Phase -1 is skipped: it fixes what already failed on the base, before Phase 0, so it leaves no
+    gate red for a later phase.
+    """
     out = []
     for line in section(text, "Phases").splitlines():
-        if line.strip().startswith("|") and REMEDIATION_RE.search(line) and not set(line) <= set("|-: "):
+        if (line.strip().startswith("|") and REMEDIATION_RE.search(line)
+                and not set(line) <= set("|-: ") and not is_phase_minus_one_row(line)):
             out.append(line.strip())
     return out
+
+
+@dataclass
+class PreExisting:
+    gate: str
+    file: str
+    rule: str
+    action: str        # "fix", "ask", or the raw cell when unreadable
+
+
+def parse_pre_existing(text: str) -> tuple[list[PreExisting], bool, bool]:
+    """``(rows, has_section, says_none)`` for the spec's Pre-existing gate failures section."""
+    if not PRE_EXISTING_RE.search(text):
+        return [], False, False
+    body = section(text, PRE_EXISTING_HEADING)
+    rows: list[PreExisting] = []
+    header_seen = False
+    for line in body.splitlines():
+        if not line.strip().startswith("|"):
+            continue
+        cells = _cells(line)
+        if not header_seen:
+            header_seen = True
+            continue
+        if all(set(c) <= set("-: ") for c in cells):
+            continue
+        if len(cells) < 4 or not cells[0] or cells[0] == "…":
+            continue
+        rows.append(PreExisting(cells[0].strip("`").strip(), cells[1].strip("`").strip(),
+                                cells[2], cells[3].strip("`").strip().lower()))
+    first = next((ln.strip() for ln in body.splitlines()
+                  if ln.strip() and not ln.lstrip().startswith(">")), "")
+    return rows, True, first.lower().startswith("none")
 
 
 def active_rulings(repo: Path, spec_dir: str) -> dict[str, Ruling]:

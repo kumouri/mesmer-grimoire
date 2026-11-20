@@ -39,8 +39,14 @@ guard = load("stop_guard_gr", GUARD)
 check = load("gate_remediation_check", CHECK)
 
 
-def spec_text(status: str = "SIGNED-OFF", section: str | None = None, phases: str = "| 0 | Add the test | None | x |") -> str:
+PRE_NONE = "None — every local gate is green on the untouched base (abc1234)."
+
+
+def spec_text(status: str = "SIGNED-OFF", section: str | None = None, phases: str = "| 0 | Add the test | None | x |",
+              pre: str | None = PRE_NONE) -> str:
     body = f"# S\n\n**Status:** {status} · **Owner:** o\n\n## Phases\n\n| Phase | What | Behaviour change | Verified by |\n|---|---|---|---|\n{phases}\n\n"
+    if pre is not None:   # Phase -1's section (test_zethus_phase_minus_one.py covers it)
+        body += f"## Pre-existing gate failures\n\n{pre}\n\n"
     if section is not None:
         body += f"## Gate remediation\n\n{section}\n\n"
     return body + "## Test plan\n\nt\n"
@@ -94,9 +100,19 @@ class SpecCheck(unittest.TestCase):
             self.assertIn("## Gate remediation", text, name)
             for ruling in gr.RULINGS:
                 self.assertIn(ruling, text, f"{name}: {ruling}")
-            self.assertEqual(len(self.problems(text)), 1, f"{name}: unedited, the placeholder must not pass")
-            filled = re.sub(r"\| Gate \|.*?\| PENDING \|", NONE, text, flags=re.S)
+            unedited = self.problems(text)
+            self.assertEqual(len([p for p in unedited if "Pre-existing" not in p]), 1,
+                             f"{name}: unedited, the placeholder must not pass")
+            # Fill Phase -1's section first (its table also starts "| Gate |"), then this one.
+            filled = re.sub(r"\| Gate \| File \|.*?\| fix \|", PRE_NONE, text, flags=re.S)
+            filled = re.sub(r"\| Gate \|.*?\| PENDING \|", NONE, filled, flags=re.S)
             self.assertEqual(self.problems(filled), [], name)
+
+    def test_the_cli_can_list_the_repos_gates(self):
+        # It loads run-local-gates to list them; that import used to fail silently, so a ruling
+        # naming a gate the repo doesn't have was never caught from the command line.
+        names = check.gate_names(REPO, {"gates": {"steps": [{"name": "SonarQube", "command": "x"}]}})
+        self.assertEqual(names, {"sonarqube"})
 
     def test_the_cli_exits_1_on_a_problem_and_0_when_clean(self):
         with tempfile.TemporaryDirectory() as tmp:

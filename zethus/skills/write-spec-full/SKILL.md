@@ -50,6 +50,13 @@ of these, so a minimum spec can be promoted later by adding sections.
    phase 0 on, or (4) an equivalent you name. Recommend one, with its cost. If no phase does, write
    `None — …` and ask nothing new. Run `python <kit root>/scripts/gate-remediation-check.py <spec>`
    before asking.
+   **Phase -1.** Paste the Stage 0 survey (`<kit root>/scripts/baseline-gates.py survey`) into the
+   spec's **Pre-existing gate failures** section: `None — …` if every gate was green (then drop the
+   Phase -1 row), else its table, each row `fix` or `ask`. Phase -1 fixes the `fix` rows first, in
+   its own branch and PR (or its own commit series), before Phase 0. An `ask` row (a failing test
+   whose fix needs a decision, a gate needing a credential) gets a **Gate remediation** row with
+   Remediation phase `Phase -1`, asked at sign-off with the other rulings
+   ([why](../../docs/phase-minus-one.md)).
 8. **Test plan.** Fill it in with [test-plan](../test-plan/SKILL.md).
 9. **Rollout and rollback** per phase, and **Before and after**: the headline metric, its baseline,
    and how "after" will be measured.
@@ -75,7 +82,7 @@ of these, so a minimum spec can be promoted later by adding sections.
   `BUILT` once the last one merges. A pushed phase is in review, not built.
   In `pr-later` style, before any PR opens, it is `PARTIAL(on branch: …; committed: …)`
   ([why](../../docs/phase-advance-without-pr.md)).
-- **Next:** in the same turn, start Phase 0 with [implement-phase](../implement-phase/SKILL.md).
+- **Next:** in the same turn, start Phase -1 if the spec has one; otherwise start Phase 0 with [implement-phase](../implement-phase/SKILL.md).
   Write its steps, then begin the first one. These records, and any check you run over them
   (`docs-pointer-check`, `git diff --check`), finish the spec stage. They are not a place to stop.
 

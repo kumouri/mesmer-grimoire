@@ -32,14 +32,31 @@ recommend and why in one line each.
 
 ## Phases
 
-> Phase 0 changes no behaviour. Every phase logs what it builds: name in *What* the run log it adds
+> Phase -1 fixes what already failed on the untouched base, before Phase 0; drop its row if
+> *Pre-existing gate failures* says `None`. Phase 0 changes no behaviour.
+> Every phase logs what it builds: name in *What* the run log it adds
 > (starting config, decisions, state changes, full errors), in the commit that creates the code.
 > Delete this note.
 
 | Phase | What | Behaviour change | Verified by |
 |---|---|---|---|
+| -1 | Remediate existing issues: fix the `fix` rows in *Pre-existing gate failures*, nothing else | **None** | `baseline-gates.py scope`; `run-local-gates` green |
 | 0 | Instrument / log / report only | **None** | … |
 | 1 | … (and its run log) | … | … |
+
+## Pre-existing gate failures
+
+> Phase -1. What every local gate reported on the untouched base, before any edit, from
+> `baseline-gates.py survey` at Stage 0. If every gate was green, write
+> `None — every local gate is green on the untouched base (<sha>).` Otherwise paste its table: one
+> row per gate, file and rule. `fix` means Phase -1 fixes it, in its own branch and PR (or its own
+> commit series), before Phase 0. `ask` is only for a failure that can't be fixed safely (a failing
+> test whose fix needs a decision, a gate needing a credential); give it a *Gate remediation* row
+> below with Remediation phase `Phase -1`, asked at sign-off. Delete this note.
+
+| Gate | File | Rule | Phase -1 |
+|---|---|---|---|
+| … | … | … | fix |
 
 ## Gate remediation
 

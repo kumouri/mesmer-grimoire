@@ -70,6 +70,20 @@ or ask. Never guess one.
   remediation in phase 0, a push with that gate red, a different phase order, or an equivalent.
   Record the answer in the spec.
 
+## Phase -1: start from green
+
+- Before any planned change, run every local gate on the untouched base:
+  `python <kit root>/scripts/baseline-gates.py survey`, at Stage 0, before any edit. It records
+  each failure with its gate, file and rule. All green: Phase -1 is a no-op, and you say so in one
+  line.
+- Otherwise **Phase -1 remediates existing issues** first, after sign-off: it fixes what already
+  fails, in its own branch and PR (in `rebase` or `pr-later` style, its own commit series), as small
+  as turns the gates green, never mixed with the planned change, and `baseline-gates.py scope`
+  checks that before it pushes. Phase 0 then stacks on it. Don't ask leave to fix those failures.
+- A failure Phase -1 can't fix safely (a failing test whose fix needs a decision, a gate needing a
+  credential) is named in the spec's **Pre-existing gate failures** and **Gate remediation**
+  sections and asked once, at sign-off ([why](docs/phase-minus-one.md)).
+
 ## Start from a fresh base
 
 - Branch from the **branch's base**: its `branchModel.bases` entry, most specific first (a child
@@ -115,7 +129,8 @@ or ask. Never guess one.
   implementation code.
 - Every spec has a facts table cited to `file:line`, an out-of-scope list with reasons, and open
   questions, each with a recommended answer.
-- Implement in phases. **Phase 0 changes no behaviour**: it only instruments, measures or reports.
+- Implement in phases. **Phase -1**, if the base fails a gate, fixes only that (above).
+  **Phase 0 changes no behaviour**: it only instruments, measures or reports.
   Each phase is green on its own. The next phase starts once the last is pushed to its PR, not
   once it merges; a pushed phase is in review, not built. If `branchModel.style` is `pr-later`,
   the next phase starts once the last is committed with every local gate green, with no PR; it is

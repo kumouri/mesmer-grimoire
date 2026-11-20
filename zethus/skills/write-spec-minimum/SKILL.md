@@ -36,6 +36,11 @@ true:
    test. Every phase logs what it builds: name the run log each phase adds (starting config,
    decisions, state changes, full errors), built with the code, not when debugging
    ([why](../../docs/log-from-the-start.md)).
+   **Phase -1.** Paste the Stage 0 survey (`<kit root>/scripts/baseline-gates.py survey`) into the
+   spec's **Pre-existing gate failures** section: `None — …` if every gate was green (then drop the
+   Phase -1 row), else its table, each row `fix` or `ask`. Phase -1 fixes the `fix` rows before
+   Phase 0. An `ask` row (a failure that can't be fixed safely) gets a **Gate remediation** row with
+   Remediation phase `Phase -1` (step 7), asked at sign-off ([why](../../docs/phase-minus-one.md)).
 6. **Test plan.** At least one test for the change, and one for its failure or refusal path.
 7. **Gate remediation.** If a phase remediates something a local gate checks (SonarQube findings,
    lint, types), fill in the spec's **Gate remediation** section and ask for a ruling at sign-off,
@@ -56,7 +61,7 @@ phase and session can read it. Set the status to `SIGNED-OFF` and *Signed off* t
 is always the person who gave it, as they write their name, never you. then run `gate-remediation-check.py`
 on the spec: it fails while a ruling is still `PENDING`.
 
-**Next:** in the same turn, start Phase 0 with [implement-phase](../implement-phase/SKILL.md).
+**Next:** in the same turn, start Phase -1 if the spec has one; otherwise start Phase 0 with [implement-phase](../implement-phase/SKILL.md).
 Write its steps, then begin the first one. These records, and any check you run over them
 (`docs-pointer-check`, `git diff --check`), finish the spec stage. They are not a place to stop.
 

@@ -19,10 +19,10 @@ The order binds exit conditions, not the clock:
 
 | # | Stage | Skill | Exit condition |
 |---|---|---|---|
-| 0 | Orient | — | `base-freshness` reports FRESH on the task branch (see [Branch model](#branch-model)); config read; `identity.py` names who you work for |
+| 0 | Orient | — | `base-freshness` reports FRESH on the task branch (see [Branch model](#branch-model)); Phase -1 survey started; config read; `identity.py` names who you work for |
 | 1 | Research | [research-existing-code](../../skills/research-existing-code/SKILL.md) | A facts table cited to `file:line`, plus what the research did not cover |
-| 2 | Spec | [write-spec-minimum](../../skills/write-spec-minimum/SKILL.md) or [write-spec-full](../../skills/write-spec-full/SKILL.md) | **A person has explicitly signed off.** Its test plan is filled in with [test-plan](../../skills/test-plan/SKILL.md), and every decision is recorded with [write-adr](../../skills/write-adr/SKILL.md). Any gate the plan leaves for a later phase is named in the spec's **Gate remediation** section with the person's ruling ([below](#local-gates-are-green-before-every-push-whatever-the-plan-says)) |
-| 3 | Implement | [implement-phase](../../skills/implement-phase/SKILL.md) | One phase built, every test the plan names for it written and compiling, anything unplanned flagged. Phase 0 first |
+| 2 | Spec | [write-spec-minimum](../../skills/write-spec-minimum/SKILL.md) or [write-spec-full](../../skills/write-spec-full/SKILL.md) | **A person has explicitly signed off.** Its test plan is filled in with [test-plan](../../skills/test-plan/SKILL.md), and every decision is recorded with [write-adr](../../skills/write-adr/SKILL.md). Any gate the plan leaves for a later phase, or a pre-existing failure Phase -1 can't fix, is named in the spec's **Gate remediation** section with the person's ruling ([below](#local-gates-are-green-before-every-push-whatever-the-plan-says)) |
+| 3 | Implement | [implement-phase](../../skills/implement-phase/SKILL.md) | One phase built, every test the plan names for it written and compiling, anything unplanned flagged. Phase -1 first, if any, then Phase 0 |
 | 4 | Tests | [test-plan](../../skills/test-plan/SKILL.md) | Every test the plan names for this phase passes in one run, refusal and failure paths included; the key test fails when the change is reverted, and `git diff --quiet` proves the revert was restored |
 | 5 | Docs | [docs-sync-check](../../skills/docs-sync-check/SKILL.md) | Every doc describing the changed code is updated or confirmed; no broken pointers |
 | 6 | Gates | [pre-push-gates](../../skills/pre-push-gates/SKILL.md) | `base-freshness` reports FRESH, and `run-local-gates` exits 0 on the tree you will push, docs included, or every gate that didn't run is named. Every local gate is green, whatever the phase plan says |
@@ -54,10 +54,9 @@ has its push, its PR and the next phase still to do. Push, open the PR ([stage 7
 update the spec, then start the next phase on a branch stacked on this one. None of that waits on
 the person.
 
-**After sign-off** is the handoff most easily dropped, because Stage 2 ends in paperwork. Recording
-the ADRs, setting the spec to `SIGNED-OFF`, and checking those edits (`docs-pointer-check`,
-`git diff --check`) finish Stage 2. They don't pause it. The next action is Stage 3, Phase 0:
-write its steps, then start the first one, usually the test that pins today's behaviour.
+**After sign-off** is the handoff most easily dropped. Recording the ADRs, setting the spec to
+`SIGNED-OFF` and checking those edits finish Stage 2; they don't pause it. The next action is
+Stage 3: Phase -1 if the spec has one, else Phase 0. Write its steps, then start the first one.
 
 **Keep going until you hit a wall.** Work through every piece of the task you can do. A turn ends
 only at a wall, and there are two kinds:
@@ -78,14 +77,13 @@ before code, and a person still merges.
 **Waiting on a background command is work, not a stop.** When you need the result of a command
 running in the background, block on the harness's output read until the command exits
 ([why](../../docs/never-stop-silently.md#addendum-2026-11-11-when-the-person-moves-the-command-to-the-background)):
-on the Copilot CLI, `read_powershell` with its `shellId` and `delay: 600`, its cap, again and again.
-The read returns when the command exits, so it is a held wait, not a poll. Wait quietly. Don't end
-the turn, and don't start work that reads its result or the files it is changing
-([independent work](#run-independent-work-at-the-same-time) still runs). **Each step of a wait is a
-tool call or the end of the turn, never thinking with neither.** End the turn only if the harness
-says the person moved the command to the background, or to stop calling tools for it: its completion
+on the Copilot CLI, `read_powershell` with its `shellId` and `delay: 600`, its cap, again and again:
+a held wait, not a poll, returning when the command exits. Wait quietly. Don't end the turn, and
+don't start work that reads its result or the files it is changing. **Each step of a wait is a tool
+call or the end of the turn, never thinking with neither.** End the turn only if the harness says
+the person moved the command to the background, or to stop calling tools for it: its completion
 notification starts the next turn. Past the bound (the person's, else 30 minutes of waiting),
-report: the command is still running in the background, how long you waited, what's next.
+report: still running in the background, how long you waited, what's next.
 
 You end a turn only at one of these points:
 
@@ -125,32 +123,26 @@ push.
 
 **Limited parallelism.** Two or three independent tasks may run at once when neither reads the
 other's output or the files the other is changing: docs while the local gates run, when the gates
-don't read docs; read-only research while a build runs. Check rather than assume: a Markdown lint
-in `run-local-gates.py --list` reads docs, so that gate doesn't pair with a docs edit. Each task is
-named in the visible plan ([rule 2](#keep-the-plan-visible)). **The final gate run still happens
-last, on the exact tree that is pushed.** A gate run that overlapped an edit can find a red, but it
-can't clear the push.
+don't read docs (a Markdown lint in `run-local-gates.py --list` does); read-only research while a
+build runs. Each task is named in the visible plan ([rule 2](#keep-the-plan-visible)). **The final
+gate run still happens last, on the exact tree that is pushed.** A gate run that overlapped an edit
+can find a red, but it can't clear the push.
 
 **Remote or long-running work starts as soon as the pending change doesn't touch what that work
-runs.** Check, don't guess:
+runs.** Check, don't guess: compare the image or artifact build and the deploy definition (the
+Dockerfile and its `.dockerignore`, the deploy manifest: which paths get copied into the image or
+onto the machines that run it) with `git status --short`. Not touched: start it, with one line
+saying what you checked:
+`the changed helper is local-only (not in the image's COPY paths); the remote job runs an unchanged image → starting the next runs.`
+Touched: it waits for the build or deploy that carries the change. If the definitions don't settle
+it, don't start: ask once, with the question tool.
 
-1. Read the image or artifact build and the deploy definition: the Dockerfile, the image build
-   script, the deploy manifest, and which paths get copied into the image or onto the machines
-   that run it. A `COPY . .` includes every path its `.dockerignore` doesn't exclude.
-2. Compare them with the paths in `git status --short`.
-3. **Not touched:** start the work, with one line saying what you checked:
-   `the changed helper is local-only (not in the image's COPY paths); the remote job runs an unchanged image → starting the next runs.`
-4. **Touched:** it waits for the build or deploy that carries the change.
-5. **The definitions don't settle it:** don't start. Ask once, with the question tool.
-
-**Re-judge.** Results collected while local tooling (a script that scores them, say) was still
-changing get re-judged with that tooling's final version before anyone relies on them, and the run
-log says so.
+**Re-judge.** Results collected while local tooling was still changing get re-judged with that
+tooling's final version before anyone relies on them, and the run log says so.
 
 **The person can unblock it.** If the person says a piece of work isn't affected, start it in
-parallel without re-litigating: no check first, no second question, and no ADR, since it's a call
-about this work and not a standing decision. The one line says it's on their word. Re-judge still
-applies.
+parallel without re-litigating: no check first, no second question, and no ADR. The one line says
+it's on their word.
 
 ## The person's questions come first
 
@@ -242,6 +234,15 @@ gate green, and say in the phase's report that it was pulled forward and why. Th
 approved `push-red` ruling in the spec: `run-local-gates` honours it itself (exit 4). Asking leave
 to move the remediation into the phase is not a stop: the `agentStop` hook refuses it.
 
+## Phase -1: remediate existing issues
+
+At Stage 0, before any edit, run `baseline-gates.py survey`: every local gate on the untouched
+base. Green: Phase -1 is a no-op; say so in one line. Red: its table goes in the spec's
+**Pre-existing gate failures**; after sign-off Phase -1 fixes those first, in its own branch and PR
+(or commit series), never mixed with the change, checked by `baseline-gates.py scope`, and Phase 0
+stacks on it. One it can't fix safely is asked once, at sign-off: Remediation phase `Phase -1`
+([how](../../skills/implement-phase/SKILL.md#phase--1-remediate-existing-issues), [why](../../docs/phase-minus-one.md)).
+
 ## Branch model
 
 `branchModel.style` in config says how branches work in this repo. When it's absent, it is
@@ -309,10 +310,10 @@ loader, default 3; a test reads it back", not "Implement".
 
 **Where it goes.** One place for the person to look, never two copies of the same list:
 
-- **You have a todo-list tool** (the `todo` alias): keep the plan there. Completed stages are one
-  done item each, the current stage's steps are one item each, and the stages still to come are one
-  item each. Your reply then carries only the header line below, plus the full checklist on the
-  turn the plan is first written or changes, so the reason for a change sits next to it.
+- **You have a todo-list tool** (the `todo` alias): keep the plan there, one item per finished
+  stage, per current step and per stage to come. Your reply then carries only the header line
+  below, plus the full checklist on the turn the plan is first written or changes, so the reason
+  for a change sits next to it.
 - **You have no todo-list tool:** put the plan in every reply, directly under the header line, as a
   one-line stage map and a checklist of the current stage's steps (format below).
 - **The person says they can't see your todo list, or `plan.checklist` is `"always"` in config:**
@@ -406,7 +407,7 @@ answers that the repo takes no trailer, the signature is the last line.
 | "Do Phase 1 and 2 together" | Decline, unless the signed-off spec already says so. Offer to amend the spec, and get sign-off on the amendment. |
 | Code before sign-off, however small | Decline. Put the change into the spec as a proposal. |
 | "Skip the todo list, just do it" | Decline. The plan is how the person sees where you are. Offer to keep the steps coarser, never to drop them. |
-| "Skip the freshness check, I rebased yesterday" / "work on it anyway, it's only a few behind" | Decline at either checkpoint — Stage 0 and Stage 6 are the only two, so neither is skippable. Run `base-freshness`; if it says stale, rebase it yourself first. A tolerance is a config decision (`branchModel.maxBehind`), made once and recorded as an ADR, not an exception at the checkpoint. |
+| "Skip the freshness check, I rebased yesterday" / "work on it anyway, it's only a few behind" | Decline: Stage 0 and Stage 6 are the only two checkpoints, so neither is skippable. Run `base-freshness`; if it says stale, rebase it yourself first. A tolerance is `branchModel.maxBehind`, recorded as an ADR, not an exception. |
 
 **The one exemption.** A change that alters no behaviour at all, such as a docs typo, a comment, or
 a formatting-only diff, may skip Research, Spec and Tests. It never skips Docs, Gates, or the PR.

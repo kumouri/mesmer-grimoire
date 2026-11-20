@@ -101,6 +101,10 @@ phase being pushed, even though a decision looks like a wall: [every local gate 
 push](gate-remediation-in-the-plan.md), so there is nothing to ask. The Stage 2 planning stop is
 exempt, since asking for that ruling there is the point.
 
+Since 2026-11-20 it also refuses a stop outside Stage 2 that asks leave to fix, or to skip, a gate
+failure that was already on the base: [Phase -1](phase-minus-one.md) fixes those before Phase 0,
+and asks about one it can't fix safely once, at sign-off.
+
 It refuses a stop whose `Why:` is a stale base, too: the agent [rebases a stale branch
 itself](base-freshness-cadence.md#amendment-2026-11-10-zethus-rebases-a-stale-branch-itself). A
 `Why:` that names a failed fetch or a rebase conflict it can't decide is still a real stop.
