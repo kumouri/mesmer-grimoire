@@ -52,6 +52,13 @@
     "checklist": "auto"
   },
 
+  "_identityReadme": "Who Zethus works for, named in every spec, ADR and ruling it writes. Leave it empty in this committed file: a team's shared config must not name one person. Set it in your own ~/.copilot/zethus/config.json or this repo's untracked .copilot/zethus.config.json (identity.py --save does that), or leave it out and Zethus uses git config user.name, then the forge account, then asks you once.",
+
+  "identity": {
+    "name": "",
+    "handle": ""
+  },
+
   "_jiraReadme": "Everything below is only read by the optional Jira integration skills (see docs/jira-skills.md). Leave it out entirely if you haven't installed spec-to-stories or story-enrich.",
 
   "stories": {

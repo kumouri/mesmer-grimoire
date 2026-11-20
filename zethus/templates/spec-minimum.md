@@ -2,12 +2,17 @@
 
 **Status:** {{status}} · **Owner:** {{owner}} · **Date:** {{date}} · **Related:** tickets, ADRs
 
+**Requested by:** {{requester}} · **Signed off:** {{signedOff}} · **Written by:** {{writtenBy}}
+
 > The minimum spec: for one PR, a short fact table, and at most one open decision. Its headings are
-> a strict subset of the full spec's, so promoting it later only adds sections. Delete this note.
+> a strict subset of the full spec's, so promoting it later only adds sections. *Owner*,
+> *Requested by* and *Signed off* name people as they write their names (by default the person
+> Zethus works for, from `identity.py`), never a placeholder; *Signed off* reads `who, date` once
+> a person approves it. The agent is only ever *Written by*. Delete this note.
 
 ## The ask
 
-> "…the requester's exact words…" — source, date
+> "…the exact words of the ask…" — who asked, as they write their name; source; date
 
 - **Answers:** …
 - **Does not answer:** …

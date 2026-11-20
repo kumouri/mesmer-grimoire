@@ -21,7 +21,11 @@ true:
 
 ## Procedure
 
-1. **Create the file:** `python <kit root>/scripts/new-spec.py minimum "<title>"`.
+1. **Create the file:** `python <kit root>/scripts/new-spec.py minimum "<title>"`. *Owner* and
+   *Requested by* are the person you work for (`<kit root>/scripts/identity.py`) unless you pass
+   `--owner` or `--requester` for someone else; *Written by* is you, never the owner. If it exits 2
+   because nobody could be resolved, ask the person once, offer to save the name
+   (`identity.py --save`), and re-run. Never write a placeholder.
 2. **The ask.** Paste the request verbatim, then say what the spec answers and what it doesn't.
 3. **What is true today.** Write two to six facts cited to `file:line`, from
    [research-existing-code](../research-existing-code/SKILL.md), plus a one-line *not covered*.
@@ -48,7 +52,8 @@ true:
 
 On sign-off, record the decision with [write-adr](../write-adr/SKILL.md), if there was one, and
 record the gate-remediation ruling in the spec's table (`Approved` as `yes — who, date`) so a later
-phase and session can read it. Set the status to `SIGNED-OFF`, then run `gate-remediation-check.py`
+phase and session can read it. Set the status to `SIGNED-OFF` and *Signed off* to `who, date`. *Who*
+is always the person who gave it, as they write their name, never you. then run `gate-remediation-check.py`
 on the spec: it fails while a ruling is still `PENDING`.
 
 **Next:** in the same turn, start Phase 0 with [implement-phase](../implement-phase/SKILL.md).

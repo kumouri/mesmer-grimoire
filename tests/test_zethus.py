@@ -1,7 +1,7 @@
 """CI coverage for the Zethus Copilot process kit.
 
-Covers the five stdlib scripts (run-local-gates, new-adr, new-spec, docs-pointer-check,
-base-freshness), the installer, and the kit's own contract: every skill's frontmatter is valid for Copilot, the minimum
+Covers the core stdlib scripts (run-local-gates, new-adr, new-spec, docs-pointer-check,
+base-freshness; identity has its own file, test_zethus_identity.py), the installer, and the kit's own contract: every skill's frontmatter is valid for Copilot, the minimum
 spec stays a strict subset of the full one, and the kit's Markdown has no broken pointers.
 
 Each script is loaded from its file (the names are hyphenated, so they aren't importable modules)
@@ -84,9 +84,12 @@ def headings(path: Path) -> list[str]:
 
 def isolate_home(test: unittest.TestCase, home: Path) -> None:
     """Point ``Path.home()`` at ``home`` and clear ``$ZETHUS_CONFIG``, so a developer's own
-    ``~/.copilot/zethus/config.json`` can never leak into a test."""
+    ``~/.copilot/zethus/config.json`` can never leak into a test. Git's global config moves with
+    ``HOME``, and the identity resolver's forge step (``gh api user``) is off, so no test reads the
+    developer's own name or makes a network call."""
     env = {"HOME": str(home), "USERPROFILE": str(home),
-           "LOCALAPPDATA": str(home / "AppData" / "Local")}
+           "LOCALAPPDATA": str(home / "AppData" / "Local"),
+           "ZETHUS_IDENTITY_FORGE": "off"}
     patcher = mock.patch.dict(os.environ, env)
     patcher.start()
     test.addCleanup(patcher.stop)
@@ -225,7 +228,17 @@ class RunLocalGates(TempRepo):
         self.assertTrue("not a git work tree" in first or "working tree" in first, first)
 
 
+def git_identity(home: Path, name: str) -> None:
+    """Give the throwaway home a global git ``user.name``: step 2 of the identity resolver."""
+    home.mkdir(parents=True, exist_ok=True)
+    (home / ".gitconfig").write_text(f"[user]\n\tname = {name}\n", encoding="utf-8")
+
+
 class NewAdr(TempRepo):
+    def setUp(self):
+        super().setUp()
+        git_identity(self.repo / "_home", "Alex Example")
+
     def adr(self, *argv):
         return run(adr_mod, "--repo", str(self.repo), *argv)
 
@@ -237,6 +250,7 @@ class NewAdr(TempRepo):
         self.assertIn("# 2026-01-15-use-the-outbox-pattern: Use the outbox pattern", text)
         self.assertIn("| Status | Proposed |", text)
         self.assertIn("| Deciders | Team A |", text)
+        self.assertIn("| Recorded by | Zethus (AI agent) |", text)
         self.assertNotIn("{{", text)
         index = (self.repo / "docs/adr/README.md").read_text(encoding="utf-8")
         self.assertIn("| ID | Title | Status | Date |", index)
@@ -273,6 +287,10 @@ class NewAdr(TempRepo):
 
 
 class NewSpec(TempRepo):
+    def setUp(self):
+        super().setUp()
+        git_identity(self.repo / "_home", "Alex Example")
+
     def spec(self, *argv):
         return run(spec_mod, "--repo", str(self.repo), *argv)
 
@@ -285,6 +303,7 @@ class NewSpec(TempRepo):
             self.assertIn(f"# Retry webhooks {kind}", text)
             self.assertIn("**Status:** DRAFT", text)
             self.assertIn("**Owner:** Payments", text)
+            self.assertIn("**Requested by:** Alex Example", text)
             self.assertNotIn("{{", text)
 
     def test_refuses_to_overwrite(self):
@@ -584,7 +603,9 @@ class Installer(unittest.TestCase):
             installed = load(self.target / ".github/zethus/scripts/new-spec.py")
             self.assertEqual(Path(sys.modules["_common"].TEMPLATES_DIR).resolve(),
                              (self.target / ".github/zethus/templates").resolve())
-            code, out = run(installed, "--repo", str(self.target), "minimum", "Thing")
+            isolate_home(self, self.target / "_home")
+            code, out = run(installed, "--repo", str(self.target), "minimum", "Thing",
+                            "--owner", "Alex Example", "--requester", "Alex Example")
         finally:
             sys.modules["_common"] = saved_common
             sys.path[:] = saved_path

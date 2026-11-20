@@ -14,10 +14,17 @@ tracked, in the same change that acts on it.
 ## Procedure
 
 1. **Create the record:**
-   `python <kit root>/scripts/new-adr.py "<decision as a short title>" --deciders "<who>"`.
+   `python <kit root>/scripts/new-adr.py "<decision as a short title>"`.
    This writes `docs/adr/<YYYY-MM-DD>-<slug>.md` (or `adr.dir` from config) and adds a row to that
    directory's `README.md` index. The id is keyed to the date, not numbered, so two branches
    adding ADRs at the same time never collide.
+   **Deciders** defaults to the person you work for, resolved by `<kit root>/scripts/identity.py`
+   (config `identity.name`, then `git config user.name`, then the forge account) and printed with
+   its source. Pass `--deciders "<names>"` only when someone else decided, writing each name as
+   that person writes it. *Recorded by* names you, the agent: you write the record, you never
+   decide. If the script exits 2 because nobody could be resolved, ask the person once with the
+   question tool for the name to record, offer to save it (`identity.py --save --name "…"`),
+   and re-run. Never pass a stand-in such as `TBD` or `Requester`; the script refuses one.
 2. **Decision.** Write one imperative sentence with no reasoning in it: "Retry webhook deliveries
    with exponential backoff, capped at 1 hour." If it takes two sentences, it is two decisions and
    needs two ADRs.

@@ -3,7 +3,7 @@
 **A development process for GitHub Copilot, in a form Copilot can follow and enforce.** One custom
 agent runs every change through research → spec → sign-off → phased implementation → tests → docs →
 local gates → a PR with evidence, and refuses to skip a stage. Ten core skills hold one procedure
-each, and optional extension skills (modernization, Jira, CLI tools, session review) add more. Four Markdown templates and five stdlib Python scripts do the mechanical parts. Install it as a
+each, and optional extension skills (modernization, Jira, CLI tools, session review) add more. Four Markdown templates and seven stdlib Python scripts do the mechanical parts. Install it as a
 Copilot plugin from this repo's marketplace, so it follows you into every repo without changing any
 of them, or copy it into a repository's `.github/` folder for a whole team and the cloud agent.
 Nothing in it is specific to one organization.
@@ -88,6 +88,14 @@ branch with every local gate green. The branch is pushed as a backup, but no PR 
 draft, until you say so; the spec marks those phases *on branch* or *committed*, never *in review*.
 See [the next phase can start with no PR open](docs/phase-advance-without-pr.md) and
 [Branch models](#branch-models).
+
+Every doc it writes names the real person who asked, approved or decided, never a stand-in like
+"Requester" or `TBD`. At Stage 0 `identity.py` resolves who you are, from the first of: your own
+config (`identity.name`, `identity.handle`), `git config user.name`, and your forge account
+(`gh api user`). It logs each step and which source won. If none answers, the agent asks you once
+and offers to save the answer; it never writes a placeholder. Names are written as you write them,
+and the agent records itself only as the author of the text, never as an approver or decider. See
+[name the person, never a placeholder](docs/identity-of-the-person.md).
 
 Logging is the first deliverable of anything the agent builds: every new script, tool or feature
 gets a run log (starting config, decisions, state changes, full errors) in the commit that creates
@@ -189,16 +197,17 @@ plan, this is a rule in the agent file rather than a script check: the kit has n
 | [`skills/zethus-pr-description`](skills/zethus-pr-description/SKILL.md) | `.github/skills/` | An evidence-first PR body diffed against the real integration branch, including *What was not checked*. |
 | [`skills/docs-sync-check`](skills/docs-sync-check/SKILL.md) | `.github/skills/` | Fix the docs that describe the changed code in the same PR, in place. Leave every other doc alone. |
 | [`templates/spec-full.md`](templates/spec-full.md) · [`spec-minimum.md`](templates/spec-minimum.md) | `.github/zethus/templates/` | Both spec shapes. The minimum spec's headings are a strict subset of the full spec's, so promoting one only adds sections. A test enforces this. |
-| [`templates/adr.md`](templates/adr.md) | `.github/zethus/templates/` | The ADR record: a field table (including *Enforced where*), decision, context, options, consequences. |
+| [`templates/adr.md`](templates/adr.md) | `.github/zethus/templates/` | The ADR record: a field table (including *Deciders*, *Recorded by* and *Enforced where*), decision, context, options, consequences. |
 | [`templates/pr.md`](templates/pr.md) | `.github/zethus/templates/` | The PR body: What · Why · Changes · Evidence · What was not checked · deferrals · decisions · docs · AI assistance. |
 | [`scripts/run-local-gates.py`](scripts/run-local-gates.py) | `.github/zethus/scripts/` | Discovers and runs lint/build/test, then prints a PASS/FAIL/SKIP table and an explicit verdict. Prefers a repo's `mvnw`/`gradlew` wrapper; on Windows a bare `mvn` or `./mvnw` resolves to `mvn.cmd`/`mvnw.cmd` through `PATHEXT`. Exit codes: `0` full green · `1` red · `3` green but incomplete · `4` green except a gate the signed-off spec lets stay red (`push-red`) · `2` nothing to run. |
 | [`scripts/gate-remediation-check.py`](scripts/gate-remediation-check.py) | `.github/zethus/scripts/` | Checks a spec's **Gate remediation** section: present (`None — …` counts), not `None` beside a phase that reads like gate remediation, rulings readable, none `PENDING` once the spec is signed off. [`scripts/_gate_rulings.py`](scripts/_gate_rulings.py) is the parser `run-local-gates` shares. Exit `1` on problems. |
 | [`scripts/base-freshness.py`](scripts/base-freshness.py) | `.github/zethus/scripts/` | Fetches, counts the commits in `HEAD..origin/<base>`, and reports STALE if there are more than `branchModel.maxBehind`, saying what the agent does next: it rebases the branch itself before any other work ([how](skills/pre-push-gates/SKILL.md#bring-a-stale-branch-up-to-date)). Prints the merge-base to diff against, and whether the branch was rewritten since its last push. The agent runs it at **two** points: Stage 0 (Orient) and immediately before the push (`pre-push-gates`) — see [Branch models](#branch-models). `--merge-base-only` prints the merge-base alone and always exits 0, for a stage that needs a diff base and must not be stopped. Exit codes: `0` fresh · `1` stale, the agent rebases first · `2` usage error · `3` no answer (the fetch failed), which is a stop. |
-| [`scripts/new-adr.py`](scripts/new-adr.py) | `.github/zethus/scripts/` | Creates `docs/adr/YYYY-MM-DD-slug.md` and adds its row to the ADR index. Ids are keyed by date, so parallel branches never collide. |
-| [`scripts/new-spec.py`](scripts/new-spec.py) | `.github/zethus/scripts/` | `new-spec.py full\|minimum "Title"` creates `docs/specs/<slug>.md` as `DRAFT`. |
+| [`scripts/new-adr.py`](scripts/new-adr.py) | `.github/zethus/scripts/` | Creates `docs/adr/YYYY-MM-DD-slug.md` and adds its row to the ADR index. Ids are keyed by date, so parallel branches never collide. *Deciders* is the person `identity.py` resolves unless `--deciders` names someone else; with no one to name, or a placeholder, it writes nothing and exits 2. |
+| [`scripts/new-spec.py`](scripts/new-spec.py) | `.github/zethus/scripts/` | `new-spec.py full\|minimum "Title"` creates `docs/specs/<slug>.md` as `DRAFT`, with *Owner* and *Requested by* resolved the same way (`--owner`, `--requester` to name others). |
+| [`scripts/identity.py`](scripts/identity.py) | `.github/zethus/scripts/` | Says who Zethus works for: config `identity.*` (most personal config first), then `git config user.name`, then `gh api user`, tried only when the others gave nothing. Logs each step and the winning source, never the values, to `~/.copilot/zethus/logs/identity.log`. `--save --name` stores the answer the person gave. [`scripts/_identity.py`](scripts/_identity.py) is the resolver the other scripts and the hook share. Exit codes: `0` resolved or saved · `1` not resolved, ask the person · `2` usage error. |
 | [`scripts/docs-pointer-check.py`](scripts/docs-pointer-check.py) | `.github/zethus/scripts/` | Fails on relative Markdown links that don't resolve, including case mismatches that only break on Linux. With `--sync-base`, it also lists docs whose described code changed (report-only). |
-| [`zethus.config.example.json`](zethus.config.example.json) | `.github/zethus.config.json` | Project facts: integration branch, gate commands, spec and ADR dirs, the doc-to-code map, the AI co-author trailer and commit signature. |
-| [`plugin.json`](plugin.json), [`com.github.copilot/hooks/`](com.github.copilot/hooks/session_start.py) | — | The [plugin](#install-the-plugin-default): its manifest, the `sessionStart` hook that injects the working agreement and says where the scripts and templates are (and the plugin version), and the [`agentStop` / `userPromptSubmitted` stop guard](docs/never-stop-silently.md#enforcement-the-stop-guard-hook) that refuses a turn ending at a progress point or on a job the agent could do itself. |
+| [`zethus.config.example.json`](zethus.config.example.json) | `.github/zethus.config.json` | Project facts: integration branch, gate commands, spec and ADR dirs, the doc-to-code map, the AI co-author trailer and commit signature. Its `identity` block stays empty: a shared file doesn't name one person. |
+| [`plugin.json`](plugin.json), [`com.github.copilot/hooks/`](com.github.copilot/hooks/session_start.py) | — | The [plugin](#install-the-plugin-default): its manifest, the `sessionStart` hook that injects the working agreement and says where the scripts and templates are (and the plugin version) and who the session works for, and the [`agentStop` / `userPromptSubmitted` stop guard](docs/never-stop-silently.md#enforcement-the-stop-guard-hook) that refuses a turn ending at a progress point or on a job the agent could do itself. |
 | [`agents/`](agents/zethus.agent.md), [`hooks/hooks.json`](hooks/hooks.json) | — | Generated copies of the agent and the hook registration at the plugin root, for IntelliJ ([why](#one-plugin-two-layouts)). |
 | [`install.py`](install.py) | — | Copies all of the above into place: into a repo (`--target`) or for your user account (`--user`, with `--uninstall` and `--migrate-to-plugin`). Never clobbers a file it didn't write, and writes nothing if there are conflicts. `--with-mnemosyne` also sets up [Mnemosyne](#add-mnemosyne-in-the-same-step). |
 
@@ -492,7 +501,11 @@ Notes:
 
 #### Config for user-level use
 
-The scripts take the first config they find. `--config` beats all of them.
+The scripts take the first config they find. `--config` beats all of them. `identity` is the one
+exception: `identity.py` reads it from every file, most personal first (`--config`,
+`$ZETHUS_CONFIG`, `.copilot/zethus.config.json`, `~/.copilot/zethus/config.json`, then
+`.github/zethus.config.json` and `.claude/amphion.config.json`), so a team's committed config
+never hides your own name.
 
 | # | Location | Use it for |
 |---|---|---|
@@ -500,7 +513,7 @@ The scripts take the first config they find. `--config` beats all of them.
 | 2 | `$ZETHUS_CONFIG` | A path, relative to the repo root unless absolute. Point it anywhere. |
 | 3 | `.copilot/zethus.config.json` | Per-repo answers you may not commit. Keep it untracked (below). |
 | 4 | `.claude/amphion.config.json` | Amphion's config; the shared keys mean the same thing. |
-| 5 | `~/.copilot/zethus/config.json` | Your defaults for every repo, such as `commits.aiTrailer`. Leave `gates` out unless every repo you use runs the same gates. |
+| 5 | `~/.copilot/zethus/config.json` | Your defaults for every repo, such as `commits.aiTrailer` and `identity`. Leave `gates` out unless every repo you use runs the same gates. |
 | — | *(none)* | Discovery from the repo's build files, then ask. |
 
 To keep a per-repo config out of git without touching the repo's `.gitignore` (which is itself a
@@ -580,6 +593,7 @@ The keys are the same in every location.
 | `docs.pointerIgnore[]` | `docs-pointer-check` | Markdown files to skip, such as generated changelogs. |
 | `commits.aiTrailer` | agent | The co-author trailer that AI-assisted commits carry. |
 | `commits.signature` | agent | The line Zethus signs its commits with, just before the trailer block. Default `"— Zethus"`; `""` means no signature line. It goes alongside `commits.aiTrailer`, never instead of it. See [Signed commits](#signed-commits). |
+| `identity.name`, `identity.handle` | `identity.py`, `new-adr`, `new-spec`, the `sessionStart` hook, agent | Who Zethus works for, written as you write it, in every field that records who asked, approved or decided. Highest priority, before `git config user.name` and `gh api user`. Set it in a personal config, not the committed one; `identity.py --save --name "…"` writes it. See [name the person, never a placeholder](docs/identity-of-the-person.md). |
 | `plan.checklist` | agent | `"auto"` (default): the plan goes in the todo tool where the agent has one, else as a checklist in every reply. `"always"`: the checklist goes in every reply as well, for a surface that accepts the tool but doesn't show it. See [Seeing the plan](#seeing-the-plan). |
 
 ### Branch models

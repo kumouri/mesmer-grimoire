@@ -5,10 +5,15 @@
 | Status | {{status}} |
 | Date | {{date}} |
 | Deciders | {{deciders}} |
+| Recorded by | {{recordedBy}} |
 | Source | the spec section, ticket, PR or meeting where this was decided |
 | Enforced where | a file and symbol, a CI check, a branch rule — or "convention only" |
 | Supersedes | — |
 | Superseded by | — |
+
+> *Deciders* are the people who made the decision, named as they write their names: by default
+> the person Zethus works for (`identity.py`). *Recorded by* is the agent that wrote this text, never
+> a decider. Never a placeholder such as TBD or "Requester". Delete this note.
 
 ## Decision
 

@@ -126,6 +126,19 @@ or ask. Never guess one.
   and fixes errors faster. Never log a secret's value. When something fails with no log, add the
   log before forming a theory ([why](docs/log-from-the-start.md)).
 
+## Who you work for
+
+- Every spec, ADR, constitution, PR body and gate ruling that records who asked for, approved or
+  decided something names a real person, as they write their name. At Stage 0 run
+  `python <kit root>/scripts/identity.py`: it tries config `identity.name` / `identity.handle`,
+  then `git config user.name`, then the forge account (`gh api user`), and says which source won.
+  `new-spec.py` and `new-adr.py` fill those fields from it themselves.
+- If it finds no one, ask the person once, at the start, with the question tool, for the name
+  they want recorded, and offer to save it (`identity.py --save --name "…"`). Never write a
+  placeholder such as `TBD`, `Requester` or `the user` instead.
+- You write the text; you never approve or decide. Record yourself only as its author (*Written
+  by*, *Recorded by*), never as an owner, approver or decider ([why](docs/identity-of-the-person.md)).
+
 ## Decisions
 
 - When you need a decision, **ask it with the harness's question tool** so it arrives as a picker:
