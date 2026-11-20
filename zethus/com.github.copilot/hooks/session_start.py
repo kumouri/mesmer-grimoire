@@ -4,7 +4,11 @@
 Plugins can't ship always-on instructions (the Copilot CLI doesn't load a plugin's ``rules/``), so
 this prints ``copilot-instructions.md`` as ``additionalContext``, with ``<kit root>`` filled in and
 a closing note saying where the kit's scripts and templates live. Nothing expands a variable inside
-a skill's text, so that note is how a skill finds them. The JSON carries both shapes: the bare key
+a skill's text, so that note is how a skill finds them. A last section says who the session is
+working for, from ``scripts/_identity.py`` (config, then ``git config user.name``), so every doc
+the agent writes names that person rather than a placeholder. The hook skips the forge step: it
+has 10 seconds and must not wait on the network. When nothing is found it says so, and the agent
+runs ``identity.py`` (which also asks the forge) and then asks the person once. The JSON carries both shapes: the bare key
 is what the Copilot CLI read, ``hookSpecificOutput`` is what VS Code documents.
 
 An install.py copy already delivers all of this, so the hook steps aside rather than say it twice:
@@ -22,6 +26,32 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def working_for(cwd: str) -> str:
+    """Who the session works for, resolved offline; fail-open to the "not resolved" note."""
+    script = f"{ROOT.as_posix()}/scripts/identity.py"
+    try:
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from _common import find_repo_root
+        from _identity import AGENT, RunLog, log_path, resolve
+        log = RunLog(log_path())
+        try:
+            log("session_start hook: resolving who the session works for (forge off)")
+            found = resolve(find_repo_root(Path(cwd) if cwd else None), forge=False, log=log)
+        finally:
+            log.close()
+    except Exception:
+        found = None
+    if found is not None and found.resolved:
+        return (f"Working for: **{found.display}** (source: {found.source}). Write that name, as "
+                "written, wherever a spec, ADR, PR body or gate ruling records who asked for, "
+                f"approved or decided something. You are recorded apart, as {AGENT}, only as the "
+                "text's author: never the approver or decider.")
+    return ("Working for: not resolved from config or git. At Stage 0 run "
+            f"`python {script}`, which also asks the forge account; if it still finds no one, ask "
+            "the person once, with the question tool, for the name to record, and offer to save "
+            "it with `--save --name`. Never write a placeholder such as TBD or Requester.")
 
 
 def repo_has_kit(cwd: str) -> bool:
@@ -49,7 +79,7 @@ def version() -> str:
         return "unknown"
 
 
-def agreement() -> str:
+def agreement(cwd: str = "") -> str:
     root = ROOT.as_posix()
     text = (ROOT / "copilot-instructions.md").read_text(encoding="utf-8")
     text = text.replace("<kit root>", root).replace("`.github/skills/`", f"`{root}/skills/`")
@@ -57,7 +87,8 @@ def agreement() -> str:
             f"Zethus kit root: `{root}`. Plugin version: {version()}. Scripts: `{root}/scripts/`. Templates: `{root}/templates/`. "
             "Wherever a skill or the agent writes `<kit root>`, use this path. Config is the first "
             "found of `.github/zethus.config.json`, `$ZETHUS_CONFIG`, `.copilot/zethus.config.json`, "
-            "`.claude/amphion.config.json` and `~/.copilot/zethus/config.json`.")
+            "`.claude/amphion.config.json` and `~/.copilot/zethus/config.json`."
+            f"\n\n## Who you are working for\n\n{working_for(cwd)}")
 
 
 def context(event: dict) -> str:
@@ -70,7 +101,7 @@ def context(event: dict) -> str:
                 f"python {ROOT.as_posix()}/install.py --user --migrate-to-plugin, and 'Keep both' "
                 "changes nothing. It deletes files outside the repo, so only a picked yes runs it; "
                 "on yes, run it, report what it removed, and carry on.")
-    return agreement()
+    return agreement(str(event.get("cwd") or ""))
 
 
 def main() -> int:

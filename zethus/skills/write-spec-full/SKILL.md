@@ -15,11 +15,15 @@ of these, so a minimum spec can be promoted later by adding sections.
 ## Procedure
 
 1. **Create the file:**
-   `python <kit root>/scripts/new-spec.py full "<title>" --owner "<who signs off>"`.
+   `python <kit root>/scripts/new-spec.py full "<title>"`.
    It writes `docs/specs/<slug>.md` (or `spec.dir` from config) from
-   `<kit root>/templates/spec-full.md`, with status `DRAFT`.
-2. **The ask.** Paste the request verbatim, with its source and date. List which parts the spec
-   answers and which it doesn't.
+   `<kit root>/templates/spec-full.md`, with status `DRAFT`. *Owner* and *Requested by* default to
+   the person you work for, resolved by `<kit root>/scripts/identity.py`; pass `--owner` or
+   `--requester` only for someone else, named as they write it. *Written by* is you, the agent,
+   never the owner. If nobody can be resolved it exits 2: ask the person once for the name to
+   record, offer to save it (`identity.py --save`), and re-run. Never write a placeholder.
+2. **The ask.** Paste the request verbatim, with who asked, its source and date. List which parts
+   the spec answers and which it doesn't.
 3. **The problem, measured.** Give the evidence that this matters, from one snapshot, with sources.
    If you can't measure it yet, say so, and plan Phase 0 to measure it.
 4. **What is true today.** Run [research-existing-code](../research-existing-code/SKILL.md) and
@@ -64,9 +68,11 @@ of these, so a minimum spec can be promoted later by adding sections.
   edit the question in place to `DECIDED (date, ADR id)`. Never delete it.
 - Record the answer to the gate-remediation question in the spec's **Gate remediation** table
   (`Ruling`, and `Approved` as `yes — who, date`), so a later phase and a later session can read it.
-- Set the status to `SIGNED-OFF`, then run `gate-remediation-check.py` on the spec: it fails while a
-  ruling is still `PENDING`. The status becomes `PARTIAL(merged: …; in review: …)` as phases are
-  pushed and merged, and `BUILT` once the last one merges. A pushed phase is in review, not built.
+  *Who* is the person who gave the ruling, as they write their name, never you.
+- Set the status to `SIGNED-OFF` and *Signed off* to `who, date`, the person who signed it off.
+  Then run `gate-remediation-check.py` on the spec: it fails while a ruling is still `PENDING`.
+  The status becomes `PARTIAL(merged: …; in review: …)` as phases are pushed and merged, and
+  `BUILT` once the last one merges. A pushed phase is in review, not built.
   In `pr-later` style, before any PR opens, it is `PARTIAL(on branch: …; committed: …)`
   ([why](../../docs/phase-advance-without-pr.md)).
 - **Next:** in the same turn, start Phase 0 with [implement-phase](../implement-phase/SKILL.md).

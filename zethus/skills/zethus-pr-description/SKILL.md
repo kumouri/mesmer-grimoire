@@ -60,7 +60,8 @@ describes a diff that no longer exists.
 Start from `<kit root>/templates/pr.md`:
 
 - **What / Why:** one sentence, then two or three lines. Link the spec, and say which phase this
-  PR is.
+  PR is. *Requested by* names the person who asked, as they write their name: by default the
+  person you work for (`<kit root>/scripts/identity.py`). Never a placeholder, never you.
 - **Changes:** grouped by concern. Don't restate the diff line by line.
 - **Evidence:** the `run-local-gates` table, pasted unedited; the tests added and what each
   proves; the mutation check; any measurement, with its source and timestamp.

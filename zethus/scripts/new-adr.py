@@ -14,10 +14,17 @@ renumbers anything at merge time.
 written down somewhere tracked. The index is the one place a reader can see every decision, and
 the row is created in the same step as the record so the two never disagree.
 
+**Who decided.** ``Deciders`` is the person Zethus works for, resolved by ``_identity.py`` (config
+``identity.*``, then ``git config user.name``, then the forge account), unless ``--deciders`` names
+someone else, as they write their name. The ``Recorded by`` row names the agent that wrote the
+text, which is never a decider. If nobody can be resolved, or ``--deciders`` is a placeholder such
+as ``TBD``, it writes nothing and exits 2: the agent asks the person and re-runs.
+
 Config (optional; the first Zethus config found, see ``_common.py``): ``adr.dir`` (default ``docs/adr``),
 ``adr.template`` (default this kit's ``templates/adr.md``).
 
-Exit codes: 0 created · 2 usage error (bad date, empty title, file already exists).
+Exit codes: 0 created · 2 usage error (bad date, empty title, file already exists, nobody to name
+as the decider).
 """
 from __future__ import annotations
 
@@ -30,6 +37,7 @@ from _common import (  # noqa: E402
     UsageError, cfg, check_date, fill, find_repo_root, load_config, read_template, rel, slugify,
     today, write_new,
 )
+from _identity import AGENT, RunLog, log_path, require  # noqa: E402
 
 STATUSES = ("Proposed", "Accepted", "Rejected", "Deprecated", "Superseded")
 INDEX_HEADER = (
@@ -65,11 +73,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--date", help="YYYY-MM-DD (default: today)")
     p.add_argument("--dir", help="ADR directory (default: adr.dir or docs/adr)")
     p.add_argument("--template", help="template path (default: adr.template or the kit's adr.md)")
-    p.add_argument("--deciders", default="TBD", help="who decided (names or roles)")
+    p.add_argument("--deciders", help="who decided, as they write their names (default: the "
+                                      "person Zethus works for, from identity.py)")
     p.add_argument("--no-index", action="store_true", help="don't add a row to <dir>/README.md")
     p.add_argument("--repo", help="repository root (default: nearest .git ancestor of cwd)")
     p.add_argument("--config", help="config file")
     args = p.parse_args(argv)
+    log = RunLog(log_path())
     try:
         repo = Path(args.repo).resolve() if args.repo else find_repo_root()
         config, _ = load_config(repo, args.config)
@@ -79,19 +89,28 @@ def main(argv: list[str] | None = None) -> int:
         adr_dir = repo / (args.dir or cfg(config, "adr.dir", "docs/adr"))
         template = read_template("adr.md", args.template or cfg(config, "adr.template"), repo)
         path = adr_dir / f"{adr_id}.md"
+        if path.exists():
+            raise UsageError(f"refusing to overwrite existing file: {path.name}")
+        log(f"new-adr: {adr_id}")
+        deciders, source = require(args.deciders, "who decided", repo, config=args.config, log=log)
         write_new(path, fill(template, {
             "id": adr_id, "title": title, "date": date, "status": args.status,
-            "deciders": args.deciders,
+            "deciders": deciders, "recordedBy": AGENT,
         }))
+        log(f"new-adr: wrote {rel(path, repo)}")
         if not args.no_index:
             append_index(adr_dir / "README.md", adr_id, title, args.status, date)
         print(f"created {rel(path, repo)}")
+        print(f"deciders: {deciders} ({source})")
         if not args.no_index:
             print(f"indexed in {rel(adr_dir / 'README.md', repo)}")
         return 0
     except UsageError as exc:
+        log(f"new-adr: usage error: {exc}")
         print(f"new-adr: {exc}", file=sys.stderr)
         return 2
+    finally:
+        log.close()
 
 
 if __name__ == "__main__":

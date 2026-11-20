@@ -2,8 +2,13 @@
 
 **Status:** {{status}} · **Owner:** {{owner}} · **Date:** {{date}} · **Related:** tickets, ADRs, prior specs
 
+**Requested by:** {{requester}} · **Signed off:** {{signedOff}} · **Written by:** {{writtenBy}}
+
 > Status is one of `DRAFT` → `SIGNED-OFF` → `PARTIAL(merged: …; in review: …)` → `BUILT`, or
-> `MEMO` for a write-up that proposes nothing to build. A phase pushed to an open PR is
+> `MEMO` for a write-up that proposes nothing to build. *Owner*, *Requested by* and *Signed off*
+> name people as they write their names (by default the person Zethus works for, from
+> `identity.py`), never a placeholder; *Signed off* reads `who, date` once a person approves it.
+> The agent is only ever *Written by*. A phase pushed to an open PR is
 > `in review`, not merged; the spec is `BUILT` only once its last phase's PR merges. In `pr-later`
 > style, before any PR opens, it is `PARTIAL(on branch: …; committed: …)`. Delete this note.
 
@@ -13,7 +18,7 @@ Quote the request verbatim — the ticket text, the message, the meeting note �
 source. Then say which parts of it this spec answers and which it does not. Quoting it exactly is
 what makes later scope drift visible.
 
-> "…the requester's exact words…" — source, date
+> "…the exact words of the ask…" — who asked, as they write their name; source; date
 
 - **Answers:** …
 - **Does not answer:** … (and where that goes instead)

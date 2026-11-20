@@ -9,6 +9,8 @@ The problem, in two or three lines. Link the spec and the ticket.
 - **Spec:** path or link, and the phase this PR implements
 - **Stacked on:** the earlier phase's PR this one targets and merges after, or "—"
 - **Decisions:** ADR ids this PR relies on or creates
+- **Requested by:** the person who asked, as they write their name (`identity.py` resolves the person
+  Zethus works for); never a placeholder, and never the agent
 
 ## Changes
 

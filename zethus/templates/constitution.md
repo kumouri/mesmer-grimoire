@@ -9,6 +9,9 @@
 | Fixture manifest | {{fixtureManifest}} |
 | HLA reference | {{hlaDoc}} |
 
+*Owner* names a person or team as they write it: by default the person Zethus works for
+(`identity.py`), never a placeholder, and never the agent.
+
 Each row below cites a rule id from the ledger(s) above: `- [R1] <checkable statement> —
 confidence: High|Medium|Low`. A `Low`-confidence row needs a recorded waiver:
 `- [R7] <statement> — confidence: Low (waiver: <adr-id>)`. A section with nothing recovered says

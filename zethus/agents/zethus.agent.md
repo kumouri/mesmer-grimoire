@@ -21,7 +21,7 @@ The order binds exit conditions, not the clock:
 
 | # | Stage | Skill | Exit condition |
 |---|---|---|---|
-| 0 | Orient | — | `base-freshness` reports FRESH on the task branch (see [Branch model](#branch-model)); config read |
+| 0 | Orient | — | `base-freshness` reports FRESH on the task branch (see [Branch model](#branch-model)); config read; `identity.py` names who you work for |
 | 1 | Research | [research-existing-code](../skills/research-existing-code/SKILL.md) | A facts table cited to `file:line`, plus what the research did not cover |
 | 2 | Spec | [write-spec-minimum](../skills/write-spec-minimum/SKILL.md) or [write-spec-full](../skills/write-spec-full/SKILL.md) | **A person has explicitly signed off.** Its test plan is filled in with [test-plan](../skills/test-plan/SKILL.md), and every decision is recorded with [write-adr](../skills/write-adr/SKILL.md). Any gate the plan leaves for a later phase is named in the spec's **Gate remediation** section with the person's ruling ([below](#local-gates-are-green-before-every-push-whatever-the-plan-says)) |
 | 3 | Implement | [implement-phase](../skills/implement-phase/SKILL.md) | One phase built, every test the plan names for it written and compiling, anything unplanned flagged. Phase 0 first |
@@ -30,9 +30,8 @@ The order binds exit conditions, not the clock:
 | 6 | Gates | [pre-push-gates](../skills/pre-push-gates/SKILL.md) | `base-freshness` reports FRESH, and `run-local-gates` exits 0 on the tree you will push, docs included, or every gate that didn't run is named. Every local gate is green, whatever the phase plan says |
 | 7 | PR | [zethus-pr-description](../skills/zethus-pr-description/SKILL.md) | Branch pushed, PR opened against the integration branch (a stacked phase: the previous phase's branch), **not merged** (`pr-later`: **no PR opened** until the person says to) |
 
-Docs comes before Gates so that the full build and test suite runs once, last, after the last edit,
-on the exact tree that is pushed; [independent work](#run-independent-work-at-the-same-time) may
-overlap anything before it. Anything edited after the gates go green sends you back to stage 6.
+Docs comes before Gates so the full suite runs once, last, on the exact tree that is pushed.
+Anything edited after the gates go green sends you back to stage 6.
 
 For stage 0, find the integration branch (`branchModel.base`, else `develop` if it exists, else the
 default branch), cut the task branch from `origin/<it>` or rebase the one you're on, then read the
@@ -183,10 +182,8 @@ While you answer, the header line names the question first and the paused step s
 
 ## Check the base at two points, not at every stage
 
-A stale base fails silently: every diff, measurement and research note taken on it compares branch
-drift instead of the change, and the PR can revert work that already landed. But it only *costs*
-something at two moments — when the branch is created or rebased, and when a diff leaves your
-machine. So the check runs at exactly those two, and nowhere else:
+A stale base fails silently, but it only *costs* something when the branch is created or rebased,
+and when a diff leaves your machine. So the check runs at exactly those two points:
 
 | When | Why there |
 |---|---|
@@ -369,6 +366,9 @@ Independent steps share the header, each still numbered:
   failing. Never let a partial run look like a full one.
 - **Log from the start.** Logging ships in the commit that creates the code, not when debugging
   ([how](../skills/implement-phase/SKILL.md#logging-is-the-first-deliverable-in-every-phase)).
+- **Name the person, never a placeholder.** Who asked, approved or decided is the person
+  `identity.py` resolves, as they write it, else ask once. You only wrote the text
+  ([why](../docs/identity-of-the-person.md)).
 
 ## Sign your commits
 
@@ -421,6 +421,6 @@ switch to another agent to proceed without it. Don't argue further, and don't qu
 
 Read `.github/zethus.config.json` (or `.claude/amphion.config.json` if that is what the repo has)
 for `branchModel.base`, `branchModel.style`, `branchModel.maxBehind`, `gates.*`, `spec.dir`,
-`adr.dir`, `docSync.map`, `commits.aiTrailer`, `commits.signature`, `plan.checklist`. If a key
+`adr.dir`, `docSync.map`, `commits.aiTrailer`, `commits.signature`, `plan.checklist`, `identity.*`. If a key
 you need is missing, work it out from the repository, confirm it with the person in one question (the question tool, as above),
 and offer to write it into the config.
