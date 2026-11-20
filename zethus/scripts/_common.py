@@ -46,6 +46,51 @@ def config_candidates(repo: Path) -> list[Path]:
               user_home() / "config.json"]
     return paths
 
+class RunLog:
+    """A line-buffered run log. Never raises: a log that can't be written must not cost a run."""
+
+    def __init__(self, path: Path | None):
+        self.path = path
+        self.run_id = f"{_dt.datetime.now().strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"
+        self._fh = None
+        self.error = ""
+        if path is not None:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                self._fh = open(path, "a", encoding="utf-8", buffering=1, newline="\n")
+            except OSError as exc:
+                self.error = f"run log not written ({path.name}: {exc.strerror or exc})"
+
+    def __call__(self, message: str) -> None:
+        if self._fh is None:
+            return
+        stamp = _dt.datetime.now().isoformat(timespec="seconds")
+        try:
+            self._fh.write(f"{stamp} [{self.run_id}] {message}\n")
+            self._fh.flush()
+        except OSError:
+            pass
+
+    def close(self) -> None:
+        if self._fh is not None:
+            try:
+                self._fh.close()
+            except OSError:
+                pass
+            self._fh = None
+
+
+def run_log_path(explicit: str | None, env_var: str, filename: str) -> Path | None:
+    """Where a script's run log goes: ``--log``, else ``$<env_var>``, else
+    ``~/.copilot/zethus/logs/<filename>``. ``off`` (either way) means no log file."""
+    value = explicit if explicit is not None else os.environ.get(env_var, "").strip()
+    if value.lower() == "off":
+        return None
+    if value:
+        return Path(value).expanduser()
+    return user_home() / "logs" / filename
+
+
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 

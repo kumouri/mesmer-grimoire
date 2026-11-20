@@ -1,8 +1,11 @@
 {
   "_readme": "Installed as .github/zethus.config.json in YOUR repo; edit it there. Every key is optional: the scripts and agent fall back to repository evidence, then ask. Key names match Amphion's .claude/amphion.config.json wherever they overlap (gates, branchModel, docSync), and the scripts read that file when this one is absent.",
 
+  "_branchModelReadme": "base is the default base, the integration branch. bases maps a branch name or glob to that branch's own base, for a long-term-branch workflow, e.g. {\"epic/search\": \"develop\", \"search/*\": \"epic/search\"}: an exact name beats a glob, the most specific glob beats the rest, and a base from the map has its own base, up to base. Leave it empty and every branch's base is base. See docs/per-branch-bases.md.",
+
   "branchModel": {
     "base": "develop",
+    "bases": {},
     "style": "branch-per-change",
     "maxBehind": 0
   },

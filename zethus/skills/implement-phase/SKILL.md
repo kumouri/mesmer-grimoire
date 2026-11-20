@@ -23,7 +23,9 @@ procedure keeps each phase small and keeps its deviations visible.
   after the first), stack it on the previous phase's branch as pushed:
   `git switch -c <this-phase> <previous-phase>`, and open its PR against that branch, so the PR
   shows this phase alone. If the previous phase's PR has already merged, cut it from the freshly
-  fetched integration branch instead: `git fetch` first, then branch from `origin/<base>`. If
+  fetched base instead: `git fetch` first, then branch from `origin/<base>`, where `<base>` is
+  this branch's own base (`base-freshness.py --base-for <branch>` prints it, without gating; a
+  child of a long-lived branch gets that branch, [per-branch bases](../../docs/per-branch-bases.md)). If
   you're on the branch Stage 0 just cut or rebased, it already sits on a base fetched and confirmed
   minutes ago, so check that it's the branch you expect and don't fetch again. If
   `branchModel.style` is `rebase`, you're instead on the one long-lived branch, and this phase is

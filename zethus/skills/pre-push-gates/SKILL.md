@@ -64,7 +64,17 @@ the branch, open no PR, and paste the table into the phase's *As built* list in 
 Both freshness checkpoints use this: Stage 0 (Orient), before any work, and step 0 above, before
 the push. A stale base is never built on and never pushed, and catching the branch up is your job,
 not the person's ([why](../../docs/base-freshness-cadence.md#amendment-2026-11-10-zethus-rebases-a-stale-branch-itself)).
-`base-freshness` has just fetched, so `origin/<base>` is current.
+`base-freshness` has just fetched, so `origin/<base>` is current. `<base>` is this branch's own
+base, the one the report names with its `why` line: the default base, or a long-lived parent from
+`branchModel.bases` ([per-branch bases](../../docs/per-branch-bases.md)). Two lines change the
+commands below, in every style:
+
+- **`onto`**: the base was rewritten since this branch forked from it, or the branch was retargeted
+  past a parent that merged away. Use the `git rebase --onto origin/<base> <commit>` it prints in
+  place of `git rebase origin/<base>`, so only this branch's own commits are replayed.
+- **`RETARGET`**: the parent has merged, so the base is now the next one up the chain. Rebase onto
+  that, retarget the PR to it (`gh pr edit --base <base>`; in `pr-later`, note it in the spec), and
+  offer once to remove the stale `branchModel.bases` entry.
 
 1. **Keep uncommitted work safe.** `git stash push --include-untracked`, and `git stash pop` after
    the rebase. A pop that conflicts is resolved like any other conflict (step 3).
@@ -109,6 +119,33 @@ turn in only two cases: exit 3 (the fetch failed, so there is nothing to rebase 
 conflict you can't decide (step 4). The number of commits behind, a conflict you can resolve, and a
 force-push of the branch you are working on are not stops.
 
+## Keep a chain of bases in sync
+
+With `branchModel.bases`, a child branch's base is a long-lived parent, and the parent's base is
+the integration branch ([per-branch bases](../../docs/per-branch-bases.md)). Each link is kept
+fresh at its own branch's checkpoints:
+
+- **The child, against the parent's current tip.** That is the check above: the parent gaining
+  commits makes the child STALE, and the child is rebased onto `origin/<parent>` (with `--onto`
+  when the report prints an `onto` line, because the parent was rewritten).
+- **The parent, against the integration branch,** when the parent is the branch being worked on.
+- **A `parent` line at the child's checkpoint** means the parent is behind its own base. It doesn't
+  gate the child, and you don't sync the parent from the child's session unasked: it is a branch
+  this change isn't on, and other work may be built on it. Name it in the phase report and the PR
+  body, and offer once, with the question tool, to sync it now. Keep working on the child while the
+  question is open.
+
+Syncing a parent, when it is worked on or the person says to:
+
+| The parent is | Sync it with | Then each child |
+|---|---|---|
+| Shared: other people's branches are built on it, or it has an open PR under review | `git merge origin/<its base>` on the parent, then a plain push. Nothing is rewritten | Is behind its parent at its next checkpoint, and rebases onto `origin/<parent>` as usual |
+| Only yours | `git rebase --update-refs origin/<its base>` from the top of the children checked out here, then `git push --force-with-lease` for each branch | Already moved by `--update-refs` if checked out here; otherwise its next checkpoint prints `onto` and it rebases with `--onto` |
+
+Merging the base up into a shared parent is the exception to rebasing a stale branch: it is how
+the parent stays fresh without rewriting a branch other people hold. The gates run on the parent
+after either kind of sync, as after any rebase.
+
 ## When the fetch fails
 
 `base-freshness` exit 3 means `git fetch` failed, so nothing is known about the base. Find out why
@@ -118,7 +155,7 @@ and fix what is yours before you stop, the same way you'd fix a red gate:
 2. **Read the error line it printed,** then check the remote: `git remote -v` names it, and
    `git ls-remote --heads <remote>` tries it without touching the checkout.
 3. **Fix what you can:** a remote with another name (`--remote`, and offer to record it in
-   config), a base branch that was renamed (`branchModel.base`), or a remote URL with a typo that
+   config), a base branch that was renamed (`branchModel.base`, or its `branchModel.bases` entry), or a remote URL with a typo that
    the other remotes or the repo's docs settle. Re-run `base-freshness` after the fix.
 4. **Stop only for what this machine can't give you,** and name exactly that one thing: a
    credential that is missing or rejected (a token, SSO or 2FA sign-in), or a network the person

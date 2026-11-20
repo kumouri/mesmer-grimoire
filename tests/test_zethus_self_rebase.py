@@ -203,7 +203,7 @@ class FollowingTheMessageReachesFresh(unittest.TestCase):
     def check(self) -> tuple[int, str]:
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-            code = fresh.main(["--repo", str(self.work)])
+            code = fresh.main(["--repo", str(self.work), "--log", "off"])
         return code, buf.getvalue()
 
     def test_stale_then_rebased_then_fresh_with_a_resolvable_conflict(self):

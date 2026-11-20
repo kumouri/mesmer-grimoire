@@ -89,6 +89,13 @@ draft, until you say so; the spec marks those phases *on branch* or *committed*,
 See [the next phase can start with no PR open](docs/phase-advance-without-pr.md) and
 [Branch models](#branch-models).
 
+Each branch has a base of its own. `branchModel.base` is the default, the integration branch, and
+`branchModel.bases` maps a branch name or glob to another base, so a long-term-branch workflow
+works as it is: shorter-lived children are kept fresh against the long-term branch, and the
+long-term branch against the integration branch. When the parent moves, the child is measured
+against its current tip; when it merges, the child moves up to the next base. See
+[Per-branch bases](#per-branch-bases).
+
 Every doc it writes names the real person who asked, approved or decided, never a stand-in like
 "Requester" or `TBD`. At Stage 0 `identity.py` resolves who you are, from the first of: your own
 config (`identity.name`, `identity.handle`), `git config user.name`, and your forge account
@@ -201,7 +208,7 @@ plan, this is a rule in the agent file rather than a script check: the kit has n
 | [`templates/pr.md`](templates/pr.md) | `.github/zethus/templates/` | The PR body: What · Why · Changes · Evidence · What was not checked · deferrals · decisions · docs · AI assistance. |
 | [`scripts/run-local-gates.py`](scripts/run-local-gates.py) | `.github/zethus/scripts/` | Discovers and runs lint/build/test, then prints a PASS/FAIL/SKIP table and an explicit verdict. Prefers a repo's `mvnw`/`gradlew` wrapper; on Windows a bare `mvn` or `./mvnw` resolves to `mvn.cmd`/`mvnw.cmd` through `PATHEXT`. Exit codes: `0` full green · `1` red · `3` green but incomplete · `4` green except a gate the signed-off spec lets stay red (`push-red`) · `2` nothing to run. |
 | [`scripts/gate-remediation-check.py`](scripts/gate-remediation-check.py) | `.github/zethus/scripts/` | Checks a spec's **Gate remediation** section: present (`None — …` counts), not `None` beside a phase that reads like gate remediation, rulings readable, none `PENDING` once the spec is signed off. [`scripts/_gate_rulings.py`](scripts/_gate_rulings.py) is the parser `run-local-gates` shares. Exit `1` on problems. |
-| [`scripts/base-freshness.py`](scripts/base-freshness.py) | `.github/zethus/scripts/` | Fetches, counts the commits in `HEAD..origin/<base>`, and reports STALE if there are more than `branchModel.maxBehind`, saying what the agent does next: it rebases the branch itself before any other work ([how](skills/pre-push-gates/SKILL.md#bring-a-stale-branch-up-to-date)). Prints the merge-base to diff against, and whether the branch was rewritten since its last push. The agent runs it at **two** points: Stage 0 (Orient) and immediately before the push (`pre-push-gates`) — see [Branch models](#branch-models). `--merge-base-only` prints the merge-base alone and always exits 0, for a stage that needs a diff base and must not be stopped. Exit codes: `0` fresh · `1` stale, the agent rebases first · `2` usage error · `3` no answer (the fetch failed), which is a stop. |
+| [`scripts/base-freshness.py`](scripts/base-freshness.py) | `.github/zethus/scripts/` | Fetches, picks the branch's base (`branchModel.bases`, else `branchModel.base`; [Per-branch bases](#per-branch-bases)), counts the commits in `HEAD..origin/<base>`, and reports STALE if there are more than `branchModel.maxBehind`, saying what the agent does next: it rebases the branch itself before any other work ([how](skills/pre-push-gates/SKILL.md#bring-a-stale-branch-up-to-date)). Prints the merge-base to diff against, and whether the branch was rewritten since its last push. The agent runs it at **two** points: Stage 0 (Orient) and immediately before the push (`pre-push-gates`) — see [Branch models](#branch-models). `--merge-base-only` prints the merge-base alone and always exits 0, for a stage that needs a diff base and must not be stopped; `--base-for <branch>` prints the base a branch gets, and also never gates. It logs which base it chose and why to `~/.copilot/zethus/logs/base-freshness.log`. Exit codes: `0` fresh · `1` stale, the agent rebases first · `2` usage error · `3` no answer (the fetch failed), which is a stop. |
 | [`scripts/new-adr.py`](scripts/new-adr.py) | `.github/zethus/scripts/` | Creates `docs/adr/YYYY-MM-DD-slug.md` and adds its row to the ADR index. Ids are keyed by date, so parallel branches never collide. *Deciders* is the person `identity.py` resolves unless `--deciders` names someone else; with no one to name, or a placeholder, it writes nothing and exits 2. |
 | [`scripts/new-spec.py`](scripts/new-spec.py) | `.github/zethus/scripts/` | `new-spec.py full\|minimum "Title"` creates `docs/specs/<slug>.md` as `DRAFT`, with *Owner* and *Requested by* resolved the same way (`--owner`, `--requester` to name others). |
 | [`scripts/identity.py`](scripts/identity.py) | `.github/zethus/scripts/` | Says who Zethus works for: config `identity.*` (most personal config first), then `git config user.name`, then `gh api user`, tried only when the others gave nothing. Logs each step and the winning source, never the values, to `~/.copilot/zethus/logs/identity.log`. `--save --name` stores the answer the person gave. [`scripts/_identity.py`](scripts/_identity.py) is the resolver the other scripts and the hook share. Exit codes: `0` resolved or saved · `1` not resolved, ask the person · `2` usage error. |
@@ -582,7 +589,8 @@ The keys are the same in every location.
 
 | Key | Used by | Meaning |
 |---|---|---|
-| `branchModel.base` | agent, `zethus-pr-description`, `docs-sync-check`, `base-freshness` | The integration branch. Default: `develop` if it exists, else the default branch. |
+| `branchModel.base` | agent, `zethus-pr-description`, `docs-sync-check`, `base-freshness` | The default base: the integration branch. Default: `develop` if it exists, else the default branch. |
+| `branchModel.bases` | agent, `base-freshness`, `pre-push-gates`, `zethus-pr-description`, `implement-phase` | Branch name or glob → that branch's base, e.g. `{"epic/search": "develop", "search/*": "epic/search"}`. An exact name beats a glob, the glob with the most literal characters beats the rest, and a tie is an error. A base from the map has its own base, up to `branchModel.base`. Unset or `{}`: every branch's base is `branchModel.base`, as before. See [Per-branch bases](#per-branch-bases). |
 | `branchModel.style` | agent, `implement-phase`, `zethus-pr-description`, `base-freshness` | `"branch-per-change"` (default): a new branch per change, cut from the freshly fetched base, one branch and PR per phase, each phase stacked on the previous one's pushed branch. `"rebase"`: one long-lived branch kept rebased onto the base; phases are commit series on it, every diff is taken against the merge-base with `origin/<base>`, and the PR body says when the branch was rebased. `"pr-later"`: one working branch like `rebase`, but the next phase starts once the previous one is committed with green gates, the branch is pushed as a backup, and no PR opens until you say so. See [Branch models](#branch-models). |
 | `branchModel.maxBehind` | `base-freshness`, agent, `pre-push-gates` | How many commits the branch may be behind `origin/<base>` before a freshness checkpoint (Stage 0, and the pre-push gates) rebases it before continuing. Default `0`: any commit behind means the agent rebases first. |
 | `gates.steps[]` | `run-local-gates` | Ordered `{name, command, exitCode?}`. `command` is a string or an argv list; there's no shell. |
@@ -647,6 +655,47 @@ aborted ([the steps](skills/pre-push-gates/SKILL.md#bring-a-stale-branch-up-to-d
 ```json
 { "branchModel": { "base": "develop", "style": "rebase", "maxBehind": 0 } }
 ```
+
+### Per-branch bases
+
+`<base>` above is the branch's own base. For most repos that is `branchModel.base`, the integration
+branch, for every branch. In a long-term-branch workflow it isn't: a feature lives on a long-term
+branch for weeks, and shorter-lived branches off it, which still last more than a day or two, merge
+into it rather than into the integration branch. Map them in `branchModel.bases`:
+
+```json
+{
+  "branchModel": {
+    "base": "develop",
+    "bases": { "epic/search": "develop", "search/*": "epic/search" }
+  }
+}
+```
+
+`search/ranking` then has the chain `search/ranking → epic/search → develop`, and every piece that
+used `<base>` uses the branch's own:
+
+- **Freshness.** `search/ranking` is checked against the current tip of `origin/epic/search`, and
+  `epic/search` against `origin/develop` when it is the branch being worked on. Still two
+  checkpoints per change. A child's check also reports, without gating, when its parent is behind
+  the parent's own base.
+- **The parent moves.** New commits on the parent make the child STALE; it is rebased onto
+  `origin/epic/search`. If the parent was rebased and force-pushed, the report prints an `onto`
+  line, `git rebase --onto origin/epic/search <fork point>`, so the parent's old commits don't come
+  back.
+- **The parent merges.** Once `epic/search` has merged into `develop` with a merge commit, or is
+  deleted from the remote, the report prints `RETARGET`: the child's base is now `develop`, its PR
+  is retargeted there, and the map entry can go.
+- **Keeping the parent in sync.** A shared parent takes the integration branch by merge, so nobody's
+  branch is rewritten; one only you build on can be rebased with `--update-refs`
+  ([how](skills/pre-push-gates/SKILL.md#keep-a-chain-of-bases-in-sync)).
+- **PRs and stacks.** A branch's PR targets its base; a stacked phase still targets the previous
+  phase's branch, and a `pr-later` branch's one PR targets its base when it opens.
+- **Where it lives.** Any config location, like the other keys: committed for a team's shared
+  chain, or the untracked or user-level file for your own.
+
+`base-freshness.py --base-for <branch>` prints the base a branch of that name gets, and why, without
+gating, and each run logs its choice. See [each branch has its own base](docs/per-branch-bases.md).
 
 ## Copilot formats used, and where they're documented
 
@@ -782,7 +831,7 @@ the OAuth2/OIDC auth-replacement phase itself.
 the same design where they overlap, rather than duplicating it:
 
 - **One config vocabulary.** The keys that exist in both (`gates.*`, `branchModel.base`) mean
-  the same thing. `branchModel.style` and `branchModel.maxBehind` are Zethus's
+  the same thing. `branchModel.bases`, `branchModel.style` and `branchModel.maxBehind` are Zethus's
   own; Amphion ignores them. When no Zethus config is found in the repo, the scripts read
   `.claude/amphion.config.json`, so a repo using both answers each question once.
 - **Different stages.** Amphion covers what happens *after* the decisions: loading decided
