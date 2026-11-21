@@ -201,7 +201,8 @@ plan, this is a rule in the agent file rather than a script check: the kit has n
 |---|---|---|
 | [`copilot-instructions.md`](copilot-instructions.md) | `.github/copilot-instructions.md` | The standing rules, short and imperative. Copilot loads them for every request in the repo. |
 | [`com.github.copilot/rules/zethus-docs.instructions.md`](com.github.copilot/rules/zethus-docs.instructions.md) | `.github/instructions/docs.instructions.md` | Path-scoped rules (`applyTo: "**/*.md"`): Markdown is canonical, router vs leaf docs, pointers resolve, spec status vocabulary, ADRs superseded rather than rewritten. |
-| [`com.github.copilot/agents/zethus.agent.md`](com.github.copilot/agents/zethus.agent.md) | `.github/agents/` | **The enforcer.** The stage table with exit conditions, the visible plan, per-turn behaviour, and the refusal table. |
+| [`com.github.copilot/agents/zethus.agent.md`](com.github.copilot/agents/zethus.agent.md) | `.github/agents/` | **The enforcer.** The stage table with exit conditions, the visible plan, per-turn behaviour, and the refusal table. Each rule in short form, under a character budget ([why](docs/agent-file-budget.md)). |
+| [`skills/zethus-conduct`](skills/zethus-conduct/SKILL.md) | `.github/skills/` | The long form of the agent's rules: handoffs, waiting on a background command, parallel work, answering a question, the plan format, each branch model, the signed-commit format. |
 | [`skills/research-existing-code`](skills/research-existing-code/SKILL.md) | `.github/skills/` | Facts cited to `file:line`, the search behind every negative claim, and what the research did *not* cover. |
 | [`skills/write-spec-minimum`](skills/write-spec-minimum/SKILL.md) | `.github/skills/` | The one-screen spec for one PR, and the fast path when someone says "just code it". |
 | [`skills/write-spec-full`](skills/write-spec-full/SKILL.md) | `.github/skills/` | Verbatim ask, measured problem, facts, assumptions checked, options, phases, rollback, out of scope, open questions, then stop for sign-off. |
@@ -338,7 +339,7 @@ Zethus ships both:
 | Copilot CLI (1.0.105, 1.0.106-2) | `com.github.copilot/agents/` only, because `plugin.json` declares the Agent Plugins 1.0 `$schema` | `com.github.copilot/hooks/hooks.json` only |
 | IntelliJ's Copilot language server (plugin 1.20.0, server 1.555.7) | `agents/` at the plugin root | `hooks.json`, else `hooks/hooks.json`, at the root |
 
-With only the first layout, IntelliJ listed the 28 skills but no agent and no hook. Neither host
+With only the first layout, IntelliJ listed the 29 skills but no agent and no hook. Neither host
 reads the other's place, so nothing loads or fires twice there. `plugin.json` can't point IntelliJ
 at `com.github.copilot/` instead: the 1.0 schema is closed, and the CLI ignores unknown keys and
 logs each one as an error. The files under `com.github.copilot/` are the canonical ones, and the
@@ -354,7 +355,7 @@ reads both places, it would load the agreement twice.
   ran a bundled script from that root.
 - **IntelliJ:** its bundled language server, driven over stdio with a sandboxed home. It added a
   local marketplace, installed **zethus** through its own install call, and listed the `zethus`
-  agent, the `SessionStart` hook and all 28 skills. It only lists the hook; nothing here ran the
+  agent, the `SessionStart` hook and all 29 skills. It only lists the hook; nothing here ran the
   hook inside the IDE.
 - **VS Code:** nothing has been run, so its steps rest on its docs and settings screens.
 
@@ -946,6 +947,12 @@ New config keys, all optional defaults a flag can also set (see
 - Quote any frontmatter `description:` that contains a colon followed by a space. The Copilot CLI
   drops the whole agent or skill on that, with only a log line to show for it;
   [`tests/test_frontmatter.py`](../tests/test_frontmatter.py) parses every agent, mirror and skill.
+- Keep the agent file under its budget: 28,000 characters fails, 24,000 warns, against Copilot's
+  30,000-character limit on an agent prompt. A new rule goes in the agent file in a few lines; its
+  examples, formats and edge cases go in [`zethus-conduct`](skills/zethus-conduct/SKILL.md) or the
+  stage's skill, which it links ([why](docs/agent-file-budget.md)).
+  [`scripts/check_zethus_agent_budget.py`](../scripts/check_zethus_agent_budget.py) measures both
+  copies, or any copy you pass it, such as your own edited one.
 - Edit the agent and the hook registration only under `com.github.copilot/`, then run
   `python scripts/sync_zethus_plugin_root.py` to rewrite their root copies. `tests/test_copilot_plugins.py`
   fails while the copies are stale.
