@@ -79,7 +79,10 @@ The residual risk after this ships, stated rather than implied.
 
 ## Phases
 
-Smallest useful step first. **Phase 0 changes no behaviour**: it records, measures, logs or
+Smallest useful step first. **Phase -1 remediates existing issues**: it fixes what already
+failed a local gate on the untouched base (*Pre-existing gate failures*, below), in its own branch
+and PR (or its own commit series), before anything else, so the change starts from green; drop its
+row if that section says `None`. **Phase 0 changes no behaviour**: it records, measures, logs or
 reports, so it is safe to ship alone, and its data sizes the phases after it. Each phase is green
 on its own, and the next starts once it is pushed to its PR, not once it merges (in `pr-later`
 style, once it is committed with every local gate green, with no PR). **Every phase logs what it
@@ -88,7 +91,8 @@ full errors), in the commit that creates the code, not later when debugging.
 
 | Phase | What | Behaviour change | Gated on | Verified by |
 |---|---|---|---|---|
-| 0 | Instrument / log / report only | **None** | Sign-off of this spec | … |
+| -1 | Remediate existing issues: fix the `fix` rows in *Pre-existing gate failures*, nothing else | **None** | Sign-off of this spec | `baseline-gates.py scope`; `run-local-gates` green |
+| 0 | Instrument / log / report only | **None** | Sign-off of this spec (and Phase -1 pushed, if it has one) | … |
 | 1 | … (and its run log) | … | Phase 0 data (default window: one week) or a named decision | … |
 
 When a phase is pushed, mark it `in review (PR #n)` here, and `merged (PR #n)` once its PR merges.
@@ -96,6 +100,20 @@ In `pr-later` style, with no PR yet, mark it `on branch (<sha>)` once pushed, or
 `committed (<sha>)` while local, never `in review`.
 Add an **As built** list: every deviation from this spec, each with its reason (in `pr-later`
 style, also the phase's gate table and any rebase, since no PR holds them yet).
+
+## Pre-existing gate failures
+
+> Phase -1. What every local gate reported on the untouched base, before any edit, from
+> `baseline-gates.py survey` at Stage 0. If every gate was green, write
+> `None — every local gate is green on the untouched base (<sha>).` Otherwise paste its table: one
+> row per gate, file and rule. `fix` means Phase -1 fixes it, in its own branch and PR (or its own
+> commit series), before Phase 0. `ask` is only for a failure that can't be fixed safely (a failing
+> test whose fix needs a decision, a gate needing a credential); give it a *Gate remediation* row
+> below with Remediation phase `Phase -1`, asked at sign-off. Delete this note.
+
+| Gate | File | Rule | Phase -1 |
+|---|---|---|---|
+| … | … | … | fix |
 
 ## Gate remediation
 

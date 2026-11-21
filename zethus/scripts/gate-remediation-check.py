@@ -17,7 +17,12 @@ It fails (exit 1) when:
 * the section says ``None`` but a Phases row reads like remediation of what a gate checks;
 * a table row has an unreadable ruling, or ``other`` with no text;
 * the spec is ``SIGNED-OFF`` / ``PARTIAL`` / ``BUILT`` and a row is still ``PENDING``, or names a
-  gate that is not one of the repo's gates (when the gates can be listed).
+  gate that is not one of the repo's gates (when the gates can be listed);
+* Phase -1's ``## Pre-existing gate failures`` section (``docs/phase-minus-one.md``) is missing
+  from a ``DRAFT`` spec, is neither ``None — …`` nor a table, has a row that is not ``fix`` or
+  ``ask``, has an ``ask`` row whose gate has no Gate remediation row with *Remediation phase*
+  ``Phase -1``, or has ``fix`` rows with no Phase -1 row in *Phases*. A spec past ``DRAFT`` may
+  predate the section, so its absence there is not a problem.
 
 A ``DRAFT`` spec may carry ``PENDING`` rows: that is the question waiting for the person.
 ``MEMO`` specs build nothing and are skipped. Exit codes: 0 fine · 1 problems · 2 usage error.
@@ -40,6 +45,9 @@ def gate_names(repo: Path, config: dict) -> set[str] | None:
         path = Path(__file__).resolve().parent / "run-local-gates.py"
         spec = importlib.util.spec_from_file_location("run_local_gates", path)
         mod = importlib.util.module_from_spec(spec)
+        # Registered before it runs: its dataclass looks its module up while being defined, and
+        # without this the import failed every time and the gate names were never checked.
+        sys.modules.setdefault("run_local_gates", mod)
         spec.loader.exec_module(mod)
         gates = mod.gates_from_config(config) or mod.discover(repo)[0]
         return {g.name.lower() for g in gates} or None
@@ -73,6 +81,33 @@ def check_spec(text: str, names: set[str] | None) -> list[str]:
                             "(`yes — who, when`)")
         if names is not None and r.gate.lower() not in names:
             problems.append(f"{r.gate}: not one of this repo's gates ({', '.join(sorted(names))})")
+    return problems + check_pre_existing(text, status, rows)
+
+
+def check_pre_existing(text: str, status: str, rulings: list[gr.Ruling]) -> list[str]:
+    """Phase -1's section (docs/phase-minus-one.md): what failed on the untouched base, and what
+    Phase -1 does about each. A spec already past DRAFT may predate the section; one being written
+    must carry it."""
+    rows, has_section, says_none = gr.parse_pre_existing(text)
+    if not has_section:
+        if status == "DRAFT":
+            return ["no `## Pre-existing gate failures` section: run `baseline-gates.py survey` on the "
+                    "untouched base and paste its table, or write `None — …` if every gate was green"]
+        return []
+    problems: list[str] = []
+    if not says_none and not rows:
+        problems.append("Pre-existing gate failures is neither `None — …` nor a table with a row")
+    asked_gates = {r.gate.lower() for r in rulings if gr.names_phase_minus_one(r.phase)}
+    for row in rows:
+        label = f"{row.gate} {row.file}".strip()
+        if row.action not in gr.PRE_EXISTING_ACTIONS:
+            problems.append(f"{label}: Phase -1 cell `{row.action}` is not `fix` or `ask`")
+        elif row.action == "ask" and row.gate.lower() not in asked_gates:
+            problems.append(f"{label}: an `ask` row needs a Gate remediation row for {row.gate} with "
+                            "Remediation phase `Phase -1`, put to the person at sign-off")
+    if any(r.action == "fix" for r in rows) and not gr.has_phase_minus_one(text):
+        problems.append("Pre-existing gate failures has `fix` rows but Phases has no Phase -1 row: "
+                        "Phase -1 fixes them before Phase 0")
     return problems
 
 

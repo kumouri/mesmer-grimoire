@@ -73,6 +73,9 @@ Start from `<kit root>/templates/pr.md`:
 - **Changes:** grouped by concern. Don't restate the diff line by line.
 - **Evidence:** the `run-local-gates` table, pasted unedited; the tests added and what each
   proves; the mutation check; any measurement, with its source and timestamp.
+- **Phase -1: what was already red:** in the Phase -1 PR only, the survey's table of what failed on
+  the untouched base and the `baseline-gates.py scope` table, and that the planned change isn't in
+  it ([why](../../docs/phase-minus-one.md)). Phase 0's PR, stacked on it, names it under *Stacked on*.
 - **What was not checked:** gates that were skipped or manual, environments not exercised, and
   claims verified only by reading. Never drop this heading. Write "Nothing — every gate ran" if
   that's true.

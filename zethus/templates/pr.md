@@ -28,6 +28,13 @@ The gates you ran on this exact tree, and what they said. Paste the `run-local-g
 - **Tests added or changed:** what each one proves, including failure and refusal paths.
 - **Measured:** any before/after number, with its source and when it was taken.
 
+## Phase -1: what was already red
+
+For the Phase -1 PR only: the survey's table of what failed on the untouched base (gate, file,
+rule), from `baseline-gates.py survey`, and the `baseline-gates.py scope` result showing this PR
+changes only those files. Say that the planned change is not in it, and which PR stacks on it.
+Any `ask` row: the ruling and the spec that records it. Delete otherwise.
+
 ## Gates pulled forward
 
 A gate that was red in this phase and fixed here although the plan put its remediation in a later

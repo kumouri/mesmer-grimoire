@@ -66,6 +66,16 @@ What stays prose: choosing the smallest fix, and writing the report line. The ch
 either. The hook is a keyword test on the closing lines, so a stop worded to avoid those words
 gets through; the verdict message and the skills still say what to do.
 
+## Addendum, 2026-11-20: failures already on the base are Phase -1's
+
+This record is about a plan that schedules a gate's remediation for a later phase. A failure that
+was already on the base before the change started is now handled earlier, by
+[Phase -1](phase-minus-one.md): Stage 0 surveys the untouched base, and Phase -1 fixes what fails
+in its own branch and PR before Phase 0. Only a pre-existing failure Phase -1 can't fix safely comes
+here, as a *Gate remediation* row with *Remediation phase* `Phase -1`, ruled on at sign-off with the
+options above. `_gate_rulings.py` doesn't count the Phase -1 row in *Phases* as a later remediation
+phase, so `None — …` beside it is still a complete answer. Nothing above changes.
+
 ## Options considered
 
 | Option | What it means | What it costs | |

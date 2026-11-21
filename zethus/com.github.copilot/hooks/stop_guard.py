@@ -32,6 +32,12 @@ says, so there is nothing to ask: the fix is pulled forward. The planning stop (
 asking for that ruling there is the point. That is the one stop whose reason is allowed to be a wall
 and is still refused, because the wall is not real.
 
+A gate failure that was already on the base is not a question either (``docs/phase-minus-one.md``):
+Phase -1 fixes it before Phase 0. A turn at any stage but Stage 2 whose closing lines pair a gate
+with a failure, words saying it was already there (pre-existing, on the base, Phase -1, unrelated to
+the change) and a request for leave (to fix it, or to skip it) is refused. Stage 2 is exempt, since
+a failure Phase -1 can't fix safely is asked there, once; so is a ``Why:`` that names a real decision.
+
 A stale base is not a wall either: the agent rebases the branch itself and carries on. A stop whose
 ``Why:`` is about the branch being stale, behind or needing a rebase is refused with a reason that
 says to do the rebase, unless that ``Why:`` names one of the two walls a stale base can still hit: a
@@ -92,6 +98,20 @@ GATE_ASK = (re.compile(r"\b(gates?|sonar\w*|lint\w*|quality)\b"),
                        r"|mov(?:e|es|ed|ing))\b"),
             re.compile(r"\b(authori[sz]\w*|approv\w*|permission|may i|should i|ok to|okay to|go-ahead"
                        r"|go ahead)\b"))
+# A closing block asking leave to fix (or skip) what already failed on the base: Phase -1's work,
+# not a question (docs/phase-minus-one.md). Gate, failure, "already there" and an ask must all appear.
+PRE_EXISTING_ASK = (re.compile(r"\b(gates?|sonar\w*|lint\w*|checkstyle|quality|build|tests?)\b"),
+                    re.compile(r"\b(fail\w*|red|broken|findings?|issues?|violations?|errors?)\b"),
+                    re.compile(r"(?:\bpre-?existing\b|\balready (?:fail\w*|red|broken|there)\b"
+                               r"|\bon the (?:untouched |clean |current )?base\b|\bbaseline\b"
+                               r"|\bphase -1\b|\bphase minus one\b"
+                               r"|\b(?:unrelated|not related) to (?:this|my|the|your) change\b"
+                               r"|\bnot (?:caused by|from|introduced by) (?:this|my|the) change\b)"),
+                    re.compile(r"\b(authori[sz]\w*|approv\w*|permission|may i|should i|shall i|ok to"
+                               r"|okay to|go-ahead|go ahead|want me to|would you like me to"
+                               r"|do you want|leave (?:it|them) red|skip (?:it|them))\b"))
+# A real decision a Phase -1 fix needs (which side of a failing test is right) is still a stop.
+DECISION_WHY_RE = re.compile(r"\b(decision|decide|ruling|choose|choice|which (?:one|side|behaviou?r))\b")
 # A background command that outlived the wait bound is a stop only with its duration on the page.
 BACKGROUND_RE = re.compile(r"\b(in the background|background (?:command|job|shell|install|build|task)"
                            r"|shellid|read_powershell|read_bash)\b")
@@ -261,6 +281,21 @@ def asks_to_defer_gate_fix(reply: str) -> bool:
     return all(rx.search(tail) for rx in GATE_ASK)
 
 
+def asks_about_pre_existing(reply: str) -> bool:
+    """A turn outside Stage 2 whose closing lines ask leave to fix or skip a pre-existing gate failure.
+
+    Phase -1 fixes those itself, and asks about one it can't fix safely once, at sign-off (Stage
+    2), which stays exempt. A ``Why:`` that names a real decision a fix needs is left alone.
+    """
+    stage = stage_of(reply)
+    if stage is None or stage == 2:
+        return False
+    tail = " ".join(reply.strip().splitlines()[-25:]).lower()
+    if not all(rx.search(tail) for rx in PRE_EXISTING_ASK):
+        return False
+    return not DECISION_WHY_RE.search(why_of(reply))
+
+
 def hands_back_rebase(reply: str) -> bool:
     """The closing ``Why:`` stops for a stale base that the agent should have rebased itself."""
     why = WHY_RE.search(closing_lines(reply))
@@ -304,6 +339,14 @@ FETCH_REASON = ("Zethus: a failed fetch is yours to diagnose before it is a stop
                 "a wrong remote or base; then re-run base-freshness. Stop only for what this machine "
                 "can't supply, and name it in the Why line: a missing or rejected credential, or a "
                 "network or VPN the person must join (pre-push-gates, \"When the fetch fails\"). ")
+PRE_EXISTING_REASON = ("Zethus: a gate failure that was already on the base is Phase -1's to fix, not a "
+                       "question. Fix it in Phase -1 (its own branch and PR; rebase or pr-later style: "
+                       "its own commit series), as small as turns the gate green, never mixed with the "
+                       "planned change, check it with `baseline-gates.py scope`, then stack Phase 0 on "
+                       "it. Only a failure you can't fix safely (a failing test whose fix needs a "
+                       "decision, a gate that needs a credential) is asked, once, at sign-off, as a "
+                       "Gate remediation row with Remediation phase `Phase -1` "
+                       "(docs/phase-minus-one.md). ")
 CI_REASON = ("Zethus: the change isn't done while CI is red on its PR, and fixing it is yours, not "
              "the reviewer's. Read the failing check's log (`gh run view <run-id> --log-failed`), "
              "reproduce it locally, fix it on that phase's branch, re-run `run-local-gates`, push, "
@@ -326,10 +369,11 @@ def refuse(event: dict, reply: str) -> str:
     if not is_zethus_turn(reply) or person_moved_wait(event):
         return ""
     gate_ask = asks_to_defer_gate_fix(reply)
+    base_ask = not gate_ask and asks_about_pre_existing(reply)
     rebase_ask = hands_back_rebase(reply)
     labor = (HANDOFF_REASON if hands_off_work(reply) else FETCH_REASON if bare_fetch_stop(reply)
              else CI_REASON if done_over_red_ci(reply) else "")
-    if is_real_stop(reply) and not gate_ask and not rebase_ask and not labor:
+    if is_real_stop(reply) and not gate_ask and not base_ask and not rebase_ask and not labor:
         return ""
     counter = refusals_file(event)
     try:
@@ -347,6 +391,10 @@ def refuse(event: dict, reply: str) -> str:
                   "forward and why. The one exception is a `push-red` ruling already approved in the "
                   "spec's Gate remediation section; the gate script says when one applies. "
                   f"(Refusal {seen + 1} of {MAX_REFUSALS}; after that the turn is let through.)")
+        return json.dumps({"decision": "block", "reason": reason})
+    if base_ask:
+        reason = (PRE_EXISTING_REASON
+                  + f"(Refusal {seen + 1} of {MAX_REFUSALS}; after that the turn is let through.)")
         return json.dumps({"decision": "block", "reason": reason})
     if rebase_ask:
         reason = ("Zethus: a stale base is not a stop, and the rebase is not the person's to do. Bring "
@@ -393,6 +441,13 @@ def remind(event: dict) -> str:
                 "Don't wait for it: fix the failing gate in the phase being pushed, as small a fix as "
                 "turns it green, re-run `run-local-gates`, and say in the phase's report that the fix "
                 "was pulled forward. Unless this message is a question, do that first.")
+        return json.dumps({"additionalContext": text,
+                           "hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                                                  "additionalContext": text}})
+    if asks_about_pre_existing(reply):
+        text = ("Zethus: your last turn asked leave to fix or skip a gate failure that was already on "
+                "the base. Unless this message is a question, do that first: "
+                + PRE_EXISTING_REASON.split(": ", 1)[1].strip())
         return json.dumps({"additionalContext": text,
                            "hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                                   "additionalContext": text}})

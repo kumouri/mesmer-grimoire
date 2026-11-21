@@ -32,7 +32,7 @@ SCRIPTS = KIT / "scripts"
 REQUIRED_SKILLS = {
     "research-existing-code", "write-spec-full", "write-spec-minimum", "write-adr",
     "fresh-eyes-investigation", "implement-phase", "test-plan", "pre-push-gates",
-    "zethus-pr-description", "docs-sync-check",
+    "zethus-pr-description", "docs-sync-check", "zethus-conduct",
 }
 
 
@@ -647,7 +647,7 @@ class KitContract(unittest.TestCase):
 
     def test_every_required_skill_exists_with_valid_frontmatter(self):
         # >=, not ==: the optional modernization extension (docs/modernization-shared.md) installs
-        # further, pluggable skills alongside these ten core ones. See test_zethus_modernization.py
+        # further, pluggable skills alongside these eleven core ones. See test_zethus_modernization.py
         # for its own frontmatter and cross-link contract.
         found = {p.name for p in (KIT / "skills").iterdir() if p.is_dir()}
         self.assertTrue(REQUIRED_SKILLS <= found, REQUIRED_SKILLS - found)
@@ -874,11 +874,15 @@ class KitContract(unittest.TestCase):
 
     def test_commits_are_signed_before_the_trailer_block_alongside_the_trailer(self):
         agent = (KIT / AGENT).read_text(encoding="utf-8")
+        conduct = (KIT / "skills/zethus-conduct/SKILL.md").read_text(encoding="utf-8")
         for rule in ("## Sign your commits", "commits.signature", "commits.aiTrailer",
                      "never instead of it", '`commits.signature: ""` means no signature line'):
             self.assertIn(rule, agent)
-        # The example commit in the agent file: signature, then the trailer as the last paragraph.
-        example = agent.split("## Sign your commits", 1)[1].split("```text\n", 1)[1]
+            self.assertIn(rule, conduct, "the long form says it too")
+        self.assertIn("zethus-conduct/SKILL.md#sign-your-commits", agent, "the agent links the example")
+        # The example commit moved to zethus-conduct, to keep the agent file under its budget
+        # (docs/agent-file-budget.md): signature, then the trailer as the last paragraph.
+        example = conduct.split("## Sign your commits", 1)[1].split("```text\n", 1)[1]
         lines = example.split("\n```", 1)[0].splitlines()
         sig, trailer = lines.index("— Zethus"), lines.index(
             "Co-authored-by: <the commits.aiTrailer value>")
@@ -987,10 +991,23 @@ class KitContract(unittest.TestCase):
         section = agent.split("## Run independent work at the same time", 1)[1].split("\n## ", 1)[0]
         instructions = (KIT / "copilot-instructions.md").read_text(encoding="utf-8")
         hook = load(KIT / "com.github.copilot/hooks/session_start.py")
-        for name, text in (("agent", section), ("agreement", instructions),
+        conduct = (KIT / "skills/zethus-conduct/SKILL.md").read_text(encoding="utf-8")
+        long_form = conduct.split("## Run independent work at the same time", 1)[1].split("\n## ", 1)[0]
+        # The full wording, examples included: the long form, the agreement and the hook. The agent
+        # file keeps each rule in short form and links the long form (docs/agent-file-budget.md).
+        for name, text in (("zethus-conduct", long_form), ("agreement", instructions),
                            ("sessionStart", hook.agreement())):
             for rule in rules:
                 self.assertIn(rule, flat(text).replace("Ask once", "ask once"), name)
+        for rule in ("Two or three independent tasks may run at once",
+                     "the other's output or the files the other is changing",
+                     "The final gate run still happens last, on the exact tree that is pushed",
+                     "Remote or long-running work starts as soon as the pending change doesn't touch "
+                     "what that work runs",
+                     "git status --short", "ask once, with the question tool", "Re-judge",
+                     "isn't affected", "without re-litigating",
+                     "zethus-conduct/SKILL.md#run-independent-work-at-the-same-time"):
+            self.assertIn(rule, flat(section), f"agent: {rule}")
         self.assertIn("Name each one in the visible plan", flat(instructions))
         self.assertIn("named in the visible plan", flat(section))
 

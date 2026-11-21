@@ -1,9 +1,11 @@
 ---
 name: implement-phase
-description: Implement exactly one phase of a signed-off spec on its own branch (or as one commit series on a long-lived branch, in rebase or pr-later style) — Phase 0 first, which changes no behaviour, and logging first in every phase — keeping the diff inside the phase, flagging anything the spec didn't cover instead of silently deciding it, and recording deviations as an "As built" list. Use when a spec has been signed off and it's time to write code, or when resuming a phase.
+description: Implement exactly one phase of a signed-off spec on its own branch (or as one commit series on a long-lived branch, in rebase or pr-later style) — Phase -1 first when the base already fails a gate (it fixes only that), then Phase 0, which changes no behaviour, and logging first in every phase — keeping the diff inside the phase, flagging anything the spec didn't cover instead of silently deciding it, and recording deviations as an "As built" list. Use when a spec has been signed off and it's time to write code, or when resuming a phase.
 ---
 
 # Implement a phase
+
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
 
 Implementation is where a plan quietly turns into something else. The spec said one thing, the
 code needed another, and a decision got made inside a diff where no reviewer will see it. This
@@ -41,7 +43,8 @@ procedure keeps each phase small and keeps its deviations visible.
 ## Procedure
 
 1. **Re-read the phase row** in the spec: *What*, *Behaviour change*, *Gated on*, *Verified by*. If
-   it is gated on data or a decision that doesn't exist yet, stop and say so.
+   it is gated on data or a decision that doesn't exist yet, stop and say so. If the spec has a
+   Phase -1 row, build it first ([below](#phase--1-remediate-existing-issues)).
 2. **Phase 0 changes no behaviour.** It only instruments, logs, measures, reports, or adds tests
    that describe today's behaviour. Test yourself: if Phase 0 shipped and nothing followed, would
    any user or caller notice? If they would, it isn't Phase 0. A Phase 0 that only adds logging is
@@ -88,6 +91,36 @@ procedure keeps each phase small and keeps its deviations visible.
    line what you checked, and if they don't settle it, ask once, with the question tool. Results
    collected while local tooling was still changing get re-judged with its final version, and the
    run log says so ([why](../../docs/independent-work-runs-concurrently.md)).
+
+## Phase -1: remediate existing issues
+
+When the Stage 0 survey (`<kit root>/scripts/baseline-gates.py survey`) found gates already
+failing on the untouched base, the spec's *Pre-existing gate failures* section lists them and its
+Phases table has a Phase -1 row. Phase -1 comes before Phase 0, so the planned change starts from
+green ([why](../../docs/phase-minus-one.md)). If the section says `None`, there is no Phase -1:
+start with Phase 0.
+
+1. **Its own branch, or its own series.** In `branch-per-change`, cut Phase -1's branch from the
+   freshly fetched `origin/<base>`, with its own PR against the base; Phase 0's branch is then
+   stacked on it (`git switch -c <phase-0> <phase-minus-1>`), its PR targeting Phase -1's branch.
+   In `rebase` and `pr-later`, Phase -1 is the first commit series on the branch, each subject
+   naming `phase -1` (`fix(style): phase -1 — LF line endings in Foo.java`).
+2. **Fix every `fix` row, and nothing else.** Only the files and rules the findings name, as small
+   as turns each gate green: convert the line endings, drop the trailing whitespace, apply the
+   lint rule, repair the broken test setup. No refactoring, no reformatting beyond the rule, and
+   none of the planned change. A file the fix truly needs that no finding names (a
+   `.gitattributes` entry, say) goes under *As built*. The spec rides with this, the bottom phase.
+3. **Change no behaviour.** If a fix would change what the code does, it isn't a Phase -1 fix:
+   it is an `ask` row, and the person rules on it. Mid-phase, that is step 4's "real choice" row.
+4. **Log it.** The survey's run log and record hold what ran and what failed. Add to the *As
+   built* list what Phase -1 fixed, gate by gate, and run
+   `python <kit root>/scripts/baseline-gates.py scope` (with `--also <path>` for each file from
+   step 2): it fails on a file no finding names, or a layout-only file changed beyond whitespace,
+   and logs each finding as changed or untouched.
+5. **Then it is a phase like any other:** its tests (often none beyond the gates themselves), docs,
+   gates, push, PR and spec status. Its PR says what was already red, and that the planned change
+   isn't in it. Don't stop to ask leave to fix a pre-existing failure, or to skip one: the
+   `agentStop` hook refuses that stop. An `ask` row was ruled on at sign-off; apply the ruling.
 
 ## Logging is the first deliverable, in every phase
 

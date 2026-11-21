@@ -6,7 +6,7 @@
 | Date | 2026-11-01 |
 | Deciders | Ceryce Armstrong |
 | Source | Ceryce's report of using the kit, 2026-11-01 (below) |
-| Enforced where | The `agentStop` / `userPromptSubmitted` hook [`../com.github.copilot/hooks/stop_guard.py`](../com.github.copilot/hooks/stop_guard.py) (see *Enforcement*); *Hand off to the next stage, and never stop silently* and *How you behave at every turn* in [`../com.github.copilot/agents/zethus.agent.md`](../com.github.copilot/agents/zethus.agent.md); *Keep moving, and never stop silently* in [`../copilot-instructions.md`](../copilot-instructions.md); the **Next** line closing every stage skill, including *On sign-off* in [`../skills/write-spec-full/SKILL.md`](../skills/write-spec-full/SKILL.md) and [`../skills/write-spec-minimum/SKILL.md`](../skills/write-spec-minimum/SKILL.md); `tests/test_zethus.py`. The first version was convention only; the hook was added after a recurrence (below) |
+| Enforced where | The `agentStop` / `userPromptSubmitted` hook [`../com.github.copilot/hooks/stop_guard.py`](../com.github.copilot/hooks/stop_guard.py) (see *Enforcement*); *Hand off to the next stage, and never stop silently* and *How you behave at every turn* in [`../com.github.copilot/agents/zethus.agent.md`](../com.github.copilot/agents/zethus.agent.md), with their long form in [`../skills/zethus-conduct/SKILL.md`](../skills/zethus-conduct/SKILL.md) since 2026-11-20; *Keep moving, and never stop silently* in [`../copilot-instructions.md`](../copilot-instructions.md); the **Next** line closing every stage skill, including *On sign-off* in [`../skills/write-spec-full/SKILL.md`](../skills/write-spec-full/SKILL.md) and [`../skills/write-spec-minimum/SKILL.md`](../skills/write-spec-minimum/SKILL.md); `tests/test_zethus.py`. The first version was convention only; the hook was added after a recurrence (below) |
 | Supersedes | — |
 | Superseded by | — |
 
@@ -100,6 +100,10 @@ It also refuses a Stage 3+ stop that asks leave to move a failing local gate's r
 phase being pushed, even though a decision looks like a wall: [every local gate is green before a
 push](gate-remediation-in-the-plan.md), so there is nothing to ask. The Stage 2 planning stop is
 exempt, since asking for that ruling there is the point.
+
+Since 2026-11-20 it also refuses a stop outside Stage 2 that asks leave to fix, or to skip, a gate
+failure that was already on the base: [Phase -1](phase-minus-one.md) fixes those before Phase 0,
+and asks about one it can't fix safely once, at sign-off.
 
 It refuses a stop whose `Why:` is a stale base, too: the agent [rebases a stale branch
 itself](base-freshness-cadence.md#amendment-2026-11-10-zethus-rebases-a-stale-branch-itself). A

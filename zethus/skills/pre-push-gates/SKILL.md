@@ -37,8 +37,9 @@ red. The run that clears the push starts after the last edit, on the exact tree 
 1. **See what will run:** `python <kit root>/scripts/run-local-gates.py --list`.
    Gates come from `gates.steps` in `.github/zethus.config.json`, or else from the repo's build
    files (`package.json`, `Makefile`, `pyproject.toml`, Gradle, Maven, .NET, Go, Cargo). **Compare
-   the list against the CI workflow.** If CI runs a gate the list doesn't have, add it to
-   `gates.steps` now. A local run that skips a CI gate is a partial run.
+   the list against the CI config** (a workflow, a Jenkinsfile, whatever the repo's CI runs). If CI
+   runs a gate the list doesn't have, add it to `gates.steps` now. A local run that skips a CI gate
+   is a partial run. The Phase -1 survey at Stage 0 runs the same list on the untouched base.
 2. **Run them all:** `python <kit root>/scripts/run-local-gates.py`.
    The script checks the **working tree on disk**, uncommitted changes included, and its header
    says so. Commit after it goes green, not before, so what you push is what you checked.
@@ -53,6 +54,11 @@ red. The run that clears the push starts after the last edit, on the exact tree 
    | 2 | No gates found / usage error | Configure `gates.steps` yourself, starting from the CI workflow's steps. No gates is not a green run. |
 
 4. **Paste the table into the PR's *Evidence* section,** unedited.
+5. **Phase -1 only:** before its push, run `python <kit root>/scripts/baseline-gates.py scope`. Exit
+   1 means Phase -1 changed a file no pre-existing finding names, or a layout-only file beyond
+   whitespace: move that change to Phase 0 (or name a file the fix truly needs with `--also`, and
+   list it under *As built*), then re-run step 2. Paste its table into the PR's *Phase -1* section
+   ([why](../../docs/phase-minus-one.md)).
 
 A green verdict is progress, not a report to hand over and wait on. Next, in the same turn once the verdict lets you push: commit, push, and open the PR with
 [zethus-pr-description](../zethus-pr-description/SKILL.md). In `pr-later` style: commit and push

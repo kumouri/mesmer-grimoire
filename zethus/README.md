@@ -2,8 +2,8 @@
 
 **A development process for GitHub Copilot, in a form Copilot can follow and enforce.** One custom
 agent runs every change through research → spec → sign-off → phased implementation → tests → docs →
-local gates → a PR with evidence, and refuses to skip a stage. Ten core skills hold one procedure
-each, and optional extension skills (modernization, Jira, CLI tools, session review) add more. Four Markdown templates and seven stdlib Python scripts do the mechanical parts. Install it as a
+local gates → a PR with evidence, and refuses to skip a stage. Eleven core skills hold one procedure
+each (one, `zethus-conduct`, the long form of the agent's rules), and optional extension skills (modernization, Jira, CLI tools, session review) add more. Four Markdown templates and eight stdlib Python scripts do the mechanical parts. Install it as a
 Copilot plugin from this repo's marketplace, so it follows you into every repo without changing any
 of them, or copy it into a repository's `.github/` folder for a whole team and the cloud agent.
 Nothing in it is specific to one organization.
@@ -16,10 +16,10 @@ Nothing in it is specific to one organization.
 
 ```mermaid
 flowchart LR
-    O["0 · Orient<br/><i>fresh base</i>"] --> R["1 · Research<br/><i>facts cited to file:line</i>"]
+    O["0 · Orient<br/><i>fresh base · survey its gates</i>"] --> R["1 · Research<br/><i>facts cited to file:line</i>"]
     R --> S["2 · Spec<br/><i>minimum or full</i>"]
     S --> SO{{"sign-off"}}
-    SO -->|"decisions → ADRs"| I["3 · Implement<br/><i>one phase; Phase 0 changes nothing</i>"]
+    SO -->|"decisions → ADRs"| I["3 · Implement<br/><i>one phase; Phase -1 fixes the base, Phase 0 changes nothing</i>"]
     I --> T["4 · Tests<br/><i>incl. refusals · mutation check</i>"]
     T --> D["5 · Docs<br/><i>docs-pointer-check</i>"]
     D --> G["6 · Gates<br/><i>fresh base · run-local-gates</i>"]
@@ -69,6 +69,15 @@ report says it was pulled forward. A plan that schedules such a remediation phas
 push with that gate red, a different phase order, or an equivalent. The ruling is recorded in the
 spec, `run-local-gates` honours it, and the stop hook refuses a stop that asks leave to move the fix
 ([gate remediation in the plan](docs/gate-remediation-in-the-plan.md)).
+
+Your change starts from green. Before any planned change, Stage 0 runs every local gate on the
+untouched base (`baseline-gates.py survey`) and records each failure with its gate, file and rule.
+If all are green, **Phase -1** is a no-op and says so in one line. Otherwise Phase -1 fixes what
+already fails (checkstyle's CRLF findings, lint, a broken test setup) in its own branch and PR, or
+its own commit series, as small as turns the gates green and never mixed with your change;
+`baseline-gates.py scope` checks that, and Phase 0 stacks on it. A failure it can't fix safely (a
+failing test whose fix needs a decision, a gate needing a credential) is named in the plan and asked
+once, at sign-off, as a **Gate remediation** row. See [Phase -1](docs/phase-minus-one.md).
 
 Each expensive check runs once per phase. Docs comes before Gates, so the full build and test suite
 runs once, last, on the exact tree that is pushed, docs included. The phase's tests run once, in
@@ -184,7 +193,8 @@ Co-authored-by: <the commits.aiTrailer value>
 
 Set `commits.signature` to `""` to leave the signature off; the trailer is still required. Like the
 plan, this is a rule in the agent file rather than a script check: the kit has no commit hook, and
-[`tests/test_zethus.py`](../tests/test_zethus.py) pins the rule and its order.
+[`tests/test_zethus.py`](../tests/test_zethus.py) pins the rule in the agent file and the order in
+the example, which is in [`zethus-conduct`](skills/zethus-conduct/SKILL.md#sign-your-commits).
 
 ## What's in the kit
 
@@ -192,13 +202,14 @@ plan, this is a rule in the agent file rather than a script check: the kit has n
 |---|---|---|
 | [`copilot-instructions.md`](copilot-instructions.md) | `.github/copilot-instructions.md` | The standing rules, short and imperative. Copilot loads them for every request in the repo. |
 | [`com.github.copilot/rules/zethus-docs.instructions.md`](com.github.copilot/rules/zethus-docs.instructions.md) | `.github/instructions/docs.instructions.md` | Path-scoped rules (`applyTo: "**/*.md"`): Markdown is canonical, router vs leaf docs, pointers resolve, spec status vocabulary, ADRs superseded rather than rewritten. |
-| [`com.github.copilot/agents/zethus.agent.md`](com.github.copilot/agents/zethus.agent.md) | `.github/agents/` | **The enforcer.** The stage table with exit conditions, the visible plan, per-turn behaviour, and the refusal table. |
+| [`com.github.copilot/agents/zethus.agent.md`](com.github.copilot/agents/zethus.agent.md) | `.github/agents/` | **The enforcer.** The stage table with exit conditions, the visible plan, per-turn behaviour, and the refusal table. Each rule in short form, under a character budget ([why](docs/agent-file-budget.md)). |
+| [`skills/zethus-conduct`](skills/zethus-conduct/SKILL.md) | `.github/skills/` | The long form of the agent's rules: handoffs, waiting on a background command, parallel work, answering a question, the plan format, each branch model, the signed-commit format. |
 | [`skills/research-existing-code`](skills/research-existing-code/SKILL.md) | `.github/skills/` | Facts cited to `file:line`, the search behind every negative claim, and what the research did *not* cover. |
 | [`skills/write-spec-minimum`](skills/write-spec-minimum/SKILL.md) | `.github/skills/` | The one-screen spec for one PR, and the fast path when someone says "just code it". |
 | [`skills/write-spec-full`](skills/write-spec-full/SKILL.md) | `.github/skills/` | Verbatim ask, measured problem, facts, assumptions checked, options, phases, rollback, out of scope, open questions, then stop for sign-off. |
 | [`skills/write-adr`](skills/write-adr/SKILL.md) | `.github/skills/` | One imperative decision sentence, options, consequences, *enforced where*, *revisit when*. Pastes cleanly into a wiki or ticket. |
 | [`skills/fresh-eyes-investigation`](skills/fresh-eyes-investigation/SKILL.md) | `.github/skills/` | Artifact plus one line of intent in; ranked leads out, each established or conjecture. Never a diagnosis; an empty list is valid. |
-| [`skills/implement-phase`](skills/implement-phase/SKILL.md) | `.github/skills/` | One phase per branch, stacked on the previous phase's (or per commit series, in `rebase` and `pr-later` style), Phase 0 first; the next phase starts once this one is pushed, not merged (in `pr-later`, once it is committed with green gates, with no PR). Logging goes in with the code, in every phase. Stay inside the phase; classify anything unplanned; keep an *As built* list. |
+| [`skills/implement-phase`](skills/implement-phase/SKILL.md) | `.github/skills/` | One phase per branch, stacked on the previous phase's (or per commit series, in `rebase` and `pr-later` style), Phase -1 first when the base already fails a gate, then Phase 0; the next phase starts once this one is pushed, not merged (in `pr-later`, once it is committed with green gates, with no PR). Logging goes in with the code, in every phase. Stay inside the phase; classify anything unplanned; keep an *As built* list. |
 | [`skills/test-plan`](skills/test-plan/SKILL.md) | `.github/skills/` | Per-phase tests covering the change, the failure path, the refusal, and what must not change, plus a mutation check. |
 | [`skills/pre-push-gates`](skills/pre-push-gates/SKILL.md) | `.github/skills/` | Every CI gate run locally, on the working tree, before a push. A skip is not a pass. Also how the agent brings a stale branch up to date itself, at either freshness checkpoint. |
 | [`skills/zethus-pr-description`](skills/zethus-pr-description/SKILL.md) | `.github/skills/` | An evidence-first PR body diffed against the real integration branch, including *What was not checked*. |
@@ -207,7 +218,8 @@ plan, this is a rule in the agent file rather than a script check: the kit has n
 | [`templates/adr.md`](templates/adr.md) | `.github/zethus/templates/` | The ADR record: a field table (including *Deciders*, *Recorded by* and *Enforced where*), decision, context, options, consequences. |
 | [`templates/pr.md`](templates/pr.md) | `.github/zethus/templates/` | The PR body: What · Why · Changes · Evidence · What was not checked · deferrals · decisions · docs · AI assistance. |
 | [`scripts/run-local-gates.py`](scripts/run-local-gates.py) | `.github/zethus/scripts/` | Discovers and runs lint/build/test, then prints a PASS/FAIL/SKIP table and an explicit verdict. Prefers a repo's `mvnw`/`gradlew` wrapper; on Windows a bare `mvn` or `./mvnw` resolves to `mvn.cmd`/`mvnw.cmd` through `PATHEXT`. Exit codes: `0` full green · `1` red · `3` green but incomplete · `4` green except a gate the signed-off spec lets stay red (`push-red`) · `2` nothing to run. |
-| [`scripts/gate-remediation-check.py`](scripts/gate-remediation-check.py) | `.github/zethus/scripts/` | Checks a spec's **Gate remediation** section: present (`None — …` counts), not `None` beside a phase that reads like gate remediation, rulings readable, none `PENDING` once the spec is signed off. [`scripts/_gate_rulings.py`](scripts/_gate_rulings.py) is the parser `run-local-gates` shares. Exit `1` on problems. |
+| [`scripts/gate-remediation-check.py`](scripts/gate-remediation-check.py) | `.github/zethus/scripts/` | Checks a spec's **Gate remediation** section: present (`None — …` counts), not `None` beside a phase that reads like gate remediation, rulings readable, none `PENDING` once the spec is signed off. Also its **Pre-existing gate failures** section (Phase -1): present in a draft, each row `fix` or `ask`, each `ask` with a Gate remediation row for `Phase -1`, a Phase -1 row when there is anything to fix. [`scripts/_gate_rulings.py`](scripts/_gate_rulings.py) is the parser `run-local-gates` shares. Exit `1` on problems. |
+| [`scripts/baseline-gates.py`](scripts/baseline-gates.py) | `.github/zethus/scripts/` | [Phase -1](docs/phase-minus-one.md). `survey`: runs every gate `run-local-gates` would, on a tree with no tracked changes, and records each failure's gate, file and rule (checkstyle, ruff, flake8, ESLint, javac and `git diff --check` shapes; a failure it can't place is kept as one row). All green prints one line. The record is `baseline-gates.json` in a `zethus` folder of the worktree's git directory, never committed. `scope`: fails if Phase -1 changed a file no finding names (beyond the spec and `--also`), or a layout-only file beyond whitespace. Logs to `~/.copilot/zethus/logs/baseline-gates.log`. Exit codes: `0` green or in scope · `1` red base or out of scope · `2` usage error (tracked changes, no gates, no record) · `3` survey incomplete. |
 | [`scripts/base-freshness.py`](scripts/base-freshness.py) | `.github/zethus/scripts/` | Fetches, picks the branch's base (`branchModel.bases`, else `branchModel.base`; [Per-branch bases](#per-branch-bases)), counts the commits in `HEAD..origin/<base>`, and reports STALE if there are more than `branchModel.maxBehind`, saying what the agent does next: it rebases the branch itself before any other work ([how](skills/pre-push-gates/SKILL.md#bring-a-stale-branch-up-to-date)). Prints the merge-base to diff against, and whether the branch was rewritten since its last push. The agent runs it at **two** points: Stage 0 (Orient) and immediately before the push (`pre-push-gates`) — see [Branch models](#branch-models). `--merge-base-only` prints the merge-base alone and always exits 0, for a stage that needs a diff base and must not be stopped; `--base-for <branch>` prints the base a branch gets, and also never gates. It logs which base it chose and why to `~/.copilot/zethus/logs/base-freshness.log`. Exit codes: `0` fresh · `1` stale, the agent rebases first · `2` usage error · `3` no answer (the fetch failed), which is a stop. |
 | [`scripts/new-adr.py`](scripts/new-adr.py) | `.github/zethus/scripts/` | Creates `docs/adr/YYYY-MM-DD-slug.md` and adds its row to the ADR index. Ids are keyed by date, so parallel branches never collide. *Deciders* is the person `identity.py` resolves unless `--deciders` names someone else; with no one to name, or a placeholder, it writes nothing and exits 2. |
 | [`scripts/new-spec.py`](scripts/new-spec.py) | `.github/zethus/scripts/` | `new-spec.py full\|minimum "Title"` creates `docs/specs/<slug>.md` as `DRAFT`, with *Owner* and *Requested by* resolved the same way (`--owner`, `--requester` to name others). |
@@ -328,7 +340,7 @@ Zethus ships both:
 | Copilot CLI (1.0.105, 1.0.106-2) | `com.github.copilot/agents/` only, because `plugin.json` declares the Agent Plugins 1.0 `$schema` | `com.github.copilot/hooks/hooks.json` only |
 | IntelliJ's Copilot language server (plugin 1.20.0, server 1.555.7) | `agents/` at the plugin root | `hooks.json`, else `hooks/hooks.json`, at the root |
 
-With only the first layout, IntelliJ listed the 28 skills but no agent and no hook. Neither host
+With only the first layout, IntelliJ listed the 29 skills but no agent and no hook. Neither host
 reads the other's place, so nothing loads or fires twice there. `plugin.json` can't point IntelliJ
 at `com.github.copilot/` instead: the 1.0 schema is closed, and the CLI ignores unknown keys and
 logs each one as an error. The files under `com.github.copilot/` are the canonical ones, and the
@@ -344,7 +356,7 @@ reads both places, it would load the agreement twice.
   ran a bundled script from that root.
 - **IntelliJ:** its bundled language server, driven over stdio with a sandboxed home. It added a
   local marketplace, installed **zethus** through its own install call, and listed the `zethus`
-  agent, the `SessionStart` hook and all 28 skills. It only lists the hook; nothing here ran the
+  agent, the `SessionStart` hook and all 29 skills. It only lists the hook; nothing here ran the
   hook inside the IDE.
 - **VS Code:** nothing has been run, so its steps rest on its docs and settings screens.
 
@@ -936,6 +948,12 @@ New config keys, all optional defaults a flag can also set (see
 - Quote any frontmatter `description:` that contains a colon followed by a space. The Copilot CLI
   drops the whole agent or skill on that, with only a log line to show for it;
   [`tests/test_frontmatter.py`](../tests/test_frontmatter.py) parses every agent, mirror and skill.
+- Keep the agent file under its budget: 28,000 characters fails, 24,000 warns, against Copilot's
+  30,000-character limit on an agent prompt. A new rule goes in the agent file in a few lines; its
+  examples, formats and edge cases go in [`zethus-conduct`](skills/zethus-conduct/SKILL.md) or the
+  stage's skill, which it links ([why](docs/agent-file-budget.md)).
+  [`scripts/check_zethus_agent_budget.py`](../scripts/check_zethus_agent_budget.py) measures both
+  copies, or any copy you pass it, such as your own edited one.
 - Edit the agent and the hook registration only under `com.github.copilot/`, then run
   `python scripts/sync_zethus_plugin_root.py` to rewrite their root copies. `tests/test_copilot_plugins.py`
   fails while the copies are stale.
