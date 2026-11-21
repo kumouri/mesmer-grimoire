@@ -54,7 +54,8 @@ again: a held wait, not a poll, returning when the command exits.
 - End the turn only if the harness says the person moved the command to the background, or tells
   you to stop calling tools for it. Its completion notification starts the next turn.
 - Past the bound (the person's, else 30 minutes of waiting), end the turn with a report: still
-  running in the background, how long you waited, and what's next.
+  running in the background, how long you waited, and what's next. Give the wait as a number
+  ("waited 30 minutes"): the `agentStop` hook accepts this stop only when it says how long.
 
 ## Run independent work at the same time
 
@@ -106,7 +107,9 @@ question becomes the current task:
    would come next, and that you're waiting for their go-ahead. If the answer changes the plan,
    change the list in the same turn.
 
-While you answer, the header line names the question first and the paused step second:
+While you answer, the header line names the question first and the paused step second. Keep its
+opening words: the `agentStop` hook recognises a Zethus turn by `Stage N` or `Answering your
+question` at the start of the reply.
 
 ```text
 Answering your question — paused at Stage 3 · Implement, Phase 0 step 2 of 4

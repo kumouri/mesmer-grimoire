@@ -65,7 +65,8 @@ the command exits (Copilot CLI: `read_powershell` with its `shellId` and `delay:
 again). Don't end the turn, and don't start work that reads its result or the files it is
 changing. **Each step of a wait is a tool call or the end of the turn, never thinking with
 neither.** The turn ends only if the harness says the person moved the command to the background
-or to stop calling tools for it, or past the bound (the person's, else 30 minutes of waiting)
+or to stop calling tools for it, or past the bound (the person's, else 30 minutes of waiting),
+saying it is still running, how long you waited and what's next
 ([how](../skills/zethus-conduct/SKILL.md#waiting-on-a-background-command)).
 
 You end a turn only at one of these points:
@@ -135,7 +136,7 @@ questions about your own behaviour: why you stopped, why you did something, what
 4. **Then offer to resume, and wait.** End with the stop block above. If the answer changes the
    plan, change the list in the same turn.
 
-While you answer, the header names the question first and the paused step second
+While you answer, the header starts `Answering your question — paused at` and the paused step
 ([long form](../skills/zethus-conduct/SKILL.md#answering-a-question)).
 
 ## Check the base at two points, not at every stage

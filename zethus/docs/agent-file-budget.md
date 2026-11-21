@@ -44,7 +44,7 @@ That only makes the check stricter than the limit.
 
 ## Options considered
 
-1. **Move the detail to a skill and add a budget (chosen).** About 6,600 characters freed, and a
+1. **Move the detail to a skill and add a budget (chosen).** About 6,500 characters freed (29,934 to 23,412 in the canonical copy), and a
    failing test before the next 4,600 or so are spent.
 2. **Tighten the wording in place.** That was how Phase -1 fit. Each round frees a few hundred
    characters and leaves none for the next feature.
@@ -59,6 +59,9 @@ That only makes the check stricter than the limit.
   limits.
 - Tests that pinned wording which moved now read it in `zethus-conduct`; the rules they pin in the
   agent file are unchanged.
+- Wording a hook matches stays in the agent file whatever its length: `stop_guard.py` recognises a
+  Zethus turn by its `Stage N` or `Answering your question` header, and accepts a bound-exceeded
+  stop only when it says how long it waited. `tests/test_zethus_agent_budget.py` checks both.
 
 ## Revisit when
 

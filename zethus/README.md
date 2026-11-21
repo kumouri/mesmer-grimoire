@@ -2,8 +2,8 @@
 
 **A development process for GitHub Copilot, in a form Copilot can follow and enforce.** One custom
 agent runs every change through research → spec → sign-off → phased implementation → tests → docs →
-local gates → a PR with evidence, and refuses to skip a stage. Ten core skills hold one procedure
-each, and optional extension skills (modernization, Jira, CLI tools, session review) add more. Four Markdown templates and eight stdlib Python scripts do the mechanical parts. Install it as a
+local gates → a PR with evidence, and refuses to skip a stage. Eleven core skills hold one procedure
+each (one, `zethus-conduct`, the long form of the agent's rules), and optional extension skills (modernization, Jira, CLI tools, session review) add more. Four Markdown templates and eight stdlib Python scripts do the mechanical parts. Install it as a
 Copilot plugin from this repo's marketplace, so it follows you into every repo without changing any
 of them, or copy it into a repository's `.github/` folder for a whole team and the cloud agent.
 Nothing in it is specific to one organization.
@@ -193,7 +193,8 @@ Co-authored-by: <the commits.aiTrailer value>
 
 Set `commits.signature` to `""` to leave the signature off; the trailer is still required. Like the
 plan, this is a rule in the agent file rather than a script check: the kit has no commit hook, and
-[`tests/test_zethus.py`](../tests/test_zethus.py) pins the rule and its order.
+[`tests/test_zethus.py`](../tests/test_zethus.py) pins the rule in the agent file and the order in
+the example, which is in [`zethus-conduct`](skills/zethus-conduct/SKILL.md#sign-your-commits).
 
 ## What's in the kit
 

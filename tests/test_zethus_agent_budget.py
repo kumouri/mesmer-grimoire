@@ -124,6 +124,24 @@ class TheDetailMovedToALinkedSkill(unittest.TestCase):
                 self.assertGreaterEqual(len(links), 6)
                 self.assertEqual(sorted(set(links) - anchors), [])
 
+    def test_the_wording_the_stop_guard_matches_stays_in_the_agent_file(self):
+        """Moving detail out must not move what ``stop_guard.py`` recognises: the answer header
+        (``HEADER_RE``) and a bound-exceeded stop that says how long it waited (``WAITED_RE``)."""
+        guard_path = KIT / "com.github.copilot" / "hooks" / "stop_guard.py"
+        guard_spec = importlib.util.spec_from_file_location("stop_guard_budget", guard_path)
+        guard = importlib.util.module_from_spec(guard_spec)
+        guard_spec.loader.exec_module(guard)
+        for path in budget.AGENT_FILES:
+            text = re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+            with self.subTest(copy=path.parent.parent.name):
+                header = re.search(r"`(Answering your question[^`]*)`", text)
+                self.assertIsNotNone(header, "the agent names the answer header literally")
+                self.assertTrue(guard.HEADER_RE.match(header.group(1)))
+                self.assertIn("how long you waited", text)
+                self.assertTrue(guard.WAITED_RE.search("still running after I waited 30 minutes"))
+                for line in ("Stopped at:", "Next:", "Why:"):
+                    self.assertIn(line, text)
+
 
 if __name__ == "__main__":
     unittest.main()
