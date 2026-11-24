@@ -1,13 +1,16 @@
 # Lessons capture and harness convergence: verification and spec (2026-10-29)
 
-**Status:** Phase 0 is built, but its exit criteria are not all met yet. The engine fixes B1–B6 merged
-on 2026-10-30 (PR #46). The candidate spool and the capture hooks now run in **shadow mode**: they
-record candidates and log decisions, but store nothing and ask nothing
-([§4.7](#47-how-zethus-and-amphion-call-it-first-class), [§4.8](#48-engine-changes-this-needs)).
-The §4.7 hook cells for Claude Code, Copilot CLI and Codex were checked on real installs on
-2026-11-01 ([§4.7.1](#471-hook-cells-checked-on-real-installs-2026-11-01)). Still open in Phase 0:
-a week of shadow data, and the cells that couldn't be checked from that host (VS Code, the Copilot
-cloud agent and Cursor). Phase 1 has not started.
+**Status:** Phase 0 is complete and Phase 1 is built. The engine fixes B1–B6 merged on 2026-10-30
+(PR #46). The candidate spool and the capture hooks ran in **shadow mode** for a month on one
+developer's machine; the result is in [§5.1](#51-shadow-week-result-2026-11-24). Phase 1 then added
+**auto-store** of the two deterministic, script-emitted signals (S1 an ADR, S2 a gate red→green),
+a **session-start recall digest**, and a **Claude Code `stop` triage** through a new
+`lessons-triage` skill — **local tier only** (Q7), with the Q2 exclusions enforced by the engine.
+Phase 1's visible behaviour is **opt-in** (`memory.mode: "active"`, else `MNEMOSYNE_CAPTURE_MODE`),
+so the default stays shadow and a package upgrade changes nothing on its own. Still open from Phase
+0: the §4.7 cells that couldn't be checked from that host (VS Code, the Copilot cloud agent and
+Cursor). Still ahead: ask outcomes and Copilot on a real host (Phase 2), standards (Phase 3), the
+shared core (Phase 4).
 **All eight questions are ruled** (2026-10-29). Seven went as recommended: Zethus and Amphion
 stay two kits on a shared core (Q1); auto-store never stores the six excluded classes (Q2) and
 never writes beyond the local tier (Q7); a standard is three occurrences across two or more specs
@@ -760,8 +763,8 @@ Sizes follow stage 1: S is under half a day, M is half a day to two days, L is t
 
 | Phase | What | Behaviour change | Exit, verified by | Size |
 | --- | --- | --- | --- | --- |
-| **0** | Engine fixes B1–B6 before any capture (Q8, ruled), with tests that fail before each fix. B4 is fixed as merged-means-approved (Q6); B6 is the scrub (§4.6) and the author fallback. Candidate spool and hooks in **shadow mode**: they record candidates and log decisions, but store nothing and ask nothing. Verify the unverified hook cells in §4.7 on real installs. **Built:** B1–B6 (PR #46); the spool, `doctor` and the bridge's capture modes, which detect S4–S6, S8 and S9–S11 (`tests/test_mnemosyne_capture.py`); hook cells checked on Claude Code, Copilot CLI and Codex (§4.7.1). **Open:** the week of data; VS Code, the cloud agent and Cursor | Bug fixes only; capture is observe-only | An MCP tool-call test green on Windows and Linux; an id-collision test; a merged review PR retires its local original with no hand edit; an export carrying a home-directory path or a login as author is blocked; one week of spool data showing the count and precision of each signal (`mnemosyne candidate stats`, after labelling with `candidate label`) | M–L |
-| **1** | Auto-store for S1 (ADR) and S2 (gate red → green) through Zethus's scripts. `session-start` recall digest. Claude Code `stop` triage of pending candidates through the `lessons-triage` skill. Local tier only (Q7). The Q2 exclusions hold from here: an S1 or S2 candidate in an excluded class is asked at the same triage, never saved | Yes: auto-store to local, one triage checkpoint | A Zethus run that records an ADR and fixes a red gate ends with two `SAVED:` lines and an empty spool; `retire` undoes either; no write outside `local.jsonl`; a `security` ADR is asked, not saved, and the engine refuses it as a hook capture | M |
+| **0** | Engine fixes B1–B6 before any capture (Q8, ruled), with tests that fail before each fix. B4 is fixed as merged-means-approved (Q6); B6 is the scrub (§4.6) and the author fallback. Candidate spool and hooks in **shadow mode**: they record candidates and log decisions, but store nothing and ask nothing. Verify the unverified hook cells in §4.7 on real installs. **Built:** B1–B6 (PR #46); the spool, `doctor` and the bridge's capture modes, which detect S4–S6, S8 and S9–S11 (`tests/test_mnemosyne_capture.py`); hook cells checked on Claude Code, Copilot CLI and Codex (§4.7.1); the week of shadow data collected and read (§5.1). **Open:** VS Code, the cloud agent and Cursor | Bug fixes only; capture is observe-only | An MCP tool-call test green on Windows and Linux; an id-collision test; a merged review PR retires its local original with no hand edit; an export carrying a home-directory path or a login as author is blocked; one week of spool data showing the count and precision of each signal (`mnemosyne candidate stats`, after labelling with `candidate label`) | M–L |
+| **1** | Auto-store for S1 (ADR) and S2 (gate red → green) through Zethus's scripts. `session-start` recall digest. Claude Code `stop` triage of pending candidates through the `lessons-triage` skill. Local tier only (Q7). The Q2 exclusions hold from here: an S1 or S2 candidate in an excluded class is asked at the same triage, never saved. **Built:** `new-adr.py` emits S1 and `run-local-gates.py` emits S2 (`mnemosyne.candidates.record_adr` / `record_gate_results`, fail-open); `capture --captured-by hook:<signal> --candidate <id>` with the engine's Q2 refusals (security / supersede / non-local / secret) + confidence pinned to medium; `candidate triage` / `candidate resolve`, `retire`; the bridge's active-mode `session-start` digest and `stop` block; the `lessons-triage` skill; opt-in via `memory.mode: "active"`. Tests: `tests/test_mnemosyne_capture.py` (Phase1* classes), `tests/test_zethus_lessons_capture.py` | Yes: auto-store to local, one triage checkpoint | A Zethus run that records an ADR and fixes a red gate ends with two `SAVED:` lines and an empty spool; `retire` undoes either; no write outside `local.jsonl`; a `security` ADR is asked, not saved, and the engine refuses it as a hook capture | M |
 | 2 | Ask outcomes (S4–S6, S8–S12), batched; Copilot `sessionStart` and `.github/hooks/*.json`; Amphion watched paths. **Built toward it:** the engine's double-fire guard (§4.7), `tests/test_mnemosyne_capture.py`; it still has to be seen working on a real host | Yes | Triage on Copilot CLI and VS Code; no double-fire with both files present | M |
 | 3 | Context fingerprints (a context is a spec or ticket, Q5), standards (S7), promotion to shared or store, and config-default proposals. Promotion targets the tiers Mnemosyne's federation already has: the shared tier or any store in `config.stores` (Q3, ruled) | Yes | Three ADRs with the same answer across two specs produce exactly one "promote to standard?" question; three in one spec produce none (Q4) | M |
 | 4 | The shared core (Q1, ruled), inside the stage 1 installer: one source tree for the memory hook script and its `hooks.json`, the `memory` config schema, and the shared skills. Zethus and Amphion each install from it and keep their own names, READMEs and install paths. **Built toward it (2026-11-01):** Mnemosyne has its own installer, `mnemosyne/install.py`. It sets up the package, a local git memory repo (`~/repos/mnemosyne-local` by default, no remote), a persistent `MNEMOSYNE_REPO`, the Claude Code plugin through a local marketplace, and, with `--target`, a Copilot `.github/hooks/*.json` file (`mnemosyne.json`) generated from the plugin's `hooks.json`, so registration keeps one source; `--user` writes the same file to `~/.copilot/hooks`. `zethus/install.py --with-mnemosyne` calls it rather than copying it (`tests/test_mnemosyne_install.py`, `tests/test_zethus.py`). **Open:** the shared core itself and Amphion's install; the shared core's installer should call `mnemosyne/install.py` too | Packaging | Stage 1 §3.4 CI additions green; installing both kits registers each hook once; `tests/test_zethus.py` green | M, on top of the stage 1 installer |
@@ -771,6 +774,32 @@ Phase 0 deliberately ships no capture. Building capture on an engine that loses 
 table in §4.2 is a hypothesis about precision: a week of shadow data is cheaper than tuning
 auto-store against real lessons. Phase 0 is M–L rather than M because the scrub (B6, M) moved into
 it from Phase 1.
+
+### 5.1 Shadow-week result (2026-11-24)
+
+The spool ran in shadow mode on one developer's machine from 2026-11-01 to 2026-11-24 across a real
+multi-project workload, recording **13,283 candidates**. Only the hook-detected signals appeared —
+**S4 5,657, S5 6,465, S6 1,161** — and **no S1 or S2 at all**, because those come from Zethus's
+scripts and Zethus was not installed on that machine, so the week measured the keyword signals, not
+the script ones. Read by hand (sampling across the month; nothing was labelled in the live spool,
+which stayed read-only):
+
+- **S4 (explicit-remember):** ~97% matched the bare word *never*, almost all of it standing agent
+  instructions re-fired each session and ordinary prose, not a user asking to remember a new
+  convention. Precision for a worthwhile new lesson is in the low single digits.
+- **S5 (correction):** dominated by *do not* / *don't* inside standing instructions and task
+  briefs, not a mid-task correction of the agent. Similarly low.
+- **S6 (fail-then-succeed):** of 1,161, ~410 were a watchdog kill of a long-running command
+  (exit 143/137/124), ~414 were `cd` / `ls` / `sleep` navigation retries, and of the rest ~140 were
+  heredoc / quoting retries; genuine, generalisable mistake-fixes were a small minority.
+
+**What it supports.** The keyword signals are too noisy to auto-store, which is exactly why Phase 1
+auto-stores **only S1 and S2** — deterministic facts emitted by a script (an ADR genuinely recorded;
+a named gate that genuinely went red then green), gated at triage by the agent and the Q2 refusals —
+and routes S4/S5/S6 to *ask*. S1 and S2 have no shadow precision number here because the environment
+that emits them was never installed; a short Zethus-side shadow run should measure them before any
+later phase widens auto-store. S4 stays at *ask* until its detection is tightened (drop the bare
+*never* / *always*; require an imperative shape), tracked for Phase 2.
 
 ---
 

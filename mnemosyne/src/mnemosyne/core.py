@@ -1276,6 +1276,12 @@ def build_lesson(cfg: Config, lessons, fields: dict, category_default, memory_de
         src.setdefault("anchors", csv(fields["anchors"]))
     if fields.get("reflection_of"):
         src.setdefault("reflection_of", fields["reflection_of"])
+    if fields.get("captured_by"):
+        # Provenance for an automated capture (spec §4.3): source.captured_by = "hook:<signal>",
+        # so auto-captures can be listed, reviewed and pruned as a group.
+        src["captured_by"] = fields["captured_by"]
+        # Auto-store always starts at medium; only reinforcement earns higher confidence (§4.3).
+        l["confidence"] = "medium"
     if fields.get("related"):
         l.setdefault("related", csv(fields["related"]))
     if fields.get("supersedes"):
@@ -1316,6 +1322,32 @@ def _capture(cfg: Config, repo: Path, fields: dict, *, category_default, memory_
         rc, name, _ = git(repo, "config", "user.name")
         lesson["author"] = (name if rc == 0 and name else
                             os.environ.get("GIT_AUTHOR_NAME") or NEUTRAL_AUTHOR)
+
+    # (S) secrets rule — runs on EVERY write, the local tier included (spec §4.6). A lesson is
+    # the agent's own distilled text, never pasted output, so a credential shape here is a bug or
+    # a leak; refuse it at any tier rather than banking it.
+    secret = find_secret(" ".join(x for x in (lesson.get("title"), lesson.get("lesson"),
+                                               lesson.get("rationale")) if x))
+    if secret:
+        raise EngineError(f"refusing to store a lesson carrying a credential shape ({secret}); "
+                          f"nothing was saved (spec §4.6 Secrets)")
+
+    # (Q2) an automated hook capture (source.captured_by set) may land in the local tier only, and
+    # never for the excluded classes the engine can check mechanically (spec §4.3 rule 2, Q2/Q7,
+    # §4.8). The triage skill judges the two no pattern can see (a judgement about a person, quoted
+    # text) and asks there instead. A refused hook capture is asked, not dropped.
+    captured_by = (lesson.get("source", {}) or {}).get("captured_by")
+    if captured_by:
+        if shared:
+            raise EngineError(f"{captured_by}: auto-store writes the local tier only — sharing "
+                              f"always asks (spec Q7); drop --shared and ask to promote instead")
+        if lesson.get("category") == "security":
+            raise EngineError(f"{captured_by}: a security lesson is never auto-stored — ask about "
+                              f"it at triage instead (spec Q2)")
+        if supersede or lesson.get("supersedes"):
+            raise EngineError(f"{captured_by}: a superseding lesson always asks — not auto-stored "
+                              f"(spec Q2); capture it by hand after confirming")
+
     if shared:
         lesson = scrub_lesson(lesson, repo)
 
@@ -1752,6 +1784,32 @@ def _prune(cfg: Config, repo: Path, apply, cap, max_age_days) -> dict:
     return {"applied": apply, "candidates": detail, "count": len(cands),
             "shared_touched": shared_touched, "cap": cap, "max_age_days": max_age_days,
             "active": sum(1 for l in lessons if l.get("status") == "active")}
+
+
+def retire(cfg: Config, repo: Path, lesson_id: str, reason: str) -> dict:
+    """Retire ONE lesson (status->retired + reason), the record kept for audit, never deleted.
+
+    This is how an auto-capture is undone in one command (spec §4.3). It works on any active lesson
+    in the local or shared tier; retiring a shared lesson edits a committed file, so the caller is
+    told to commit it, exactly as `prune` does."""
+    if not (reason or "").strip():
+        raise EngineError("retire needs a reason (why the lesson is being retired)")
+    with store_lock(repo):
+        for tf, tier in ((local_path(repo), "local"), (shared_path(repo), "shared")):
+            rows = read_jsonl(tf)
+            for r in rows:
+                if r.get("id") != lesson_id:
+                    continue
+                if r.get("status") != "active":
+                    raise EngineError(f"{lesson_id} is {r.get('status')}, not active — nothing to retire")
+                r["status"] = "retired"
+                r["retired_reason"] = reason.strip()
+                r["updated"] = today()
+                write_jsonl(tf, rows)
+                render_lessons_md(cfg, repo)
+                return {"id": lesson_id, "tier": tier, "title": r.get("title", ""),
+                        "reason": reason.strip(), "shared_touched": tier == "shared"}
+        raise EngineError(f"{lesson_id} not found in the local or shared tier")
 
 
 def hygiene(cfg: Config, repo: Path, *, cap=None, max_age_days=None) -> dict:

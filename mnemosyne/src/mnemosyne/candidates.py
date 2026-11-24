@@ -70,6 +70,7 @@ CANDIDATES = "candidates.jsonl"
 DECISIONS = "decisions.jsonl"
 ROTATE_LOCK = "decisions.rotate.lock"
 STATE = "state.json"
+GATES = "gates.json"          # per-branch last status of each named gate, for S2 (red -> green)
 FIRED = "fired"
 DUPLICATE = "duplicate"       # the decision logged by the second run of one event
 DECISION_LOG_MAX = 1_000_000  # bytes; the previous log is kept as decisions.1.jsonl
@@ -81,8 +82,15 @@ _OPEN_ALWAYS = 4
 FAILURE_TTL = 3600            # seconds a tool failure waits for its matching success (S6)
 FIRE_WINDOW = 10              # seconds a second run counts as the same event, whether the host
                               # runs its hook files together or one after the other
+GATE_TTL = 7 * 86400         # seconds a recorded gate FAIL waits for its matching PASS (S2)
 MODES = ("session-start", "prompt", "post-tool", "stop", "pre-compact")
-VERDICTS = ("lesson", "noise")
+VERDICTS = ("lesson", "noise")           # precision labels (Phase 0 shadow measurement)
+RESOLUTIONS = ("stored", "asked", "skipped", "dropped")  # triage outcomes (Phase 1)
+
+# Which signals Phase 1 auto-stores (spec §5 Phase 1 + the shadow-data ruling): only the two
+# deterministic, script-emitted signals. The keyword/prompt signals (S4/S5/S6) stayed too noisy in
+# the shadow week to auto-store — they route to ask until their detection is tightened (Phase 2).
+AUTO_SIGNALS = ("S1", "S2")
 
 # id -> (name, kind, the outcome Phase 1+ would give it by default). Spec §4.2.
 SIGNALS = {
@@ -97,6 +105,8 @@ SIGNALS = {
     "S9-S11": ("watched-path", "decision", "ask"),
     "S12": ("lesson-overridden", "supersede", "ask"),
 }
+# "adr" -> "S1", "gate-red-green" -> "S2", ... (the memory.autoStore.signals config uses names).
+SIGNAL_BY_NAME = {name: sig for sig, (name, _k, _d) in SIGNALS.items()}
 
 DEFAULT_WATCH = ["docs/adr/", "docs/specs/", "docs/friction-log.md"]
 # Where a project's `memory` config block may live, in Zethus's own resolution order.
@@ -209,15 +219,19 @@ def new_id() -> str:
 
 
 def candidates(repo: Path) -> list:
-    """Every candidate, oldest first, each with `verdict` (None while pending) and `note` folded in."""
+    """Every candidate, oldest first, with its `verdict` (precision label) and `resolution` (triage
+    outcome) folded in; the last of each wins. `verdict` is None until labelled, `resolution` None
+    until triaged — the two are independent (Phase 0 measures precision; Phase 1 triages)."""
     out, by_id = [], {}
     for row in _read(capture_dir(repo) / CANDIDATES):
         if row.get("type") == "candidate" and row.get("id"):
-            row = dict(row, verdict=None, note=None)
+            row = dict(row, verdict=None, note=None, resolution=None, resolved_lesson=None)
             by_id[row["id"]] = row
             out.append(row)
         elif row.get("type") == "label" and row.get("id") in by_id:
             by_id[row["id"]].update(verdict=row.get("verdict"), note=row.get("note"))
+        elif row.get("type") == "resolution" and row.get("id") in by_id:
+            by_id[row["id"]].update(resolution=row.get("as"), resolved_lesson=row.get("lesson") or None)
     return out
 
 
@@ -243,6 +257,85 @@ def label(repo: Path, cid: str, verdict: str, note: str = "") -> dict:
     rec = {"type": "label", "id": cid, "verdict": verdict, "note": note or "", "ts": _now()}
     _append(ensure_capture_dir(repo) / CANDIDATES, rec)
     return rec
+
+
+def resolve(repo: Path, cid: str, as_: str, lesson: str = "", note: str = "") -> dict:
+    """Record a triage outcome for candidate `cid`, so it leaves the untriaged set (spec §4.3).
+
+    `stored` (auto-stored or asked-then-saved; `lesson` is the new lesson id), `asked`, `skipped`
+    (a negative fingerprint — don't ask again) or `dropped`. The last resolution wins."""
+    if as_ not in RESOLUTIONS:
+        raise EngineError(f"resolution must be one of {', '.join(RESOLUTIONS)}")
+    if cid not in {c["id"] for c in candidates(repo)}:
+        raise EngineError(f"no candidate {cid} in the spool")
+    rec = {"type": "resolution", "id": cid, "as": as_, "lesson": lesson or "",
+           "note": note or "", "ts": _now()}
+    _append(ensure_capture_dir(repo) / CANDIDATES, rec)
+    return rec
+
+
+def untriaged(repo: Path, project=None, branch=None) -> list:
+    """Candidates with no resolution yet, oldest first. Scoped to a project (context.repo) and
+    optionally a branch, because one memory repo holds the spools of every project on the machine,
+    so a triage checkpoint must only surface the work in front of the agent, never all of them."""
+    out = []
+    for c in candidates(repo):
+        if c.get("resolution"):
+            continue
+        ctx = c.get("context") or {}
+        if project is not None and ctx.get("repo") != project:
+            continue
+        if branch is not None and ctx.get("branch") != branch:
+            continue
+        out.append(c)
+    return out
+
+
+def auto_signals(mem_cfg: dict) -> set:
+    """The signals this phase will auto-store. The configured memory.autoStore.signals, intersected
+    with the signals Phase 1 actually implements (AUTO_SIGNALS). A config that also lists
+    `explicit-remember` (S4) does not get it auto-stored here: its shadow precision was too low."""
+    names = (mem_cfg.get("autoStore", {}) or {}).get("signals")
+    if not isinstance(names, list):
+        return set(AUTO_SIGNALS)
+    want = {SIGNAL_BY_NAME.get(str(n), str(n)) for n in names}
+    return {s for s in AUTO_SIGNALS if s in want}
+
+
+def auto_budget(mem_cfg: dict) -> int:
+    try:
+        return max(0, int((mem_cfg.get("autoStore", {}) or {}).get("perSession", 5)))
+    except (TypeError, ValueError):
+        return 5
+
+
+def triage(repo: Path, mem_cfg: dict = None, *, project=None, branch=None) -> dict:
+    """The triage plan for the untriaged candidates of one project: the rule table's outcome
+    (spec §4.3) for each — `auto` for an auto signal within the per-session budget, else `ask`. This
+    is read-only: it stores nothing. The lessons-triage skill reads it, writes the lesson text, and
+    calls `capture --captured-by hook:<signal> --candidate <id>` for the auto ones (the engine then
+    applies the Q2 refusals), batching the rest into one question set."""
+    mem_cfg = mem_cfg or {}
+    auto = auto_signals(mem_cfg)
+    budget = auto_budget(mem_cfg)
+    items = untriaged(repo, project=project, branch=branch)
+    plan, auto_count = [], 0
+    for c in items:
+        sig = c.get("signal")
+        name, kind, _d = SIGNALS.get(sig, (c.get("name"), c.get("kind"), "ask"))
+        if sig in auto and auto_count < budget:
+            outcome, reason = "auto", f"{sig} auto-stores to the local tier (confirm the lesson text)"
+            auto_count += 1
+        elif sig in auto:
+            outcome, reason = "ask", f"auto budget ({budget}) spent this triage — ask instead"
+        else:
+            outcome, reason = "ask", f"{sig} is ask: triage judges it, and the Q2 exclusions apply"
+        plan.append({"id": c["id"], "signal": sig, "name": name, "kind": kind, "outcome": outcome,
+                     "reason": reason, "evidence": c.get("evidence") or {},
+                     "context": c.get("context") or {}})
+    return {"project": project, "branch": branch, "budget": budget, "auto_signals": sorted(auto),
+            "untriaged": len(items), "auto": auto_count, "ask": len(items) - auto_count,
+            "items": plan}
 
 
 def stats(repo: Path, days=None) -> dict:
@@ -312,6 +405,7 @@ def doctor(repo: Path, last: int = 10) -> dict:
     return {"dir": str(capture_dir(repo)), "exists": capture_dir(repo).is_dir(),
             "self_ignored": is_self_ignored(repo), "candidates": len(cands),
             "pending": sum(1 for c in cands if not c.get("verdict")),
+            "untriaged": sum(1 for c in cands if not c.get("resolution")),
             "decisions": len(log), "by_decision": by_decision, "last_by_mode": last_by_mode,
             "slowest": slowest, "contended": contended, "recent": log[-last:] if last else []}
 
@@ -506,6 +600,18 @@ def capture_enabled(mem_cfg: dict, env=None) -> bool:
     return mem_cfg.get("enabled", True) is not False
 
 
+def capture_mode(mem_cfg: dict, env=None) -> str:
+    """'off' | 'shadow' | 'active'. Default 'shadow' (Phase 0: record, print nothing, block nothing).
+    'active' turns on Phase 1's visible behaviour — the session-start recall digest and the stop
+    triage block. It is opt-in, via the project config's memory.mode or MNEMOSYNE_CAPTURE_MODE, so
+    upgrading the package never changes a machine's behaviour until the config asks for it."""
+    env = os.environ if env is None else env
+    if not capture_enabled(mem_cfg, env):
+        return "off"
+    m = str(env.get("MNEMOSYNE_CAPTURE_MODE", "") or mem_cfg.get("mode", "") or "shadow").strip().lower()
+    return "active" if m == "active" else "shadow"
+
+
 def spool_repo(root: Path, env=None):
     """The memory repo the spool belongs to: $MNEMOSYNE_REPO, else the project root. None if
     neither has a memory/ directory (then there is nowhere to record, so the hook stays silent)."""
@@ -530,6 +636,80 @@ def _save_state(repo: Path, st: dict):
     st = {s: [f for f in fails if now - f.get("t", 0) < FAILURE_TTL] for s, fails in st.items()}
     st = {s: fails[-10:] for s, fails in st.items() if fails}
     core.atomic_write_text(ensure_capture_dir(repo) / STATE, json.dumps(st))
+
+
+# ----------------------------------------------------------------------------- Zethus-script signals
+# S1 and S2 do not come from a lifecycle hook: Zethus's own scripts call these after they act, so
+# the signal reaches the agent on every host (spec §4.7 channel 1). Both are fail-open: a script
+# imports mnemosyne only if it is installed and does nothing otherwise, so Zethus stays stdlib-only.
+
+
+def _spool_for(root: Path, env):
+    """(repo, mem_cfg) if a script may record here, else (None, {}): capture on and a memory repo."""
+    repo = spool_repo(Path(root), env)
+    mem_cfg = project_memory_config(Path(root))
+    if repo is None or not capture_enabled(mem_cfg, env):
+        return None, {}
+    return repo, mem_cfg
+
+
+def record_adr(root, adr_id, path="", *, env=None):
+    """Zethus's new-adr.py calls this after writing an ADR: append one S1 (decision) candidate.
+    Pointers only (the id and a scrubbed repo-relative path), never the ADR's text."""
+    env = os.environ if env is None else env
+    repo, _ = _spool_for(root, env)
+    if repo is None:
+        return None
+    ev = {"adr": str(adr_id)}
+    if path:
+        ev["path"] = core.scrub_machine_paths(str(path))
+    return add_candidate(repo, "S1", host="zethus-script", event="new-adr",
+                         context=project_context(Path(root)), evidence=ev)
+
+
+def _load_gates(repo: Path) -> dict:
+    try:
+        g = json.loads((capture_dir(repo) / GATES).read_text(encoding="utf-8"))
+        return g if isinstance(g, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_gates(repo: Path, state: dict):
+    now = time.time()
+    state = {k: {n: s for n, s in gates.items() if now - s.get("t", 0) < GATE_TTL}
+             for k, gates in state.items()}
+    state = {k: gates for k, gates in state.items() if gates}
+    core.atomic_write_text(ensure_capture_dir(repo) / GATES, json.dumps(state))
+
+
+def record_gate_results(root, results, *, env=None):
+    """Zethus's run-local-gates.py calls this with [(gate_name, status), ...] after a run. Emit one
+    S2 (mistake) candidate for each gate that FAILED on an earlier run within this branch and now
+    PASSES (spec §4.2 S2). The per-branch last status of each gate lives in the spool (gitignored),
+    keyed by the git toplevel plus the branch, so "within a phase" is scoped by the branch."""
+    env = os.environ if env is None else env
+    repo, _ = _spool_for(root, env)
+    if repo is None:
+        return []
+    ctx = project_context(Path(root))
+    top, _gd = _git_dir(Path(root))
+    key = os.path.normcase(str(top or root)) + "@" + str(ctx.get("branch", ""))
+    state = _load_gates(repo)
+    gates = state.setdefault(key, {})
+    out, now = [], time.time()
+    for name, status in results or []:
+        st = str(status or "").upper()
+        if st not in ("PASS", "FAIL"):
+            continue
+        prev = gates.get(name) or {}
+        if st == "PASS" and prev.get("status") == "fail" and now - prev.get("t", 0) < GATE_TTL:
+            out.append(add_candidate(repo, "S2", host="zethus-script", event="run-local-gates",
+                                     context=ctx,
+                                     evidence={"gate": str(name), "failed_at": prev.get("ts")}))
+        gates[name] = {"status": st.lower(), "t": now, "ts": _now()}
+    _save_gates(repo, state)
+    return out
 
 
 # ----------------------------------------------------------------------------- double-fire guard
@@ -635,6 +815,7 @@ def capture_event(mode: str, ev: dict, *, host=None, env=None, root=None):
     host = host or detect_host(ev, env)
     session = session_of(ev)
     ctx = project_context(root)
+    mode_str = capture_mode(mem_cfg, env)  # shadow (record only) vs active (Phase 1 may block)
     event = str(ev.get("hook_event_name") or mode)
     rec = {"ts": _now(), "mode": mode, "host": host, "event": event, "session": session,
            "context": ctx, "decision": "no-signal", "signals": [], "candidates": []}
@@ -706,12 +887,22 @@ def capture_event(mode: str, ev: dict, *, host=None, env=None, root=None):
     elif mode in ("stop", "pre-compact", "session-start"):
         pending = [c for c in candidates(repo) if not c.get("verdict")]
         mine = [c for c in pending if session and c.get("session") == session]
-        rec.update(pending=len(pending), pending_session=len(mine))
+        # The triage checkpoint is scoped to the project (one memory repo holds every project's
+        # spool), and counts untriaged candidates — which includes the script-emitted S1/S2 that
+        # carry no host session, so session-scoping alone would miss them.
+        untr = untriaged(repo, project=ctx.get("repo"), branch=ctx.get("branch"))
+        rec.update(pending=len(pending), pending_session=len(mine), untriaged=len(untr))
         if mode == "stop":
             rec["stop_hook_active"] = bool(ev.get("stop_hook_active"))
-            if mine:
+            if untr and mode_str == "active" and not ev.get("stop_hook_active"):
+                # Phase 1: block once (the re-fire carries stop_hook_active) to force a triage.
+                rec.update(decision="block",
+                           detail=f"{len(untr)} candidate(s) await triage in {ctx.get('repo')}")
+            elif untr:
                 rec.update(decision="would-block",
-                           detail=f"{len(mine)} candidate(s) from this session; shadow mode never blocks")
+                           detail=f"{len(untr)} candidate(s) await triage in {ctx.get('repo')}; "
+                                  + ("already re-fired after a block" if ev.get("stop_hook_active")
+                                     else "shadow mode never blocks"))
             else:
                 rec["decision"] = "nothing-pending"
         elif mode == "pre-compact":

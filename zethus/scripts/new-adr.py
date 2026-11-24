@@ -49,6 +49,20 @@ INDEX_HEADER = (
 )
 
 
+def _record_capture_candidate(repo: Path, adr_id: str, path: Path) -> None:
+    """Best-effort: record an S1 (ADR) lessons-capture candidate, if the ``mnemosyne`` package is
+    installed. Zethus stays stdlib-only and fail-open — this does nothing when the package is
+    absent (docs/lessons-capture-spec.md §4.7, channel 1). Pointers only, never the ADR text."""
+    try:
+        from mnemosyne import candidates as cap
+    except Exception:
+        return
+    try:
+        cap.record_adr(repo, adr_id, rel(path, repo))
+    except Exception:
+        pass
+
+
 def _cell(text: str) -> str:
     return text.replace("|", "\\|")
 
@@ -100,6 +114,7 @@ def main(argv: list[str] | None = None) -> int:
         log(f"new-adr: wrote {rel(path, repo)}")
         if not args.no_index:
             append_index(adr_dir / "README.md", adr_id, title, args.status, date)
+        _record_capture_candidate(repo, adr_id, path)
         print(f"created {rel(path, repo)}")
         print(f"deciders: {deciders} ({source})")
         if not args.no_index:

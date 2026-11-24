@@ -139,8 +139,9 @@ import mnemosyne as mn
 mn.recall("migrating the ledger POST endpoint", stage="plan")
 ```
 
-**2. Claude Code plugin** — a skill + hooks (auto-recall on each prompt, sync on session start,
-and lessons capture in shadow mode, below) + `/recall`, `/reflect`, `/promote` commands. The
+**2. Claude Code plugin** — skills (reflexion-memory + lessons-triage) + hooks (auto-recall on each
+prompt, sync on session start, and lessons capture, below) + `/recall`, `/reflect`, `/promote`
+commands. The
 installer above is the supported way in: it builds a local marketplace and runs
 `claude plugin install mnemosyne@mesmer-grimoire-local`. By hand, add this repo's marketplace with
 `claude plugin marketplace add kumouri/mesmer-grimoire#main`, run
@@ -225,11 +226,13 @@ a git `url` (cloned into a cache by `sync`) or a `path` to an existing repo:
 | `list` / `show` / `stats` | Browse and summarize lessons (`list --tier`/`--store`; `stats` shows counts by tier). |
 | `validate` | Schema + spine consistency (exit 0 ok / 1 problems). |
 | `prune` | Retire (never delete) aged / over-cap low-value lessons (dry-run unless `--apply`). |
+| `retire <id> --reason` | Retire ONE lesson (status→retired + reason, kept for audit). Undoes an auto-capture in one command. |
 | `hygiene` | Health report: duplicates, never-recalled, cap headroom, prune candidates. |
 | `init` | Scaffold a memory repo (`--example <name>` seeds a config, e.g. `multi-store`). |
 | `wizard` | Interactively build a documented `mnemosyne.config.json` (self-documenting prompts + `_about` block). |
 | `config` | Print the resolved active config and its source. |
-| `candidate list` / `add` / `label` / `stats` | The lessons-capture spool (shadow mode, below): list recorded candidates, add one by hand, label one `lesson` or `noise`, and show each signal's count and precision. |
+| `candidate list` / `add` / `label` / `stats` | The lessons-capture spool (below): list recorded candidates, add one by hand, label one `lesson` or `noise` (precision data), and show each signal's count and precision. |
+| `candidate triage` / `resolve <id> <outcome>` | The triage checkpoint (below): the plan of untriaged candidates for this project (`auto` vs `ask`), and recording a candidate's outcome (`stored`/`asked`/`skipped`/`dropped`) so it leaves the untriaged set. |
 | `doctor` | What the capture hooks recorded and decided, newest last, plus the spool's health. |
 | `selftest` | Zero-dependency test suite. |
 
@@ -239,8 +242,10 @@ and as MCP tools.
 Environment: `MNEMOSYNE_REPO` (primary repo), `MNEMOSYNE_CONFIG` (config path), `MNEMOSYNE_AUTHOR`
 (lesson author override; otherwise the memory repo’s git `user.name`, then `GIT_AUTHOR_NAME`,
 then `unknown`; never the OS login), `MNEMOSYNE_CACHE` (where url-stores are cloned; default `~/.mnemosyne/stores`),
-`MNEMOSYNE_LOCK_TIMEOUT` (seconds a save waits for the store lock; default 10), and
-`MNEMOSYNE_CAPTURE` (`off` turns the capture hooks off; recall is unaffected).
+`MNEMOSYNE_LOCK_TIMEOUT` (seconds a save waits for the store lock; default 10),
+`MNEMOSYNE_CAPTURE` (`off` turns the capture hooks off; recall is unaffected), and
+`MNEMOSYNE_CAPTURE_MODE` (`active` opts a session into Phase 1's visible behaviour — the
+session-start digest and the stop triage block; default `shadow`).
 
 ## Layout
 
@@ -251,7 +256,7 @@ mnemosyne/
 ├── src/mnemosyne/
 │   ├── core.py                    # the engine (axis-driven scorer, hygiene, git, export/sync)
 │   ├── stores.py                  # federation: clone/pull stores + federated load across tiers
-│   ├── candidates.py              # lessons-capture spool + signal detection for the hooks (shadow mode)
+│   ├── candidates.py              # lessons-capture spool: signal detection, triage, script emitters
 │   ├── config.py                  # config loader/validator
 │   ├── wizard.py                  # interactive, self-documenting config builder
 │   ├── cli.py                     # CLI (dynamic per-axis flags) + self-test
@@ -292,21 +297,44 @@ A memory repo scaffolded by an older `mnemosyne init` should add `.store.lock` t
 Every command prints a quotable `RECALL:` / `SAVED:` / `PROMOTED:` / `EXPORTED:` line meant to be
 relayed verbatim. Memory is never applied silently and never shared unreviewed.
 
-## Lessons capture (shadow mode)
+## Lessons capture
 
-The plugin's hooks also watch for moments worth a lesson and record them as **candidates**. This is
-Phase 0 of the [lessons-capture spec](../docs/lessons-capture-spec.md), so it runs in **shadow
-mode**: it records and logs, but **nothing is stored as a lesson and nothing is asked**, and no
-capture hook prints anything. It is there to measure how often each signal fires, and how often a
-candidate was worth keeping, before any of it is automated.
+The plugin's hooks and Zethus's scripts also watch for moments worth a lesson and record them as
+**candidates** in a local spool, following the [lessons-capture spec](../docs/lessons-capture-spec.md).
+There are two capture modes, and the default is **shadow**:
 
-| Hook (Claude Code event) | Mode | Records |
+- **shadow** (Phase 0, the default) — records candidates and logs decisions, but **nothing is
+  stored as a lesson, nothing is asked**, and no capture hook prints anything. It is there to
+  measure how often each signal fires, and how often a candidate was worth keeping, before any of
+  it is automated.
+- **active** (Phase 1, opt-in) — the two deterministic, script-emitted signals (an ADR recorded,
+  a gate that went red then green) are **auto-stored to the local tier** at a triage checkpoint,
+  and everything else is **asked**. Nothing ever leaves the local tier automatically (sharing is
+  always a reviewed `promote`). Turn it on per project with `"memory": {"mode": "active"}` in the
+  project config, or per session with `MNEMOSYNE_CAPTURE_MODE=active`, so a package upgrade never
+  changes a machine's behaviour on its own.
+
+| Hook (Claude Code event) | Mode | Records / does |
 |---|---|---|
 | `UserPromptSubmit` | `prompt` | S4 "remember / always / never / from now on"; S5 a correction ("no,", "don't", "instead", "that's wrong") |
 | `PostToolUse`, `PostToolUseFailure` | `post-tool` | S6 a shell command that failed and then passed; S8 the `fresh-eyes-investigation` skill; S9–S11 a write to a watched path |
-| `Stop` | `stop` | logs whether it *would* block for triage; never blocks |
+| `Stop` | `stop` | logs whether it *would* block for triage (shadow); in **active** mode blocks once, telling the agent to run the `lessons-triage` skill |
 | `PreCompact` | `pre-compact` | logs the spool state |
-| `SessionStart` | `session-start` | logs the pending count (and syncs, as before, when the memory repo has a remote or a store to pull) |
+| `SessionStart` | `session-start` | syncs when the memory repo has a remote or a store to pull; in **active** mode also prints a recall digest for the branch and the count awaiting triage |
+
+Zethus's `new-adr.py` emits the **S1** (ADR → decision) candidate and `run-local-gates.py` emits the
+**S2** (gate red→green → mistake) candidate. Both import `mnemosyne` only when it is installed and do
+nothing otherwise, so Zethus stays stdlib-only and fail-open.
+
+**Triage (active mode).** At the checkpoint the agent runs the `lessons-triage` skill, which reads
+`mnemosyne candidate triage` (the plan of untriaged candidates for *this project*, each `auto` or
+`ask`), auto-stores S1/S2 with a distilled, agent-written lesson — `mnemosyne capture --captured-by
+hook:S1 --candidate <id> …` — and asks about the rest in one batched question set. The engine
+**refuses** a `--captured-by` capture that is `security`-category, that would supersede a lesson,
+that targets any tier but local, or whose text carries a credential shape; a refused candidate is
+asked, not stored. Auto-stored lessons land at **medium** confidence and are undoable with
+`mnemosyne retire <id> --reason …`. The shadow-week data (see the spec) showed the keyword signals
+(S4/S5/S6) were far too noisy to auto-store, which is why only the two script signals auto-store.
 
 - **Where it goes:** `memory/.capture/` in the memory repo. The directory ignores itself, so the
   spool is never committed. `candidates.jsonl` holds candidates and labels; `decisions.jsonl` holds
@@ -329,14 +357,19 @@ candidate was worth keeping, before any of it is automated.
   wins). Without one, the defaults are these:
 
   ```json
-  "memory": { "enabled": true, "watch": ["docs/adr/", "docs/specs/", "docs/friction-log.md"] }
+  "memory": { "mode": "shadow", "enabled": true,
+              "watch": ["docs/adr/", "docs/specs/", "docs/friction-log.md"],
+              "autoStore": { "signals": ["adr", "gate-red-green"], "perSession": 5 } }
   ```
 
-  `"enabled": false` there, or `MNEMOSYNE_CAPTURE=off`, turns capture off.
+  `"enabled": false` there, or `MNEMOSYNE_CAPTURE=off`, turns capture off. `"mode": "active"` opts
+  into Phase 1 auto-store + triage. `autoStore.perSession` caps how many candidates one triage
+  auto-stores (default 5); the signals Phase 1 auto-stores are the two script ones regardless.
 - **Reviewing it:** `mnemosyne candidate list` shows what was recorded. Label each candidate with
-  `mnemosyne candidate label <id> lesson|noise`, then `mnemosyne candidate stats` shows each
-  signal's count and precision. `mnemosyne doctor` shows the hooks' recent decisions, so a hook
-  that fails open never fails silently, and counts any line written past a busy lock.
+  `mnemosyne candidate label <id> lesson|noise` (precision data), then `mnemosyne candidate stats`
+  shows each signal's count and precision. `mnemosyne candidate triage` shows the untriaged plan,
+  and `mnemosyne doctor` shows the hooks' recent decisions and both counts (unlabelled, untriaged),
+  so a hook that fails open never fails silently, and counts any line written past a busy lock.
 - **Other hosts:** the same `mnemosyne_hook.py` reads each host's field names, as observed on real
   Claude Code, Copilot CLI and Codex installs. A host-specific registration can pass `--host <name>`
   after the mode. The spec's §4.7 has the per-host matrix, and what was and wasn't verified.
@@ -345,7 +378,7 @@ candidate was worth keeping, before any of it is automated.
 
 ```bash
 PYTHONPATH=src python -m mnemosyne selftest     # zero-dep test suite
-python -m unittest tests.test_mnemosyne tests.test_mnemosyne_review_flow tests.test_mnemosyne_mcp_stdio tests.test_mnemosyne_capture tests.test_mnemosyne_install
+python -m unittest tests.test_mnemosyne tests.test_mnemosyne_review_flow tests.test_mnemosyne_mcp_stdio tests.test_mnemosyne_capture tests.test_mnemosyne_install tests.test_zethus_lessons_capture
 ```
 
 The engine has no runtime dependencies; only the MCP server needs the `mcp` package (installed via

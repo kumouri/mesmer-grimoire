@@ -355,6 +355,20 @@ def unchecked_plan(gates: list[Gate]) -> str:
             "What was not checked in the PR, with why")
 
 
+def _record_capture_candidates(repo: Path, gates: list[Gate]) -> None:
+    """Best-effort: hand the gate results to mnemosyne, which emits an S2 (mistake) candidate for a
+    gate that FAILED on an earlier run this branch and now PASSES (spec §4.2 S2). Zethus stays
+    stdlib-only and fail-open — nothing happens when the package is absent."""
+    try:
+        from mnemosyne import candidates as cap
+    except Exception:
+        return
+    try:
+        cap.record_gate_results(repo, [(g.name, g.status) for g in gates])
+    except Exception:
+        pass
+
+
 def _cell(text: str) -> str:
     return text.replace("|", "\\|")
 
@@ -422,6 +436,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         for g in gates:
             run_gate(g, repo, args.timeout)
+        _record_capture_candidates(repo, gates)
         waivers = {k: r for k, r in active_rulings(repo, cfg(config, "spec.dir", "docs/specs")).items()
                    if r.waives}
         for g in gates:
