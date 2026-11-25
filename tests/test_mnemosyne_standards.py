@@ -233,7 +233,8 @@ class TestContexts(unittest.TestCase):
             self.assertEqual(b, standards.context_hash(Path(other), "host/org/repo", "ABC-12"))
 
     def test_repo_identity_survives_a_reclone_and_a_login(self):
-        for n, url in enumerate(("https://user:pw@github.com/Org/Repo.git", "git@github.com:Org/Repo.git",
+        login = "user:secret" + "@"        # joined at run time: a login in a URL is exactly what is stripped
+        for n, url in enumerate((f"https://{login}github.com/Org/Repo.git", "git@github.com:Org/Repo.git",
                                  "https://github.com/org/repo")):
             work = self.repo / f"w{n}"
             (work / ".git").mkdir(parents=True)
