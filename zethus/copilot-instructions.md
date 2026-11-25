@@ -136,6 +136,22 @@ or ask. Never guess one.
   the next phase starts once the last is committed with every local gate green, with no PR; it is
   `on branch` or `committed` in the spec, never `in review` ([why](docs/phase-advance-without-pr.md)).
 
+## One-off work has no spec
+
+- Work whose only output is an action or an answer, leaving no tracked change — run a job, restart
+  or scale something, tail logs, run a query or report, kick or check a pipeline, a throwaway script
+  you don't commit — is a **one-off**. It has no spec, sign-off, phase, PR or gate. Pick the path
+  from what the work leaves behind, not what it is called: an action or answer is a one-off; anything
+  that changes tracked code, config or docs is not, however it is phrased, so "just run it" never
+  slips a code change past the spec. If a one-off turns out to need a tracked edit, say so and switch
+  to the spec path, carrying what you learned.
+- Do it right, lightly: use the repo's own way of doing the thing, state the resolved target and the
+  exact command in one line then run it, wait for and check the real result (not just that the
+  command returned), and report what ran, what it left behind and how to undo it. Investigate a
+  failure read-only and report its cause; never silently retry. The person asking is the go-ahead —
+  add no confirmation of your own beyond the host's permission prompt (`oneOff.confirm: true` adds
+  one). The full procedure is the `run-one-off` skill.
+
 ## Log from the start
 
 - Logging is the first deliverable of any script, tool or feature, added in the commit that creates

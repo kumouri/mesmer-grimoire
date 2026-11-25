@@ -2,8 +2,8 @@
 
 **A development process for GitHub Copilot, in a form Copilot can follow and enforce.** One custom
 agent runs every change through research → spec → sign-off → phased implementation → tests → docs →
-local gates → a PR with evidence, and refuses to skip a stage. Eleven core skills hold one procedure
-each (one, `zethus-conduct`, the long form of the agent's rules), and optional extension skills (modernization, Jira, CLI tools, session review) add more. Four Markdown templates and eight stdlib Python scripts do the mechanical parts. Install it as a
+local gates → a PR with evidence, and refuses to skip a stage. Twelve core skills hold one procedure
+each (one, `zethus-conduct`, the long form of the agent's rules; one, `run-one-off`, the light path for operational work that leaves no tracked change), and optional extension skills (modernization, Jira, CLI tools, session review) add more. Four Markdown templates and eight stdlib Python scripts do the mechanical parts. Install it as a
 Copilot plugin from this repo's marketplace, so it follows you into every repo without changing any
 of them, or copy it into a repository's `.github/` folder for a whole team and the cloud agent.
 Nothing in it is specific to one organization.
@@ -36,6 +36,21 @@ refusals are written into the agent file as a table. "Skip the spec" gets the mi
 ten minutes. "Just push, CI will tell us" gets the local gates. "Merge it" gets a no: a person
 merges, only on green. One narrow exemption is written down too. A change with no behaviour change
 (a typo, a comment, formatting) may skip research, spec and tests, but never docs, gates or the PR.
+
+Not every request is a change to land. Work whose only output is an **action or an answer** — run a
+Kubernetes job, restart or scale a service, tail logs, run a query or report, kick a pipeline, check
+a status, a throwaway script that isn't committed — leaves no tracked change behind, and takes a
+lighter third path beside the two specs: a **one-off**. It skips the whole procedure (no spec, ADR,
+sign-off, phase, PR or gate) and runs under [`run-one-off`](skills/run-one-off/SKILL.md). The path
+is picked automatically from what the work leaves behind, not from what it is called: an action or
+answer is a one-off; anything that changes tracked code, config or docs is not, however it is
+phrased, so "just run it" can't slip a code change past the spec. The person's word wins either
+way, and if a one-off turns out to need a tracked edit the agent says so and switches to the spec
+path, carrying what it learned. A one-off is still done right, lightly: it uses the repo's own way
+of doing the thing (its manifests, scripts, runbooks, CLI skills), states the resolved target and
+the exact command in one line and runs it, waits for and checks the real result (the job completed,
+the pods, the exit code, the logs), and reports what ran, what it left behind and how to undo it. A
+failure is investigated read-only and reported with its cause, never silently retried.
 
 It doesn't stop between stages. When one stage's exit condition is met, it starts the next in the
 same turn, and every stage's skill names that next action. That includes the step after sign-off,
@@ -207,6 +222,7 @@ the example, which is in [`zethus-conduct`](skills/zethus-conduct/SKILL.md#sign-
 | [`skills/research-existing-code`](skills/research-existing-code/SKILL.md) | `.github/skills/` | Facts cited to `file:line`, the search behind every negative claim, and what the research did *not* cover. |
 | [`skills/write-spec-minimum`](skills/write-spec-minimum/SKILL.md) | `.github/skills/` | The one-screen spec for one PR, and the fast path when someone says "just code it". |
 | [`skills/write-spec-full`](skills/write-spec-full/SKILL.md) | `.github/skills/` | Verbatim ask, measured problem, facts, assumptions checked, options, phases, rollback, out of scope, open questions, then stop for sign-off. |
+| [`skills/run-one-off`](skills/run-one-off/SKILL.md) | `.github/skills/` | The third path, for operational work that leaves no tracked change (run a job, restart or scale, tail logs, a query, a throwaway script): no spec, sign-off, PR or gate. Use the repo's own way, state the target and command in one line then run it, verify the real result, report what it left behind and how to undo it. Switches to a spec if a tracked file must change. |
 | [`skills/write-adr`](skills/write-adr/SKILL.md) | `.github/skills/` | One imperative decision sentence, options, consequences, *enforced where*, *revisit when*. Pastes cleanly into a wiki or ticket. |
 | [`skills/fresh-eyes-investigation`](skills/fresh-eyes-investigation/SKILL.md) | `.github/skills/` | Artifact plus one line of intent in; ranked leads out, each established or conjecture. Never a diagnosis; an empty list is valid. |
 | [`skills/implement-phase`](skills/implement-phase/SKILL.md) | `.github/skills/` | One phase per branch, stacked on the previous phase's (or per commit series, in `rebase` and `pr-later` style), Phase -1 first when the base already fails a gate, then Phase 0; the next phase starts once this one is pushed, not merged (in `pr-later`, once it is committed with green gates, with no PR). Logging goes in with the code, in every phase. Stay inside the phase; classify anything unplanned; keep an *As built* list. |
@@ -340,7 +356,7 @@ Zethus ships both:
 | Copilot CLI (1.0.105, 1.0.106-2) | `com.github.copilot/agents/` only, because `plugin.json` declares the Agent Plugins 1.0 `$schema` | `com.github.copilot/hooks/hooks.json` only |
 | IntelliJ's Copilot language server (plugin 1.20.0, server 1.555.7) | `agents/` at the plugin root | `hooks.json`, else `hooks/hooks.json`, at the root |
 
-With only the first layout, IntelliJ listed the 29 skills but no agent and no hook. Neither host
+With only the first layout, IntelliJ listed the 30 skills but no agent and no hook. Neither host
 reads the other's place, so nothing loads or fires twice there. `plugin.json` can't point IntelliJ
 at `com.github.copilot/` instead: the 1.0 schema is closed, and the CLI ignores unknown keys and
 logs each one as an error. The files under `com.github.copilot/` are the canonical ones, and the
@@ -356,7 +372,7 @@ reads both places, it would load the agreement twice.
   ran a bundled script from that root.
 - **IntelliJ:** its bundled language server, driven over stdio with a sandboxed home. It added a
   local marketplace, installed **zethus** through its own install call, and listed the `zethus`
-  agent, the `SessionStart` hook and all 29 skills. It only lists the hook; nothing here ran the
+  agent, the `SessionStart` hook and all 30 skills. It only lists the hook; nothing here ran the
   hook inside the IDE.
 - **VS Code:** nothing has been run, so its steps rest on its docs and settings screens.
 
@@ -615,6 +631,7 @@ The keys are the same in every location.
 | `commits.signature` | agent | The line Zethus signs its commits with, just before the trailer block. Default `"— Zethus"`; `""` means no signature line. It goes alongside `commits.aiTrailer`, never instead of it. See [Signed commits](#signed-commits). |
 | `identity.name`, `identity.handle` | `identity.py`, `new-adr`, `new-spec`, the `sessionStart` hook, agent | Who Zethus works for, written as you write it, in every field that records who asked, approved or decided. Highest priority, before `git config user.name` and `gh api user`. Set it in a personal config, not the committed one; `identity.py --save --name "…"` writes it. See [name the person, never a placeholder](docs/identity-of-the-person.md). |
 | `plan.checklist` | agent | `"auto"` (default): the plan goes in the todo tool where the agent has one, else as a checklist in every reply. `"always"`: the checklist goes in every reply as well, for a surface that accepts the tool but doesn't show it. See [Seeing the plan](#seeing-the-plan). |
+| `oneOff.confirm` | agent, [`run-one-off`](skills/run-one-off/SKILL.md) | `false` (default): a one-off command runs under the host's own permission prompt alone — the person asking is the go-ahead. `true`: the agent asks once, with the question tool, before running a one-off. Extra caution is a setting, never a new wall the agent invents. |
 
 ### Branch models
 

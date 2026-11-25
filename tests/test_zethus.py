@@ -32,7 +32,7 @@ SCRIPTS = KIT / "scripts"
 REQUIRED_SKILLS = {
     "research-existing-code", "write-spec-full", "write-spec-minimum", "write-adr",
     "fresh-eyes-investigation", "implement-phase", "test-plan", "pre-push-gates",
-    "zethus-pr-description", "docs-sync-check", "zethus-conduct",
+    "zethus-pr-description", "docs-sync-check", "zethus-conduct", "run-one-off",
 }
 
 
@@ -647,7 +647,7 @@ class KitContract(unittest.TestCase):
 
     def test_every_required_skill_exists_with_valid_frontmatter(self):
         # >=, not ==: the optional modernization extension (docs/modernization-shared.md) installs
-        # further, pluggable skills alongside these eleven core ones. See test_zethus_modernization.py
+        # further, pluggable skills alongside these twelve core ones. See test_zethus_modernization.py
         # for its own frontmatter and cross-link contract.
         found = {p.name for p in (KIT / "skills").iterdir() if p.is_dir()}
         self.assertTrue(REQUIRED_SKILLS <= found, REQUIRED_SKILLS - found)
