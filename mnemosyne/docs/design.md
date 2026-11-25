@@ -245,6 +245,15 @@ credential shape anywhere in it drops it whole. Every hook run appends one decis
 what `mnemosyne doctor` reads. The detection lives in `mnemosyne.candidates`, and the plugin's
 `mnemosyne_hook.py` only feeds it the event.
 
+The `stop` and `session-start` hooks have to count pending and untriaged candidates, which means
+folding the spool, and that grows with it: a whole read took about 0.3 s at 13,000 lines. They
+read it through an index beside the spool (`index.bin`) holding the slim rows folded so far and the
+byte offset they end at, so a run parses only what was appended since. It is a cache and never the
+source of truth: if it is missing, damaged or no longer matches the spool, the hook reads the
+spool whole and writes a new one, and any error in the indexed read falls back the same way, so
+the hook stays fail-open. It takes no lock. The spec's §4.7 ("Spool read cost") has the rules and
+the measured result.
+
 A host that reads two hook files runs the bridge twice for one event, and the installer can't
 prevent that: it can't know which repos commit their own copy. So the engine claims each event
 with an exclusive marker in `memory/.capture/fired/`, keyed on the session and the event's
