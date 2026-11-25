@@ -605,11 +605,49 @@ files.
 
 **Hook rules, from the Morpheus retrospective:**
 
-- Hooks only append to the spool and exit. No git, no network, no model, no lock on the store. Each
-  is bounded at 200 ms.
+- Hooks only append to the spool and exit (and refresh the spool's read index, a cache: see "Spool
+  read cost" below). No git, no network, no model, no lock on the store. Each is bounded at 200 ms.
 - Every hook writes one log line per decision. A `mnemosyne doctor` command shows the last N
   decisions, so a fail-open hook never fails silently.
 - Every guard is tested with the variable set the way the host sets it.
+
+**Spool read cost.** `stop`, `pre-compact` and `session-start` count pending and untriaged
+candidates, so they fold the spool, and parsing every line of a 13,490-line spool took over 150 ms
+(§5.2 measured about 0.3 s). They read it through an index instead: `index.bin` beside the spool
+holds the slim rows folded so far (the fields the rules read, as lists) and the byte offset they end
+at, so a run parses only the lines appended since. The index is a cache of a fold, never a source
+of truth, and it is rebuilt from the spool whenever it can't be trusted:
+
+- **Missing, damaged or foreign:** a checksum on the payload, a version and the Python's marshal
+  format are checked before anything is decoded. Any failure folds the whole spool and writes a
+  fresh index. A read that fails for any reason at all falls back to the whole read, so a hook
+  never fails on the index (fail-open).
+- **The spool changed under it:** the offset must still be inside the file, the hash of the file's
+  first and last 4 KiB (up to that offset) must match, and, when nothing was appended, so must the
+  modification time. A spool that shrank, was archived, or lost a line is read whole. The one
+  edit this can't see is one that keeps the size, the first and last 4 KiB and the modification
+  time; delete `index.bin` after hand-editing the middle of a spool.
+- **A torn last line:** only complete lines (up to the last newline) are indexed. A line still
+  being written, or one whose newline hasn't landed, counts for that run but is never indexed, so
+  it is counted once when it completes and not at all if it is withdrawn.
+- **Concurrent hooks:** no lock. Each run writes the index for the offset it reached, to a temp
+  file in the same directory and then renames it, so a reader sees the old index or the new one.
+  The last rename wins, and an older index is still valid, just behind: the next run reads the
+  difference. On Windows a rename onto an index another run has open is refused; the run that
+  loses it leaves the work to the next, and costs nothing else.
+- **Same answers:** `tests/test_mnemosyne_spool_index.py` compares the hook's read with the full
+  read (`_fold`, `untriaged`) after appends, labels, resolutions, deletions, a truncated last line,
+  a damaged index and racing hooks. The rules themselves are shared, not copied (`_pool_rows`).
+
+Measured on the same 13,490-line synthetic spool, 30 cold runs each, back to back on one machine
+(Windows, Python 3.14, a busy desktop, so the absolute numbers are loose): the hook body, which is
+what the 200 ms bound covers, went from p50 164–179 ms (p95 216–236) at `stop` to p50 21 ms (p95
+32–59), and at `session-start` from p50 167–185 ms (p95 225–229) to p50 22 ms (p95 30–36). A whole
+`stop` invocation, interpreter start-up included, went from p50 330–348 ms to 168–176 ms, and a
+whole `session-start` (which reads the spool twice, once to capture and once for the digest) from
+512–561 ms to 188–204 ms. At 50,000 lines the body is p50 about 110–200 ms with a p95 past the
+bound on that machine, so the index buys roughly a fourfold margin, not an unbounded one;
+archiving old lines remains the answer to a spool that large.
 
 **Where judgement happens:** the agent triages the spool at three checkpoints, using a new
 `lessons-triage` skill that runs the rule table in §4.3 through the engine. The checkpoints are
@@ -917,8 +955,9 @@ the heredoc rule only where the head still showed it (24 of them).
   candidates from the current detectors are labelled and at least half were worth a lesson
   (`mnemosyne candidate stats --current`). The spool's own labels will decide S5 first.
 - **Cost.** Reading the whole spool at `stop` and `session-start` took about 0.3 s on these 13,490
-  lines, over the 200 ms body bound (§4.7). The tightening shrinks what is written, but archiving old
-  lines is not built.
+  lines, over the 200 ms body bound (§4.7). That is fixed: the hooks read the spool through an
+  index and a body now takes about 20 ms on the same size (§4.7, "Spool read cost"). Archiving old
+  lines is still not built, and the index doesn't need it at this size.
 
 Nothing was labelled on the live spool, and no hook, config or plugin on the machine was touched.
 

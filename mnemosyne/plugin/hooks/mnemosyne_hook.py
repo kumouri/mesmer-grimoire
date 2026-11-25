@@ -203,8 +203,8 @@ def _session_digest(mn, event, host):
         _note_recall(event, digest)
     if repo is not None:
         try:
-            n = len(cd.untriaged(repo, project=ctx.get("repo"), branch=ctx.get("branch") or None,
-                                 mem_cfg=mem_cfg))
+            n = cd.untriaged_count(repo, project=ctx.get("repo"), branch=ctx.get("branch") or None,
+                                   mem_cfg=mem_cfg)
         except Exception:
             n = 0
         if n:
