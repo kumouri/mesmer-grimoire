@@ -68,7 +68,7 @@ class Detection(unittest.TestCase):
         self.assertEqual(cd.prompt_signals("please add a test for the parser"), [])
 
     def test_excerpt_is_bounded_and_scrubbed(self):
-        prompt = "x" * 500 + r" remember C:\Users\alice\secret-project\notes.md " + "y" * 500
+        prompt = "x" * 500 + r". Remember that C:\Users\alice\secret-project\notes.md " + "y" * 500
         (_, _, snip), = cd.prompt_signals(prompt)
         self.assertLess(len(snip), 200)
         self.assertIn("<path>", snip)
@@ -224,7 +224,8 @@ class HookBridgeShadowMode(_Project):
             self.assertEqual((proc.returncode, proc.stdout), (0, ""))
 
     def test_stop_never_blocks(self):
-        self.hook("prompt", self.ev(prompt="remember: we page at 50"))
+        self.hook("post-tool", self.ev(hook_event_name="PostToolUse", tool_name="Skill",
+                                       tool_input={"skill": "fresh-eyes-investigation"}, tool_response={}))
         for active in (False, True):  # the guard, set both ways Claude Code sets it
             out = self.hook("stop", self.ev(hook_event_name="Stop", stop_hook_active=active))
             self.assertEqual(out, "")
@@ -383,13 +384,15 @@ class CandidateCli(_Project):
     def test_doctor(self):
         rc, out, _ = self.run_cli("doctor")
         self.assertIn("no capture activity", out)
-        self.capture("prompt", self.ev(prompt="from now on always page at 50"))
+        self.capture("post-tool", self.ev(hook_event_name="PostToolUse", tool_name="Skill",
+                                          tool_input={"skill": "fresh-eyes-investigation"}, tool_response={}))
         self.capture("stop", self.ev(stop_hook_active=False))
         rc, out, _ = self.run_cli("doctor", "--last", "5")
         self.assertEqual(rc, 0)
         self.assertIn("self-ignored: yes", out)
         self.assertIn("would-block", out)
-        self.assertIn("candidate S4", out)
+        self.assertIn("candidate S8", out)
+        self.assertIn("S4 shadow", out)           # the keyword signals say they are still in shadow
 
     def test_decision_log_rotates(self):
         old = cd.DECISION_LOG_MAX
@@ -655,10 +658,10 @@ class DoubleFire(_Project):
         self.assertNotIn(cd.DUPLICATE, self.verdicts())
 
     def test_a_command_that_fails_then_passes_is_two_events(self):
-        base = self.ev(toolName="powershell", toolArgs={"command": "npm test"})
-        for code in (1, 0):
-            self.capture("post-tool", dict(base, toolResult={
-                "resultType": "success", "textResultForLlm": f"<shellId: 1 completed with exit code {code}>"}))
+        for code, command in ((1, "npm test"), (0, "npm test --runInBand")):   # the second run changed
+            self.capture("post-tool", dict(self.ev(toolName="powershell", toolArgs={"command": command}),
+                                           toolResult={"resultType": "success", "textResultForLlm":
+                                                       f"<shellId: 1 completed with exit code {code}>"}))
         self.assertEqual(self.signals(), ["S6"])
 
     def test_a_real_instruction_repeat_after_the_window_stays_session_deduped(self):
@@ -678,8 +681,8 @@ class DoubleFire(_Project):
 
     def test_a_guard_that_cannot_claim_lets_the_event_through(self):
         (cd.ensure_capture_dir(self.root) / cd.FIRED).write_text("not a folder", encoding="utf-8")
-        for _ in range(2):
-            self.capture("prompt", self.ev(prompt="No, choose the other approach."))
+        for prompt in ("No, choose the other approach.", "No, pick the other layout."):
+            self.capture("prompt", self.ev(prompt=prompt))
         self.assertEqual(self.signals(), ["S5", "S5"])
 
     def test_a_session_less_event_falls_back_to_the_project(self):
@@ -793,10 +796,11 @@ class Phase1ScriptSignalsAndTriage(_Project):
         cd.record_adr(self.root, "2026-11-24-outbox", env=self.env)                        # S1 -> auto
         cd.record_gate_results(self.root, [("g", "FAIL")], env=self.env)
         cd.record_gate_results(self.root, [("g", "PASS")], env=self.env)                   # S2 -> auto
-        self.capture("prompt", self.ev(prompt="from now on always rebase"))               # S4 -> ask
+        self.capture("post-tool", self.ev(tool_name="Skill", tool_input={"skill": "fresh-eyes-investigation"},
+                                          tool_response={}))                             # S8 -> ask
         plan = cd.triage(self.root, {}, project=self.root.name, branch="feat/demo")
         self.assertEqual({it["signal"]: it["outcome"] for it in plan["items"]},
-                         {"S1": "auto", "S2": "auto", "S4": "ask"})
+                         {"S1": "auto", "S2": "auto", "S8": "ask"})
         self.assertEqual((plan["auto"], plan["ask"]), (2, 1))
         # scoped out: another project's candidate is not in this plan
         self.assertEqual(cd.triage(self.root, {}, project="some-other-repo")["untriaged"], 0)
@@ -809,10 +813,12 @@ class Phase1ScriptSignalsAndTriage(_Project):
         self.assertEqual([it["outcome"] for it in plan["items"]], ["auto", "ask", "ask"])
 
     def test_s4_is_never_auto_even_if_the_config_lists_it(self):
-        # The shadow week showed S4 ~97% noise; Phase 1 keeps it at ask regardless of config.
+        # The shadow month showed S4 was noise; auto-store never takes it, whatever the config lists.
+        # It asks only when the project opts it in (Phase 2), and then it asks, never stores.
         self.capture("prompt", self.ev(prompt="from now on always rebase"))
-        plan = cd.triage(self.root, {"autoStore": {"signals": ["adr", "gate-red-green", "explicit-remember"]}},
-                         project=self.root.name, branch="feat/demo")
+        cfg = {"autoStore": {"signals": ["adr", "gate-red-green", "explicit-remember"]},
+               "ask": {"signals": ["S4"]}}
+        plan = cd.triage(self.root, cfg, project=self.root.name, branch="feat/demo")
         self.assertEqual(plan["auto_signals"], ["S1", "S2"])
         self.assertEqual(plan["items"][0]["outcome"], "ask")
 

@@ -108,6 +108,8 @@ CONSUMER_PATHS = [
      "Amphion's examples describe a consuming project's source tree."),
     ("mnemosyne/*", ".github/*",
      "A shared-tier memory repo's own PR template, which the lesson checklist is copied into."),
+    ("mnemosyne/*", "docs/*",
+     "The watched paths a consuming project's spec, ADR and friction log live at (memory.watch)."),
 ]
 
 POINT_IN_TIME_MARKER = "<!-- doc-pointers: point-in-time -->"

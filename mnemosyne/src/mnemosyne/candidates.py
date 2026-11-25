@@ -47,8 +47,18 @@ PRIVACY a candidate carries pointers (signal, path, tool, exit code, a short com
         paths replaced by <path>. Any candidate whose text has a credential shape is dropped, and
         only the shape's name is logged (spec §4.3 rule 1, §4.6).
 
-Signals detected here: S4 and S5 (prompt), S6, S8 and S9-S11 (post-tool). S1-S3 come from Zethus's
-scripts and S7 and S12 from triage, all in later phases.
+Signals detected here: S4 and S5 (prompt), S6, S8 and S9-S11 (post-tool), and S12 (a correction in a
+session that had recalled a lesson). Their rules are in `detect.py`. S1-S3 come from Zethus's
+scripts and S7 from triage, in later phases.
+
+PHASE 2 ASK  Phase 1 auto-stores S1 and S2 and asked about nothing else it could not measure. Phase 2
+        turns the rest into ask outcomes, one batched question set per checkpoint (`triage`), but
+        only for signals that have earned it (`signal_status`): the deterministic facts S8 and
+        S9-S11 ask; the keyword and heuristic signals S4, S5, S6 and S12 stay in SHADOW, recorded and
+        never asked, until at least ASK_MIN_LABELLED of their candidates from the current detectors
+        are labelled and ASK_MIN_PRECISION of them were worth a lesson, or a project opts one in
+        with memory.ask.signals. A skip is remembered as a negative fingerprint, and "never ask
+        about this kind" mutes a kind for good.
 """
 from __future__ import annotations
 
@@ -62,7 +72,7 @@ import secrets
 import time
 from pathlib import Path
 
-from . import core
+from . import core, detect
 from .core import EngineError
 
 CAPTURE_DIR = ".capture"
@@ -85,12 +95,25 @@ FIRE_WINDOW = 10              # seconds a second run counts as the same event, w
 GATE_TTL = 7 * 86400         # seconds a recorded gate FAIL waits for its matching PASS (S2)
 MODES = ("session-start", "prompt", "post-tool", "stop", "pre-compact")
 VERDICTS = ("lesson", "noise")           # precision labels (Phase 0 shadow measurement)
-RESOLUTIONS = ("stored", "asked", "skipped", "dropped")  # triage outcomes (Phase 1)
+RESOLUTIONS = ("stored", "asked", "skipped", "dropped", "never")  # triage outcomes ("never" also mutes the kind)
+DETECTOR = 2                  # bumped when a signal's detection changes; older candidates never count
+                              # towards a signal's measured precision and are never asked about
+RECALLED = "recalled.json"    # per session: the lesson ids recall printed, for S12
+WATCHED = "watched"           # one marker per (session, watched path): a path is a candidate once
+RECALL_TTL = 86400            # seconds a session's recalled ids are remembered
 
 # Which signals Phase 1 auto-stores (spec §5 Phase 1 + the shadow-data ruling): only the two
 # deterministic, script-emitted signals. The keyword/prompt signals (S4/S5/S6) stayed too noisy in
 # the shadow week to auto-store — they route to ask until their detection is tightened (Phase 2).
 AUTO_SIGNALS = ("S1", "S2")
+
+# Phase 2 ask eligibility. The facts a hook saw (a skill ran, a watched file was written) ask from the
+# start, but are UNMEASURED: no shadow data exists for them yet. The signals that depend on guessing
+# at words or retries ask only once their own labelled candidates show they are worth the question.
+DETERMINISTIC_ASK = ("S8", "S9-S11")
+MEASURED_ASK = ("S4", "S5", "S6", "S12")
+ASK_MIN_LABELLED = 10         # labelled candidates (current detectors) before a signal's precision counts
+ASK_MIN_PRECISION = 0.5       # lesson / labelled needed to leave shadow
 
 # id -> (name, kind, the outcome Phase 1+ would give it by default). Spec §4.2.
 SIGNALS = {
@@ -108,14 +131,10 @@ SIGNALS = {
 # "adr" -> "S1", "gate-red-green" -> "S2", ... (the memory.autoStore.signals config uses names).
 SIGNAL_BY_NAME = {name: sig for sig, (name, _k, _d) in SIGNALS.items()}
 
-DEFAULT_WATCH = ["docs/adr/", "docs/specs/", "docs/friction-log.md"]
 # Where a project's `memory` config block may live, in Zethus's own resolution order.
 PROJECT_CONFIGS = (".github/zethus.config.json", "$ZETHUS_CONFIG", ".copilot/zethus.config.json",
                    ".claude/amphion.config.json")
 
-_S4_RE = re.compile(r"\b(remember|always|never|from now on)\b", re.I)
-_S5_RE = re.compile(r"(^\s*no\s*[,.!]|\bdon['’]?t\b|\bdo not\b|\binstead\b|"
-                    r"\bthat(?:['’]s| is) (?:wrong|not right)\b)", re.I)
 _SHELL_TOOLS = {"bash", "powershell", "pwsh", "shell", "cmd", "run_in_terminal", "terminal",
                 "local_shell", "exec_command", "shell_command"}
 _WRITE_TOOLS = {"write", "edit", "multiedit", "notebookedit", "create", "edit_file", "write_file",
@@ -218,32 +237,67 @@ def new_id() -> str:
 # ----------------------------------------------------------------------------- spool API
 
 
-def candidates(repo: Path) -> list:
-    """Every candidate, oldest first, with its `verdict` (precision label) and `resolution` (triage
-    outcome) folded in; the last of each wins. `verdict` is None until labelled, `resolution` None
-    until triaged — the two are independent (Phase 0 measures precision; Phase 1 triages)."""
-    out, by_id = [], {}
+def _fold(repo: Path):
+    """One pass over the spool: (every candidate, oldest first, with its `verdict` and `resolution`
+    folded in; the kinds muted for good). The last label and the last resolution of a candidate win.
+    `verdict` is None until labelled and `resolution` None until triaged: the two are independent
+    (Phase 0 measures precision; Phase 1 triages). Callers that need several views take one fold,
+    because the spool is read whole and a hook may only spend a few milliseconds."""
+    out, by_id, muted = [], {}, set()
     for row in _read(capture_dir(repo) / CANDIDATES):
-        if row.get("type") == "candidate" and row.get("id"):
+        kind = row.get("type")
+        if kind == "candidate" and row.get("id"):
             row = dict(row, verdict=None, note=None, resolution=None, resolved_lesson=None)
             by_id[row["id"]] = row
             out.append(row)
-        elif row.get("type") == "label" and row.get("id") in by_id:
+        elif kind == "label" and row.get("id") in by_id:
             by_id[row["id"]].update(verdict=row.get("verdict"), note=row.get("note"))
-        elif row.get("type") == "resolution" and row.get("id") in by_id:
+        elif kind == "resolution" and row.get("id") in by_id:
             by_id[row["id"]].update(resolution=row.get("as"), resolved_lesson=row.get("lesson") or None)
-    return out
+        elif kind == "mute" and row.get("kind"):
+            muted.add(str(row["kind"]))
+    return out, muted
+
+
+def candidates(repo: Path) -> list:
+    """Every candidate, oldest first, with its `verdict` and `resolution` folded in."""
+    return _fold(repo)[0]
+
+
+def muted_kinds(repo: Path) -> set:
+    return _fold(repo)[1]
+
+
+def kind_of(c: dict) -> str:
+    """What "never ask about this kind" mutes: the signal, narrowed by the watched-path kind."""
+    sub = (c.get("evidence") or {}).get("kind")
+    return f"{c.get('signal')}:{sub}" if sub else str(c.get("signal"))
+
+
+def fingerprint(signal: str, context: dict, key) -> str | None:
+    """A salted-by-project hash of what makes two candidates "the same thing" (a standing clause,
+    a command head, a path, the lessons overridden), so a skipped candidate isn't asked twice. It
+    holds no text, only the hash. None when the signal has no such identity."""
+    if not key:
+        return None
+    text = json.dumps([signal, (context or {}).get("repo", ""), str(key)])
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
 def add_candidate(repo: Path, signal: str, *, host="cli", event="", session="", context=None,
-                  evidence=None) -> dict:
-    """Append one candidate for `signal` and return it. Nothing is stored as a lesson."""
+                  evidence=None, fp_key=None) -> dict:
+    """Append one candidate for `signal` and return it. Nothing is stored as a lesson. `det` is the
+    detector generation that produced it, and `fp` its fingerprint, if it has one."""
     if signal not in SIGNALS:
         raise EngineError(f"unknown signal '{signal}'; known: {', '.join(SIGNALS)}")
     name, kind, default = SIGNALS[signal]
     rec = {"type": "candidate", "id": new_id(), "ts": _now(), "signal": signal, "name": name,
            "kind": kind, "default": default, "mode": "shadow", "host": host, "event": event,
-           "session": session or "", "context": context or {}, "evidence": evidence or {}}
+           "session": session or "", "context": context or {}, "evidence": evidence or {},
+           "det": DETECTOR}
+    fp = fingerprint(signal, context, fp_key)
+    if fp:
+        rec["fp"] = fp
     _append(ensure_capture_dir(repo) / CANDIDATES, rec)
     return rec
 
@@ -263,23 +317,84 @@ def resolve(repo: Path, cid: str, as_: str, lesson: str = "", note: str = "") ->
     """Record a triage outcome for candidate `cid`, so it leaves the untriaged set (spec §4.3).
 
     `stored` (auto-stored or asked-then-saved; `lesson` is the new lesson id), `asked`, `skipped`
-    (a negative fingerprint — don't ask again) or `dropped`. The last resolution wins."""
+    (a negative fingerprint: the same thing isn't asked again), `dropped`, or `never` ("never ask
+    about this kind": the candidate is skipped and its kind muted). The last resolution wins."""
     if as_ not in RESOLUTIONS:
         raise EngineError(f"resolution must be one of {', '.join(RESOLUTIONS)}")
-    if cid not in {c["id"] for c in candidates(repo)}:
+    by_id = {c["id"]: c for c in candidates(repo)}
+    if cid not in by_id:
         raise EngineError(f"no candidate {cid} in the spool")
+    d = ensure_capture_dir(repo) / CANDIDATES
+    if as_ == "never":
+        _append(d, {"type": "mute", "kind": kind_of(by_id[cid]), "ts": _now()})
+        as_, note = "skipped", note or f"never ask about {kind_of(by_id[cid])}"
     rec = {"type": "resolution", "id": cid, "as": as_, "lesson": lesson or "",
            "note": note or "", "ts": _now()}
-    _append(ensure_capture_dir(repo) / CANDIDATES, rec)
+    _append(d, rec)
     return rec
 
 
-def untriaged(repo: Path, project=None, branch=None) -> list:
-    """Candidates with no resolution yet, oldest first. Scoped to a project (context.repo) and
-    optionally a branch, because one memory repo holds the spools of every project on the machine,
-    so a triage checkpoint must only surface the work in front of the agent, never all of them."""
-    out = []
-    for c in candidates(repo):
+def signal_status(repo: Path, mem_cfg: dict = None, cands=None) -> dict:
+    """Per signal: whether triage auto-stores it, asks about it, or leaves it in shadow, and why.
+
+    S1 and S2 auto-store. S8 and S9-S11 are facts a hook saw, so they ask (unmeasured: the shadow
+    data has none of them). S4, S5, S6 and S12 depend on guessing at words or retries: they ask
+    only after ASK_MIN_LABELLED of their candidates from the current detectors are labelled and
+    ASK_MIN_PRECISION of those were worth a lesson (`candidate label`), or when the project opts
+    one in with memory.ask.signals. Everything else stays in shadow and says so."""
+    cands = candidates(repo) if cands is None else cands
+    names = ((mem_cfg or {}).get("ask") or {}).get("signals")
+    optin = {SIGNAL_BY_NAME.get(str(n), str(n)) for n in names} if isinstance(names, list) else set()
+    out = {}
+    for sig in SIGNALS:
+        if sig in AUTO_SIGNALS:
+            out[sig] = {"status": "auto", "why": "a deterministic script signal"}
+        elif sig in DETERMINISTIC_ASK:
+            out[sig] = {"status": "ask", "why": "a fact a hook saw; unmeasured so far"}
+        elif sig in MEASURED_ASK:
+            if sig in optin:
+                out[sig] = {"status": "ask", "why": "opted in by memory.ask.signals"}
+                continue
+            lab = [c for c in cands if c.get("signal") == sig and c.get("det", 1) >= DETECTOR
+                   and c.get("verdict") in VERDICTS]
+            good = sum(1 for c in lab if c["verdict"] == "lesson")
+            if len(lab) >= ASK_MIN_LABELLED and good / len(lab) >= ASK_MIN_PRECISION:
+                out[sig] = {"status": "ask", "why": f"measured: {good} of {len(lab)} labelled were lessons"}
+            else:
+                have = f"{good} of {len(lab)} labelled were lessons" if lab else "none labelled"
+                out[sig] = {"status": "shadow", "why": f"shadow, recorded but never asked: {have}; needs "
+                            f"{ASK_MIN_LABELLED}+ labelled at {ASK_MIN_PRECISION:.0%}+ (or memory.ask.signals)"}
+        else:
+            out[sig] = {"status": "shadow", "why": "not emitted yet"}
+    return out
+
+
+def _suppressed(c: dict, status: dict, muted: set, seen_fp: set, adr_paths: set):
+    """Why an unresolved candidate is not in the triage set, or None if it is."""
+    sig = c.get("signal")
+    st = status.get(sig, {}).get("status", "shadow")
+    if st == "shadow":
+        return "shadow"
+    if sig in MEASURED_ASK and c.get("det", 1) < DETECTOR:
+        return "stale"
+    if kind_of(c) in muted:
+        return "muted"
+    if c.get("fp") and c["fp"] in seen_fp:
+        return "seen"
+    ev, ctx = c.get("evidence") or {}, c.get("context") or {}
+    if sig == "S9-S11" and ev.get("kind") == "adr" and (ctx.get("repo"), ev.get("path")) in adr_paths:
+        return "covered"      # the ADR script already raised S1 for this file
+    return None
+
+
+def _triage_pool(fold, mem_cfg, project, branch, repo):
+    cands, muted = fold
+    status = signal_status(repo, mem_cfg, cands)
+    seen_fp = {c["fp"] for c in cands if c.get("fp") and c.get("resolution") in ("skipped", "stored")}
+    adr_paths = {((c.get("context") or {}).get("repo"), (c.get("evidence") or {}).get("path"))
+                 for c in cands if c.get("signal") == "S1"}
+    items, counts = [], {}
+    for c in cands:
         if c.get("resolution"):
             continue
         ctx = c.get("context") or {}
@@ -287,8 +402,32 @@ def untriaged(repo: Path, project=None, branch=None) -> list:
             continue
         if branch is not None and ctx.get("branch") != branch:
             continue
-        out.append(c)
-    return out
+        why = _suppressed(c, status, muted, seen_fp, adr_paths)
+        if why:
+            counts[why] = counts.get(why, 0) + 1
+        else:
+            items.append(c)
+    return items, counts, status
+
+
+def untriaged(repo: Path, project=None, branch=None, mem_cfg=None, *, raw=False, fold=None) -> list:
+    """Candidates a triage checkpoint should deal with, oldest first: unresolved, and not
+    suppressed (a signal still in shadow, a detector older than the current one, a muted kind, a
+    fingerprint already skipped or stored, an ADR the script already raised). Scoped to a project
+    (context.repo) and optionally a branch, because one memory repo holds the spools of every
+    project on the machine, so a checkpoint must only surface the work in front of the agent.
+    `raw=True` is every unresolved candidate, suppressed or not."""
+    fold = fold or _fold(repo)
+    if raw:
+        out = []
+        for c in fold[0]:
+            ctx = c.get("context") or {}
+            if c.get("resolution") or (project is not None and ctx.get("repo") != project) \
+                    or (branch is not None and ctx.get("branch") != branch):
+                continue
+            out.append(c)
+        return out
+    return _triage_pool(fold, mem_cfg, project, branch, repo)[0]
 
 
 def auto_signals(mem_cfg: dict) -> set:
@@ -309,17 +448,63 @@ def auto_budget(mem_cfg: dict) -> int:
         return 5
 
 
+OPTIONS = (
+    ("save", "Save it as proposed (the local tier, in my words)"),
+    ("edit", "Save it, edited (you give the wording)"),
+    ("skip", "Skip it (don't ask about the same thing again)"),
+    ("never", "Never ask about this kind"),
+)
+# The category an accepted candidate is filed under unless the person says otherwise.
+ASK_CATEGORY = {"S4": "convention", "S5": "convention", "S6": "mistake", "S8": "process",
+                "S9-S11": "decision", "S12": "convention"}
+_KIND_CATEGORY = {"friction": "process"}
+
+
+def ask_category(c: dict) -> str:
+    sub = (c.get("evidence") or {}).get("kind")
+    return _KIND_CATEGORY.get(sub) or ASK_CATEGORY.get(c.get("signal"), "convention")
+
+
+def ask_question(c: dict) -> str:
+    """The one-line question for a candidate. It points at what was seen and quotes at most the
+    person's own short words (S4, S5); it never carries tool output or a transcript."""
+    sig, ev = c.get("signal"), c.get("evidence") or {}
+    if sig in ("S4", "S5"):
+        what = "asked me to remember something" if sig == "S4" else "corrected me"
+        return f"You {what} (\"{ev.get('match', '')}\": \"{ev.get('excerpt', '')}\"). Is there a lesson to keep?"
+    if sig == "S6":
+        return (f"`{ev.get('head', '')}` failed (exit {ev.get('failed_exit')}) and then passed. "
+                f"Is there a lesson in what changed?")
+    if sig == "S8":
+        return "A fresh-eyes investigation was needed (stuck twice). What should be remembered next time?"
+    if sig == "S9-S11":
+        sub = ev.get("kind") or "path"
+        what = {"spec": "A spec was written", "friction": "A friction-log entry was written",
+                "ledger": "The phase ledger was written", "adr": "An ADR file was written"}.get(
+                    sub, "A watched file was written")
+        return f"{what} ({ev.get('path', '')}). Is there a decision or lesson in it to keep?"
+    if sig == "S12":
+        ids = ", ".join(ev.get("lessons") or [])
+        return f"You corrected me after lesson(s) {ids} were recalled. Should a new lesson replace one?"
+    return f"{c.get('name', sig)}: is there a lesson to keep?"
+
+
 def triage(repo: Path, mem_cfg: dict = None, *, project=None, branch=None) -> dict:
     """The triage plan for the untriaged candidates of one project: the rule table's outcome
-    (spec §4.3) for each — `auto` for an auto signal within the per-session budget, else `ask`. This
+    (spec §4.3) for each, `auto` for an auto signal within the per-session budget, else `ask`. This
     is read-only: it stores nothing. The lessons-triage skill reads it, writes the lesson text, and
     calls `capture --captured-by hook:<signal> --candidate <id>` for the auto ones (the engine then
-    applies the Q2 refusals), batching the rest into one question set."""
+    applies the Q2 refusals).
+
+    `questions` is the one batched question set for the ask items: each has the four options of
+    spec §4.3. `suppressed` counts what was left out and why (a signal still in shadow, a muted kind,
+    a fingerprint already skipped) and `signals` says each signal's status, so a quiet checkpoint
+    explains itself."""
     mem_cfg = mem_cfg or {}
     auto = auto_signals(mem_cfg)
     budget = auto_budget(mem_cfg)
-    items = untriaged(repo, project=project, branch=branch)
-    plan, auto_count = [], 0
+    items, suppressed, status = _triage_pool(_fold(repo), mem_cfg, project, branch, repo)
+    plan, questions, auto_count = [], [], 0
     for c in items:
         sig = c.get("signal")
         name, kind, _d = SIGNALS.get(sig, (c.get("name"), c.get("kind"), "ask"))
@@ -329,18 +514,42 @@ def triage(repo: Path, mem_cfg: dict = None, *, project=None, branch=None) -> di
         elif sig in auto:
             outcome, reason = "ask", f"auto budget ({budget}) spent this triage — ask instead"
         else:
-            outcome, reason = "ask", f"{sig} is ask: triage judges it, and the Q2 exclusions apply"
+            outcome, reason = "ask", f"{sig} asks: {status.get(sig, {}).get('why', 'triage judges it')}"
         plan.append({"id": c["id"], "signal": sig, "name": name, "kind": kind, "outcome": outcome,
                      "reason": reason, "evidence": c.get("evidence") or {},
                      "context": c.get("context") or {}})
+        if outcome == "ask":
+            questions.append({"id": c["id"], "signal": sig, "kind": kind_of(c),
+                              "category": ask_category(c), "question": ask_question(c),
+                              "supersede": sig == "S12",
+                              "options": [{"key": k, "label": lab} for k, lab in OPTIONS]})
     return {"project": project, "branch": branch, "budget": budget, "auto_signals": sorted(auto),
             "untriaged": len(items), "auto": auto_count, "ask": len(items) - auto_count,
-            "items": plan}
+            "items": plan, "questions": questions, "suppressed": suppressed,
+            "signals": {s: v for s, v in status.items() if s in MEASURED_ASK}}
 
 
-def stats(repo: Path, days=None) -> dict:
-    """Per signal: count, lesson, noise, unlabelled and precision (lesson / labelled, or None)."""
+def render_questions(plan: dict) -> str:
+    """The ask items as one numbered question set, for a host with no question tool. Each question
+    is numbered, its options 1-4, and the person answers with the pair ("1.1 2.4"), any clear
+    wording, or "skip all"."""
+    qs = plan.get("questions") or []
+    if not qs:
+        return ""
+    lines = [f"Lessons triage: {len(qs)} question(s). Answer with question.option (for example 1.1 2.3), "
+             f"or any clear wording; \"skip all\" skips every one."]
+    for n, q in enumerate(qs, 1):
+        lines.append(f"{n}. [{q['signal']}] {q['question']}")
+        lines += [f"   {n}.{i}  {o['label']}" for i, o in enumerate(q["options"], 1)]
+    return "\n".join(lines)
+
+
+def stats(repo: Path, days=None, current=False) -> dict:
+    """Per signal: count, lesson, noise, unlabelled and precision (lesson / labelled, or None).
+    `current` keeps only candidates from the current detectors, the ones a signal's status counts."""
     rows = candidates(repo)
+    if current:
+        rows = [c for c in rows if c.get("det", 1) >= DETECTOR]
     if days:
         cutoff = (_dt.datetime.now() - _dt.timedelta(days=days)).isoformat(timespec="seconds")
         rows = [c for c in rows if c.get("ts", "") >= cutoff]
@@ -391,10 +600,14 @@ def decisions(repo: Path) -> list:
     return _read(d / "decisions.1.jsonl") + _read(d / DECISIONS)
 
 
-def doctor(repo: Path, last: int = 10) -> dict:
-    """What the capture hooks have been doing: the last decisions, counts, and spool health."""
+def doctor(repo: Path, last: int = 10, mem_cfg: dict = None) -> dict:
+    """What the capture hooks have been doing: the last decisions, counts, and spool health.
+    `untriaged` is what a checkpoint would deal with (every project); `unresolved` also counts the
+    candidates of signals still in shadow, which no checkpoint asks about."""
     log = decisions(repo)
-    cands = candidates(repo)
+    fold = _fold(repo)
+    cands = fold[0]
+    status = signal_status(repo, mem_cfg, cands)
     contended = sum(1 for r in log + cands if r.get("contended"))
     by_decision, last_by_mode, slowest = {}, {}, None
     for r in log:
@@ -405,7 +618,9 @@ def doctor(repo: Path, last: int = 10) -> dict:
     return {"dir": str(capture_dir(repo)), "exists": capture_dir(repo).is_dir(),
             "self_ignored": is_self_ignored(repo), "candidates": len(cands),
             "pending": sum(1 for c in cands if not c.get("verdict")),
-            "untriaged": sum(1 for c in cands if not c.get("resolution")),
+            "untriaged": len(untriaged(repo, mem_cfg=mem_cfg, fold=fold)),
+            "unresolved": sum(1 for c in cands if not c.get("resolution")),
+            "signals": {s: v for s, v in status.items() if v["status"] != "shadow" or s in MEASURED_ASK},
             "decisions": len(log), "by_decision": by_decision, "last_by_mode": last_by_mode,
             "slowest": slowest, "contended": contended, "recent": log[-last:] if last else []}
 
@@ -488,6 +703,14 @@ def tool_outcome(ev: dict):
     return None, None
 
 
+def failure_text(ev: dict) -> str:
+    """The text a host gives for a failed tool call, used only to classify the failure (a parse or
+    quoting error) and never stored."""
+    tr = ev.get("toolResult", ev.get("tool_result"))
+    tr = _obj(tr) if isinstance(tr, (dict, str)) else {}
+    return str(ev.get("error") or tr.get("textResultForLlm") or tr.get("text_result_for_llm") or "")[:2000]
+
+
 def written_paths(ev: dict) -> list:
     """Paths a file-writing tool call touched (empty for reads and shell commands)."""
     if str(ev.get("hook_event_name") or "").lower() == "afterfileedit" and ev.get("file_path"):
@@ -528,12 +751,14 @@ def watch_match(rel: str, watch) -> str | None:
 
 
 def prompt_signals(prompt: str) -> list:
-    """[(signal, matched phrase, excerpt)] for S4 and S5, at most one each."""
+    """[(signal, matched phrase, excerpt)] for S4 and S5, at most one each. The shape rules are in
+    `detect`; whether the prompt is a brief is the caller's question (`detect.looks_like_brief`)."""
     out = []
-    for sig, pat in (("S4", _S4_RE), ("S5", _S5_RE)):
-        m = pat.search(prompt or "")
-        if m:
-            out.append((sig, m.group(0).strip(), excerpt(prompt, m.start(), m.end())))
+    for sig, find in (("S4", detect.s4_matches), ("S5", detect.s5_matches)):
+        hits = find(prompt or "")
+        if hits:
+            phrase, start, end = hits[0]
+            out.append((sig, phrase.strip(), excerpt(prompt, start, end)))
     return out
 
 
@@ -636,6 +861,134 @@ def _save_state(repo: Path, st: dict):
     st = {s: [f for f in fails if now - f.get("t", 0) < FAILURE_TTL] for s, fails in st.items()}
     st = {s: fails[-10:] for s, fails in st.items() if fails}
     core.atomic_write_text(ensure_capture_dir(repo) / STATE, json.dumps(st))
+
+
+# ----------------------------------------------------------------------------- recalled lessons (S12)
+
+_RECALLED_ID = re.compile(r"^- ([A-Z]{1,6}-\d+)\s+\[", re.M)
+
+
+def digest_ids(digest: str) -> list:
+    """The lesson ids a recall digest listed (its `- L-0001 [category/...] title` lines)."""
+    return _RECALLED_ID.findall(digest or "")
+
+
+def note_recall(repo: Path, session: str, ids) -> None:
+    """Remember which lessons recall printed in `session`, so a later correction in the same session
+    can raise S12. A small state file beside the spool, like the S6 failures; fail-open."""
+    if not session or not ids:
+        return
+    try:
+        path = capture_dir(repo) / RECALLED
+        try:
+            st = json.loads(path.read_text(encoding="utf-8"))
+            st = st if isinstance(st, dict) else {}
+        except (OSError, ValueError):
+            st = {}
+        now = time.time()
+        st = {s: v for s, v in st.items() if now - v.get("t", 0) < RECALL_TTL}
+        seen = list(dict.fromkeys((st.get(session) or {}).get("ids", []) + list(ids)))[-20:]
+        st[session] = {"ids": seen, "t": now}
+        core.atomic_write_text(ensure_capture_dir(repo) / RECALLED, json.dumps(dict(list(st.items())[-30:])))
+    except OSError:
+        pass
+
+
+def recalled_in(repo: Path, session: str) -> list:
+    try:
+        st = json.loads((capture_dir(repo) / RECALLED).read_text(encoding="utf-8"))
+        v = st.get(session) or {}
+        return list(v.get("ids", [])) if time.time() - v.get("t", 0) < RECALL_TTL else []
+    except (OSError, ValueError, AttributeError):
+        return []
+
+
+# ----------------------------------------------------------------------------- watched paths (S9-S11)
+
+# kind -> the default path it watches. A kind names what a write there means: a spec (an As built
+# deviation, S9), a friction-log entry with a workaround (S10), the phase ledger (flag-or-fix and
+# other outcomes, S11), an ADR written by hand.
+DEFAULT_WATCH_KINDS = {"adr": "docs/adr/", "spec": "docs/specs/", "friction": "docs/friction-log.md"}
+DEFAULT_WATCH = list(DEFAULT_WATCH_KINDS.values())
+SUBSIGNAL = {"spec": "S9", "adr": "S9", "friction": "S10", "ledger": "S11"}
+
+
+def _kind_of_path(path: str) -> str:
+    low = path.casefold()
+    for kind in ("friction", "ledger", "adr", "spec"):
+        if kind in low:
+            return kind
+    return "ledger" if "progress" in low else "path"
+
+
+def _first_config(root: Path, names) -> dict:
+    for name in names:
+        p = Path(os.environ.get("ZETHUS_CONFIG", "")) if name == "$ZETHUS_CONFIG" else root / name
+        if name == "$ZETHUS_CONFIG" and not os.environ.get("ZETHUS_CONFIG"):
+            continue
+        try:
+            doc = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(doc, dict):
+            return doc
+    return {}
+
+
+def _dir(path: str) -> str:
+    p = str(path).replace("\\", "/").strip()
+    return p if not p or p.endswith("/") or "." in p.rsplit("/", 1)[-1] else p + "/"
+
+
+def watch_entries(root: Path, mem_cfg: dict) -> list:
+    """[(pattern, kind)] of the paths whose writes become S9-S11 candidates (spec §4.2).
+
+    `memory.watch`, when the project sets it, is the whole list (each entry a path or glob, or
+    {"path", "kind"}). Otherwise the list comes from the project's own config, so a kit's watched
+    paths are the keys it already has: Zethus's `spec.dir` and `adr.dir`, Amphion's
+    `frictionLog.markdown.path` and `ledger.path`. Any kind the config doesn't name falls back to
+    its DEFAULT_WATCH_KINDS path, so a bare repo still watches the conventional places."""
+    explicit = mem_cfg.get("watch")
+    if isinstance(explicit, list):
+        out = []
+        for w in explicit:
+            if isinstance(w, dict) and w.get("path"):
+                out.append((_dir(w["path"]), str(w.get("kind") or _kind_of_path(str(w["path"])))))
+            elif isinstance(w, str):
+                out.append((_dir(w), _kind_of_path(w)))
+        return out
+    found = {}
+    zethus = _first_config(root, PROJECT_CONFIGS[:3])
+    amphion = _first_config(root, PROJECT_CONFIGS[3:])
+    for kind, key in (("spec", "spec"), ("adr", "adr")):
+        d = (zethus.get(key) or {}).get("dir") if isinstance(zethus.get(key), dict) else None
+        if d:
+            found[kind] = _dir(d)
+    fl = amphion.get("frictionLog") if isinstance(amphion.get("frictionLog"), dict) else {}
+    md = fl.get("markdown") if isinstance(fl.get("markdown"), dict) else {}
+    if md.get("path") and fl.get("sink", "markdown") == "markdown":
+        found["friction"] = _dir(md["path"])
+    led = amphion.get("ledger") if isinstance(amphion.get("ledger"), dict) else {}
+    if led.get("path"):
+        found["ledger"] = _dir(led["path"])
+    for kind, default in DEFAULT_WATCH_KINDS.items():
+        found.setdefault(kind, default)
+    return [(path, kind) for kind, path in found.items()]
+
+
+def claim_once(repo: Path, bucket: str, key: str) -> bool:
+    """True the first time `key` is seen in `bucket`, False after. A marker file holding no text.
+    Fails open (True), so an unwritable spool costs a repeat candidate, never a lost one."""
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:32]
+    try:
+        d = ensure_capture_dir(repo) / bucket
+        d.mkdir(exist_ok=True)
+        os.close(os.open(str(d / digest), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    except FileExistsError:
+        return False
+    except OSError:
+        pass
+    return True
 
 
 # ----------------------------------------------------------------------------- Zethus-script signals
@@ -753,19 +1106,21 @@ def first_fire(repo: Path, mode: str, ev: dict, root: Path) -> bool:
 # ----------------------------------------------------------------------------- instruction candidate guard
 
 
-def instruction_repeat(repo: Path, root: Path, session: str, prompt: str):
-    """Suppress only an identical S4 instruction line, never an arbitrary prompt excerpt.
+def instruction_repeat(repo: Path, root: Path, session: str, prompt: str, sig: str = "S4"):
+    """Suppress only an identical instruction line (S4, or S5 with `sig`), never an arbitrary excerpt.
 
     Own-repo standing files are authoritative even in a new session. Otherwise a host-provided
     session id scopes an exclusive content marker. Missing ids and IO errors fail open. Markers
     contain only hashes, not instruction text; they are separate from expiring event claims.
     This suppresses candidates only: the bridge's duplicate-event recall contract stays intact.
+    A standing rule that arrives inside a brief never gets this far (`detect.looks_like_brief`).
     """
-    match = _S4_RE.search(prompt)
-    if not match:
+    hits = (detect.s4_matches if sig == "S4" else detect.s5_matches)(prompt)
+    if not hits:
         return None
-    start = prompt.rfind("\n", 0, match.start()) + 1
-    end = prompt.find("\n", match.end())
+    match_start, match_end = hits[0][1], hits[0][2]
+    start = prompt.rfind("\n", 0, match_start) + 1
+    end = prompt.find("\n", match_end)
     instruction = " ".join(prompt[start:end if end >= 0 else len(prompt)].split()).casefold()
     top, _ = _git_dir(root)
     project = top or root
@@ -781,7 +1136,7 @@ def instruction_repeat(repo: Path, root: Path, session: str, prompt: str):
             return "instruction already present in this repo's standing instructions"
     if not session:
         return None
-    parts = [os.path.normcase(str(project.resolve())), session, instruction]
+    parts = [os.path.normcase(str(project.resolve())), session, instruction] + ([sig] if sig != "S4" else [])
     key = hashlib.sha256(json.dumps(parts).encode("utf-8")).hexdigest()
     try:
         directory = ensure_capture_dir(repo) / "instructions"
@@ -801,9 +1156,10 @@ def instruction_repeat(repo: Path, root: Path, session: str, prompt: str):
 
 
 def capture_event(mode: str, ev: dict, *, host=None, env=None, root=None):
-    """Run one capture hook invocation in shadow mode. Returns the decision record it logged, or
-    None if capture is off or there is no memory repo to record into. Never prints, never stores a
-    lesson, never asks; the caller prints nothing for any capture mode."""
+    """Run one capture hook invocation. Returns the decision record it logged, or None if capture is
+    off or there is no memory repo to record into. Never stores a lesson and never asks: it records
+    candidates and decides whether `stop` should block for a triage. What reaches the model (a
+    session-start digest, the stop block's reason) is the bridge's to print, and only in active mode."""
     t0 = time.perf_counter()
     env = os.environ if env is None else env
     ev = ev if isinstance(ev, dict) else {}
@@ -826,12 +1182,13 @@ def capture_event(mode: str, ev: dict, *, host=None, env=None, root=None):
         log_decision(repo, rec)
         return rec
 
-    def add(signal, evidence):
+    def add(signal, evidence, fp_key=None):
         c = add_candidate(repo, signal, host=host, event=event, session=session, context=ctx,
-                          evidence=evidence)
+                          evidence=evidence, fp_key=fp_key)
         rec["signals"].append(signal)
         rec["candidates"].append(c["id"])
         rec["decision"] = "candidate"
+        return c
 
     if mode == "prompt":
         prompt = str(ev.get("prompt") or "")
@@ -840,57 +1197,92 @@ def capture_event(mode: str, ev: dict, *, host=None, env=None, root=None):
         if shape:
             rec.update(decision="dropped", detail=f"credential shape ({shape}); nothing recorded",
                        signals=[h[0] for h in hits])
-        for sig, phrase, snip in ([] if shape else hits):
-            repeat = instruction_repeat(repo, root, session, prompt) if sig == "S4" else None
-            if repeat:
-                # Do not return DUPLICATE: that label also suppresses auto-recall in the bridge.
-                rec.update(decision="duplicate-instruction", detail=repeat)
-                rec["signals"].append(sig)
-            else:
-                add(sig, {"match": phrase, "excerpt": snip})
+        elif hits and detect.looks_like_brief(prompt):
+            # A task brief, a pasted document or a quoted instruction file: its imperatives are the
+            # brief's, not a person teaching the agent something (spec §5.1, §5.2).
+            rec.update(decision="brief", detail="a brief or pasted document, not a direct instruction; "
+                       "nothing recorded", signals=[h[0] for h in hits])
+        else:
+            for sig, phrase, snip in hits:
+                repeat = instruction_repeat(repo, root, session, prompt, sig)
+                if repeat:
+                    # Do not return DUPLICATE: that label also suppresses auto-recall in the bridge.
+                    rec.update(decision="duplicate-instruction", detail=repeat)
+                    rec["signals"].append(sig)
+                    continue
+                find = detect.s4_matches if sig == "S4" else detect.s5_matches
+                clause = detect.standing_clause(prompt, find(prompt)[0][1])
+                c = add(sig, {"match": phrase, "excerpt": snip}, fp_key=clause)
+                recalled = recalled_in(repo, session) if sig == "S5" else []
+                if recalled:
+                    # S12: the user corrected the agent in a session that had recalled lessons.
+                    add("S12", {"lessons": recalled[:5], "correction": c["id"]},
+                        fp_key=",".join(sorted(recalled[:5])))
 
     elif mode == "post-tool":
         name = tool_name(ev)
         if is_fresh_eyes(ev):
             add("S8", {"tool": name, "skill": "fresh-eyes-investigation"})
-        watch = mem_cfg.get("watch") if isinstance(mem_cfg.get("watch"), list) else DEFAULT_WATCH
-        for path in written_paths(ev):
+        paths = written_paths(ev)
+        entries = watch_entries(root, mem_cfg) if paths else []   # config files are read only for a write
+        for path in paths:
             rel = relative_to(path, str(root))
-            hit = watch_match(rel, watch) if rel else None
-            if hit:
-                add("S9-S11", {"tool": name, "path": core.scrub_machine_paths(rel), "watch": hit})
+            hit = next(((w, k) for w, k in entries if watch_match(rel, [w])), None) if rel else None
+            if not hit:
+                continue
+            shown = core.scrub_machine_paths(rel)
+            if claim_once(repo, WATCHED, f"{session or root}|{shown}"):   # a path is one candidate a session
+                add("S9-S11", {"tool": name, "path": shown, "watch": hit[0], "kind": hit[1],
+                               "sub": SUBSIGNAL.get(hit[1], "S9")}, fp_key=shown)
+            elif rec["decision"] == "no-signal":
+                rec.update(decision="watched-repeat", detail="this path already raised a candidate this session")
         if name.lower() in _SHELL_TOOLS:
-            head = command_head(str(tool_input(ev).get("command") or ""))
+            cmd = str(tool_input(ev).get("command") or "")
+            head = command_head(cmd)
             outcome, code = tool_outcome(ev)
             if head and core.find_secret(head):
                 head = ""
             head = core.scrub_machine_paths(head)
             st = _load_state(repo) if head and outcome else {}
             fails = st.get(session, [])
+            digest = hashlib.sha256(cmd.encode("utf-8")).hexdigest()[:12]
             if outcome == "failure" and head:
-                fails.append({"head": head, "exit": code, "t": time.time(), "ts": _now()})
-                st[session] = fails
-                _save_state(repo, st)
-                if rec["decision"] == "no-signal":
-                    rec.update(decision="noted-failure", detail=f"{head!r} exit {code}")
+                why = detect.s6_exclusion(head, code, cmd, failure_text(ev))
+                if why:
+                    # Not a lesson however it ends: a watchdog kill, navigation or a plain read, a
+                    # heredoc or quoting retry. It is never tracked, so its success never pairs up.
+                    if rec["decision"] == "no-signal":
+                        rec.update(decision="excluded-failure", detail=f"S6 not tracked: {why}")
+                else:
+                    fails.append({"head": head, "exit": code, "t": time.time(), "ts": _now(), "cmd": digest})
+                    st[session] = fails
+                    _save_state(repo, st)
+                    if rec["decision"] == "no-signal":
+                        rec.update(decision="noted-failure", detail=f"{head!r} exit {code}")
             elif outcome == "success" and head:
                 match = next((f for f in reversed(fails) if f.get("head") == head), None)
                 if match:
                     fails.remove(match)
                     st[session] = fails
                     _save_state(repo, st)
-                    add("S6", {"tool": name, "head": head, "failed_exit": match.get("exit"),
-                               "failed_at": match.get("ts")})
+                    if match.get("cmd") and match["cmd"] == digest:
+                        # The same command, run again, passed: a flake or a transient, not a lesson.
+                        if rec["decision"] == "no-signal":
+                            rec.update(decision="excluded-retry", detail="S6 not recorded: unchanged re-run")
+                    else:
+                        add("S6", {"tool": name, "head": head, "failed_exit": match.get("exit"),
+                                   "failed_at": match.get("ts")}, fp_key=head)
             elif outcome is None and rec["decision"] == "no-signal":
                 rec["detail"] = "the host reports no tool outcome; S6 can't be seen here"
 
     elif mode in ("stop", "pre-compact", "session-start"):
-        pending = [c for c in candidates(repo) if not c.get("verdict")]
+        fold = _fold(repo)
+        pending = [c for c in fold[0] if not c.get("verdict")]
         mine = [c for c in pending if session and c.get("session") == session]
         # The triage checkpoint is scoped to the project (one memory repo holds every project's
         # spool), and counts untriaged candidates — which includes the script-emitted S1/S2 that
         # carry no host session, so session-scoping alone would miss them.
-        untr = untriaged(repo, project=ctx.get("repo"), branch=ctx.get("branch"))
+        untr = untriaged(repo, project=ctx.get("repo"), branch=ctx.get("branch"), mem_cfg=mem_cfg, fold=fold)
         rec.update(pending=len(pending), pending_session=len(mine), untriaged=len(untr))
         if mode == "stop":
             rec["stop_hook_active"] = bool(ev.get("stop_hook_active"))

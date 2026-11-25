@@ -160,14 +160,19 @@ def build_parser(cfg: Config) -> argparse.ArgumentParser:
     clb.set_defaults(func=cmd_candidate_label)
     cs = csub.add_parser("stats", help="count and precision of each signal")
     cs.add_argument("--days", type=int, help="only candidates from the last N days")
+    cs.add_argument("--current", action="store_true",
+                    help="only candidates from the current detectors (older ones don't count towards a signal's precision)")
     cs.set_defaults(func=cmd_candidate_stats)
     ct = csub.add_parser("triage", help="the triage plan for this project's untriaged candidates (read-only)")
     ct.add_argument("--project", help="project to scope to (default: the cwd's repo name)")
     ct.add_argument("--branch", help="branch to scope to (default: the cwd's branch)")
+    ct.add_argument("--numbered", action="store_true",
+                    help="print the ask items as one numbered question set, for a host with no question tool")
     ct.set_defaults(func=cmd_candidate_triage)
     cre = csub.add_parser("resolve", help="record a triage outcome so a candidate leaves the untriaged set")
     cre.add_argument("id")
-    cre.add_argument("outcome", choices=RESOLUTIONS)
+    cre.add_argument("outcome", choices=RESOLUTIONS,
+                     help="'never' skips the candidate and mutes its kind (never ask about it again)")
     cre.add_argument("--lesson", default="", help="the lesson id a 'stored' outcome produced")
     cre.add_argument("--note", default="")
     cre.set_defaults(func=cmd_candidate_resolve)
@@ -604,7 +609,7 @@ def cmd_candidate_label(cfg, repo, args):
 
 def cmd_candidate_stats(cfg, repo, args):
     from . import candidates as cd
-    s = cd.stats(repo, args.days)
+    s = cd.stats(repo, args.days, current=args.current)
     if args.format == "json":
         print(json.dumps(s, indent=2))
         return 0
@@ -632,6 +637,10 @@ def cmd_candidate_triage(cfg, repo, args):
     if args.format == "json":
         print(json.dumps(plan, indent=2))
         return 0
+    if args.numbered:
+        text = cd.render_questions(plan)
+        print(text if text else "TRIAGE: no questions to ask.")
+        return 0
     where = (project or "(all projects)") + (f"@{branch}" if branch else "")
     print(f"TRIAGE: {plan['untriaged']} untriaged candidate(s) in {where} — {plan['auto']} auto, "
           f"{plan['ask']} ask (auto signals: {', '.join(plan['auto_signals']) or 'none'}; "
@@ -648,8 +657,12 @@ def cmd_candidate_triage(cfg, repo, args):
               "`mnemosyne capture --category <cat> --captured-by hook:<signal> --candidate <id> "
               "--title ... --lesson ...` (the engine refuses security / supersede / shared / secret).")
     if plan["ask"]:
-        print("  ASK: confirm with the user in one batched question set; on save add --candidate <id>, "
-              "on skip run `mnemosyne candidate resolve <id> skipped`.")
+        print("  ASK: put every question in one batched set (`--numbered` prints one). On save add "
+              "--candidate <id>; on skip run `mnemosyne candidate resolve <id> skipped`; on \"never ask "
+              "about this kind\" run `mnemosyne candidate resolve <id> never`.")
+    if plan.get("suppressed"):
+        print("  left out: " + ", ".join(f"{n} {why}" for why, n in sorted(plan["suppressed"].items()))
+              + "  (shadow = a signal that hasn't earned a question yet; see `mnemosyne doctor`)")
     return 0
 
 
@@ -679,7 +692,7 @@ def cmd_retire(cfg, repo, args):
 
 def cmd_doctor(cfg, repo, args):
     from . import candidates as cd
-    d = cd.doctor(repo, args.last)
+    d = cd.doctor(repo, args.last, cd.project_memory_config(Path.cwd()))
     if args.format == "json":
         print(json.dumps(d, indent=2))
         return 0
@@ -688,9 +701,11 @@ def cmd_doctor(cfg, repo, args):
               f"MNEMOSYNE_REPO points at this memory repo and MNEMOSYNE_CAPTURE isn't off.")
         return 0
     print(f"DOCTOR: capture spool at {d['dir']} (self-ignored: {'yes' if d['self_ignored'] else 'NO'}) "
-          f"— shadow mode: nothing is stored or asked.")
+          f"— nothing is stored or asked here; the hooks only record.")
     print(f"  candidates: {d['candidates']} ({d['pending']} unlabelled, {d.get('untriaged', d['pending'])} "
-          f"untriaged)   decisions logged: {d['decisions']}")
+          f"would be triaged, {d.get('unresolved', 0)} unresolved)   decisions logged: {d['decisions']}")
+    if d.get("signals"):
+        print("  signals: " + ", ".join(f"{k} {v['status']}" for k, v in sorted(d["signals"].items())))
     if d["by_decision"]:
         print("  by decision: " + ", ".join(f"{k}={v}" for k, v in sorted(d["by_decision"].items())))
     if d["last_by_mode"]:
