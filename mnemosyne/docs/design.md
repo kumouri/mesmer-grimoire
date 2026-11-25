@@ -252,16 +252,25 @@ normalized content, and the second run logs `duplicate` and stops. A marker expi
 seconds, so a real repeat counts again. The claim fails open, because a double-fire costs a noisy
 line and a lost event costs a signal. The module docstring has the details.
 
-S4 instruction candidates have a separate guard: an exact normalized full instruction line
+The detectors are tightened shapes, not bare keywords (`mnemosyne.detect`): an S4 or S5 needs an
+imperative clause, and neither fires inside a brief; an S6 skips watchdog kills, navigation,
+heredoc and quoting retries and an unchanged re-run. Each candidate carries the detector
+generation that wrote it, so an older one never counts towards a signal's measured precision.
+
+S4 and S5 instruction candidates have a separate guard: an exact normalized full instruction line
 already in the repo's own standing files is skipped, and other lines are claimed once per repo
 path and host-provided session id. Missing session ids fail open. Hash-only markers persist under
 the spool's instructions folder; no candidate history is scanned or deleted. The decision is
 `duplicate-instruction`, so candidate suppression does not trigger the bridge's event-duplicate
 early return or change repeated-question recall.
 
-For now it runs in **shadow mode**: candidates and decisions are recorded, but nothing becomes a
-lesson and nothing is asked. `candidate label` and `candidate stats` turn a week of that into each
-signal's count and precision, which decides what later phases may store automatically.
+By default it runs in **shadow mode**: candidates and decisions are recorded, but nothing becomes a
+lesson and nothing is asked. `candidate label` and `candidate stats` turn that into each signal's
+count and precision. In **active** mode (opt-in) a triage checkpoint auto-stores the two script
+signals and asks about the rest in one batched set, but only for signals that have earned it: a
+signal that guesses at words or retries (S4, S5, S6, S12) asks once its own labelled candidates are
+at least half worth a lesson, and until then it stays in shadow. That is the design's answer to the
+shadow data: noise is not asked about, and each signal's status is visible in `mnemosyne doctor`.
 
 ## Governance
 

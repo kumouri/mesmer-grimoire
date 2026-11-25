@@ -307,20 +307,22 @@ There are two capture modes, and the default is **shadow**:
   stored as a lesson, nothing is asked**, and no capture hook prints anything. It is there to
   measure how often each signal fires, and how often a candidate was worth keeping, before any of
   it is automated.
-- **active** (Phase 1, opt-in) — the two deterministic, script-emitted signals (an ADR recorded,
-  a gate that went red then green) are **auto-stored to the local tier** at a triage checkpoint,
-  and everything else is **asked**. Nothing ever leaves the local tier automatically (sharing is
-  always a reviewed `promote`). Turn it on per project with `"memory": {"mode": "active"}` in the
-  project config, or per session with `MNEMOSYNE_CAPTURE_MODE=active`, so a package upgrade never
-  changes a machine's behaviour on its own.
+- **active** (Phase 1 and 2, opt-in) — the two deterministic, script-emitted signals (an ADR
+  recorded, a gate that went red then green) are **auto-stored to the local tier** at a triage
+  checkpoint, and the signals that have earned it are **asked** in one batched question set (see
+  [Which signals ask](#which-signals-ask)). Nothing ever leaves the local tier automatically
+  (sharing is always a reviewed `promote`). Turn it on per project with
+  `"memory": {"mode": "active"}` in the project config, or per session with
+  `MNEMOSYNE_CAPTURE_MODE=active`, so a package upgrade never changes a machine's behaviour on its
+  own.
 
 | Hook (Claude Code event) | Mode | Records / does |
 |---|---|---|
-| `UserPromptSubmit` | `prompt` | S4 "remember / always / never / from now on"; S5 a correction ("no,", "don't", "instead", "that's wrong") |
-| `PostToolUse`, `PostToolUseFailure` | `post-tool` | S6 a shell command that failed and then passed; S8 the `fresh-eyes-investigation` skill; S9–S11 a write to a watched path |
-| `Stop` | `stop` | logs whether it *would* block for triage (shadow); in **active** mode blocks once, telling the agent to run the `lessons-triage` skill |
+| `UserPromptSubmit` | `prompt` | S4 a directive in the person's own words ("remember to…", "from now on…", a clause that opens with "always" or "never" and a verb); S5 a correction ("no," opening the prompt, a clause that opens "don't <verb>", "that's wrong", "use X instead"); S12 a correction in a session that had recalled a lesson. Never fires inside a brief (see below) |
+| `PostToolUse`, `PostToolUseFailure` | `post-tool` | S6 a shell command that failed and then passed (not a watchdog kill, navigation, a heredoc or quoting retry, or the same command re-run unchanged); S8 the `fresh-eyes-investigation` skill; S9–S11 a write to a watched path |
+| `Stop` (Copilot: `agentStop`) | `stop` | logs whether it *would* block for triage (shadow); in **active** mode blocks once, telling the agent to run the `lessons-triage` skill |
 | `PreCompact` | `pre-compact` | logs the spool state |
-| `SessionStart` | `session-start` | syncs when the memory repo has a remote or a store to pull; in **active** mode also prints a recall digest for the branch and the count awaiting triage |
+| `SessionStart` (Copilot: `sessionStart`) | `session-start` | syncs when the memory repo has a remote or a store to pull; in **active** mode also prints a recall digest for the branch and the count awaiting triage (on Copilot as JSON `additionalContext`, the form its CLI injected) |
 
 Zethus's `new-adr.py` emits the **S1** (ADR → decision) candidate and `run-local-gates.py` emits the
 **S2** (gate red→green → mistake) candidate. Both import `mnemosyne` only when it is installed and do
@@ -333,14 +335,41 @@ hook:S1 --candidate <id> …` — and asks about the rest in one batched questio
 **refuses** a `--captured-by` capture that is `security`-category, that would supersede a lesson,
 that targets any tier but local, or whose text carries a credential shape; a refused candidate is
 asked, not stored. Auto-stored lessons land at **medium** confidence and are undoable with
-`mnemosyne retire <id> --reason …`. The shadow-week data (see the spec) showed the keyword signals
+`mnemosyne retire <id> --reason …`. The shadow data (see the spec) showed the keyword signals
 (S4/S5/S6) were far too noisy to auto-store, which is why only the two script signals auto-store.
+
+### Which signals ask
+
+Phase 2 makes the rest ask, but a signal that is still noisy stays in **shadow**: recorded, counted,
+never asked. `mnemosyne doctor` says where each stands.
+
+- **S8** (`fresh-eyes-investigation` ran) and **S9–S11** (a write to a watched path) ask from the
+  start. They are facts a hook saw, not words it guessed at, but nobody has measured them yet.
+- **S4, S5, S6 and S12** ask only once at least 10 of their candidates from the current detectors
+  are labelled and at least half were worth a lesson (`candidate label`), or when the project opts
+  one in with `"memory": {"ask": {"signals": ["S5"]}}` (ids or names). Candidates recorded by an
+  older detector never count and are never asked about.
+- **Left out of every checkpoint:** a kind you muted ("never ask about this kind"), a candidate
+  whose fingerprint (the same clause, command head, path or lessons overridden) you skipped or
+  stored before, and an ADR file whose script already raised S1. `mnemosyne candidate triage`
+  prints how many of each it left out.
+- **One batched set.** `mnemosyne candidate triage --format json` gives every ask as a question
+  with four options: save it as proposed, save it edited, skip it, never ask about this kind.
+  `--numbered` prints the same set for a host with no question tool (Copilot), answered as
+  `question.option`. `candidate resolve <id> skipped|stored|never` records the answer. S12 offers
+  `--supersede`, and the engine refuses a supersede that a hook made on its own.
+
+**Briefs are not instructions.** A prompt that is long (over 1,200 characters), structured (four
+or more list or heading lines, a fenced block) or opens with a markup tag is a task brief, a pasted
+document or a quoted instruction file. Its "never"s and "do not"s are the brief's, so S4 and S5
+record nothing there and the decision log says `brief`. A short, direct "never squash merge in
+this repo" still counts.
 
 - **Where it goes:** `memory/.capture/` in the memory repo. The directory ignores itself, so the
   spool is never committed. `candidates.jsonl` holds candidates and labels; `decisions.jsonl` holds
   one line per hook run; a `fired` folder holds the short-lived markers that stop one event being
   handled twice.
-- **Repeated standing instructions:** S4 candidates are claimed once per host-provided session,
+- **Repeated standing instructions:** S4 and S5 candidates are claimed once per host-provided session,
   repo path and complete matched instruction line (not the truncated excerpt). An exact line in
   that repo's AGENTS.md, CLAUDE.md or Copilot instruction file is already standing guidance and
   does not become a candidate. A changed line still qualifies; without a session id only the
@@ -352,27 +381,44 @@ asked, not stored. Auto-stored lessons land at **medium** confidence and are und
   the user's words, with machine paths replaced by `<path>`. A candidate that carries a credential
   shape (an access key, a token, a private key, a `password=` assignment) is dropped, and only the
   shape's name is logged.
-- **Watched paths:** a project sets them with a `memory` block in `.github/zethus.config.json`,
+- **Watched paths:** a project can set them with a `memory` block in `.github/zethus.config.json`,
   `.copilot/zethus.config.json` or `.claude/amphion.config.json` (the first one that has the block
-  wins). Without one, the defaults are these:
+  wins). Without a `watch` list they come from the kit's own keys: Zethus's `spec.dir` and
+  `adr.dir`, and Amphion's `frictionLog.markdown.path` (when its sink is markdown) and
+  `ledger.path`. A kind the config doesn't name keeps its conventional path: `docs/adr/`,
+  `docs/specs/`, `docs/friction-log.md`. A write to one is one candidate per session and path, and
+  carries its kind (`spec` S9, `friction` S10, `ledger` S11) so "never ask about this kind" can mute
+  one without the others. The defaults, with the opt-in keys:
 
   ```json
   "memory": { "mode": "shadow", "enabled": true,
               "watch": ["docs/adr/", "docs/specs/", "docs/friction-log.md"],
-              "autoStore": { "signals": ["adr", "gate-red-green"], "perSession": 5 } }
+              "autoStore": { "signals": ["adr", "gate-red-green"], "perSession": 5 },
+              "ask": { "signals": [] } }
   ```
 
-  `"enabled": false` there, or `MNEMOSYNE_CAPTURE=off`, turns capture off. `"mode": "active"` opts
-  into Phase 1 auto-store + triage. `autoStore.perSession` caps how many candidates one triage
-  auto-stores (default 5); the signals Phase 1 auto-stores are the two script ones regardless.
+  `watch` entries are paths or globs, or `{"path": …, "kind": …}`. `"enabled": false` there, or
+  `MNEMOSYNE_CAPTURE=off`, turns capture off. `"mode": "active"` opts into auto-store and triage.
+  `autoStore.perSession` caps how many candidates one triage auto-stores (default 5); the signals
+  auto-stored are the two script ones regardless. `ask.signals` opts a shadow signal into asking.
 - **Reviewing it:** `mnemosyne candidate list` shows what was recorded. Label each candidate with
   `mnemosyne candidate label <id> lesson|noise` (precision data), then `mnemosyne candidate stats`
-  shows each signal's count and precision. `mnemosyne candidate triage` shows the untriaged plan,
-  and `mnemosyne doctor` shows the hooks' recent decisions and both counts (unlabelled, untriaged),
+  shows each signal's count and precision (`--current` counts only the current detectors).
+  `mnemosyne candidate triage` shows the untriaged plan, and `mnemosyne doctor` shows the hooks'
+  recent decisions, each signal's status and the counts (unlabelled, would be triaged, unresolved),
   so a hook that fails open never fails silently, and counts any line written past a busy lock.
 - **Other hosts:** the same `mnemosyne_hook.py` reads each host's field names, as observed on real
   Claude Code, Copilot CLI and Codex installs. A host-specific registration can pass `--host <name>`
   after the mode. The spec's §4.7 has the per-host matrix, and what was and wasn't verified.
+- **Copilot:** the Copilot-format file (`.github/hooks/mnemosyne.json`, `~/.copilot/hooks`, or the
+  plugin's) registers the same bridge. In active mode the session-start digest, and the prompt
+  recall, go out as JSON `additionalContext`, the form the Copilot CLI injected; shadow mode prints
+  nothing new. VS Code and the cloud agent were not run: the shape there is unverified, and a host
+  the bridge doesn't recognise as Copilot gets plain stdout. With both the repo's file and the user's
+  present the engine's double-fire guard lets one run print and act.
+- **Cost:** `stop` and `session-start` read the whole spool, which took about 0.3 s on a 13,000-line
+  one, over the 200 ms a hook body should stay under. The tightened detectors write far fewer lines,
+  but nothing yet archives old ones.
 
 ## Development
 
