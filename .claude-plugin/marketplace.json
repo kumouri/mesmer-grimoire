@@ -11,7 +11,7 @@
     {
       "name": "amphion",
       "source": "./amphion/plugin",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "description": "A spec-to-PR implementation pipeline for Claude Code, as six composable skills."
     },
     {

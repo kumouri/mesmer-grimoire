@@ -1,6 +1,6 @@
 {
   "name": "amphion",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A spec-to-PR implementation pipeline for Claude Code, as six composable skills — load the project's decided context, handle what the spec didn't cover, recover from a crashed delegate, add CI, write the PR, and log the friction. Project-specific paths, gates, and vocabulary come from .claude/amphion.config.json.",
   "author": {
     "name": "Ceryce Armstrong",
