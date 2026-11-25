@@ -399,7 +399,8 @@ this repo" still counts.
 
 - **Where it goes:** `memory/.capture/` in the memory repo. The directory ignores itself, so the
   spool is never committed. `candidates.jsonl` holds candidates and labels; `decisions.jsonl` holds
-  one line per hook run; a `fired` folder holds the short-lived markers that stop one event being
+  one line per hook run; `index.bin` is the hooks' read cache of `candidates.jsonl`, safe to delete;
+  a `fired` folder holds the short-lived markers that stop one event being
   handled twice.
 - **Repeated standing instructions:** S4 and S5 candidates are claimed once per host-provided session,
   repo path and complete matched instruction line (not the truncated excerpt). An exact line in
@@ -448,15 +449,18 @@ this repo" still counts.
   nothing new. VS Code and the cloud agent were not run: the shape there is unverified, and a host
   the bridge doesn't recognise as Copilot gets plain stdout. With both the repo's file and the user's
   present the engine's double-fire guard lets one run print and act.
-- **Cost:** `stop` and `session-start` read the whole spool, which took about 0.3 s on a 13,000-line
-  one, over the 200 ms a hook body should stay under. The tightened detectors write far fewer lines,
-  but nothing yet archives old ones.
+- **Cost:** `stop` and `session-start` read the spool through an index (`index.bin`, beside the spool),
+  so a hook parses only the lines added since the last one: about 20 ms on a 13,000-line spool,
+  where a whole read took 0.3 s. The index is a cache. If it is missing, damaged or no longer
+  matches the spool, the hook reads the spool whole and writes a new one; delete it after editing
+  the middle of a spool by hand. The spec's §4.7 ("Spool read cost") has the rules and the numbers.
+  Nothing yet archives old lines, and a spool several times larger would still outgrow the bound.
 
 ## Development
 
 ```bash
 PYTHONPATH=src python -m mnemosyne selftest     # zero-dep test suite
-python -m unittest tests.test_mnemosyne tests.test_mnemosyne_review_flow tests.test_mnemosyne_mcp_stdio tests.test_mnemosyne_capture tests.test_mnemosyne_install tests.test_zethus_lessons_capture
+python -m unittest tests.test_mnemosyne tests.test_mnemosyne_review_flow tests.test_mnemosyne_mcp_stdio tests.test_mnemosyne_capture tests.test_mnemosyne_spool_index tests.test_mnemosyne_install tests.test_zethus_lessons_capture
 ```
 
 The engine has no runtime dependencies; only the MCP server needs the `mcp` package (installed via
