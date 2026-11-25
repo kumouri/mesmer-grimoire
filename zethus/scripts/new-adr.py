@@ -14,6 +14,15 @@ renumbers anything at merge time.
 written down somewhere tracked. The index is the one place a reader can see every decision, and
 the row is created in the same step as the record so the two never disagree.
 
+**What a repeated answer is.** ``--question-class`` names the kind of question this decision answers
+(for example ``merge strategy``) and ``--option`` the option it chose (``merge commits``); both go on
+the record. When the Mnemosyne package is installed they also go on the capture candidate, so the
+same answer given in three ADRs is one standard candidate even where the wording differs, and
+``--spec`` (a spec or ticket id; else a ticket key in the branch name, else the branch) says which
+piece of work each answer belongs to: the same answer three times in one spec is still one context
+(docs/lessons-capture-spec.md section 4.4). ``--config-key`` and ``--config-value`` name the config
+key the answer maps to, so a standard can propose it as a default. None of the five is required.
+
 **Who decided.** ``Deciders`` is the person Zethus works for, resolved by ``_identity.py`` (config
 ``identity.*``, then ``git config user.name``, then the forge account), unless ``--deciders`` names
 someone else, as they write their name. The ``Recorded by`` row names the agent that wrote the
@@ -49,7 +58,7 @@ INDEX_HEADER = (
 )
 
 
-def _record_capture_candidate(repo: Path, adr_id: str, path: Path) -> None:
+def _record_capture_candidate(repo: Path, adr_id: str, path: Path, **decision: str | None) -> None:
     """Best-effort: record an S1 (ADR) lessons-capture candidate, if the ``mnemosyne`` package is
     installed. Zethus stays stdlib-only and fail-open — this does nothing when the package is
     absent (docs/lessons-capture-spec.md §4.7, channel 1). Pointers only, never the ADR text."""
@@ -58,7 +67,7 @@ def _record_capture_candidate(repo: Path, adr_id: str, path: Path) -> None:
     except Exception:
         return
     try:
-        cap.record_adr(repo, adr_id, rel(path, repo))
+        cap.record_adr(repo, adr_id, rel(path, repo), **decision)
     except Exception:
         pass
 
@@ -89,6 +98,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--template", help="template path (default: adr.template or the kit's adr.md)")
     p.add_argument("--deciders", help="who decided, as they write their names (default: the "
                                       "person Zethus works for, from identity.py)")
+    p.add_argument("--question-class", help="the kind of question this answers, e.g. 'merge strategy'")
+    p.add_argument("--option", help="the option this decision chose, e.g. 'merge commits'")
+    p.add_argument("--spec", help="the spec or ticket this belongs to (default: a ticket key in the "
+                                  "branch name, else the branch)")
+    p.add_argument("--config-key", help="the config key the answer maps to, e.g. branchModel.maxBehind")
+    p.add_argument("--config-value", help="that key's value, as JSON")
     p.add_argument("--no-index", action="store_true", help="don't add a row to <dir>/README.md")
     p.add_argument("--repo", help="repository root (default: nearest .git ancestor of cwd)")
     p.add_argument("--config", help="config file")
@@ -110,11 +125,15 @@ def main(argv: list[str] | None = None) -> int:
         write_new(path, fill(template, {
             "id": adr_id, "title": title, "date": date, "status": args.status,
             "deciders": deciders, "recordedBy": AGENT,
+            "questionClass": (args.question_class or "").strip() or "—",
+            "chosenOption": (args.option or "").strip() or "—",
         }))
         log(f"new-adr: wrote {rel(path, repo)}")
         if not args.no_index:
             append_index(adr_dir / "README.md", adr_id, title, args.status, date)
-        _record_capture_candidate(repo, adr_id, path)
+        _record_capture_candidate(repo, adr_id, path, spec=args.spec, question_class=args.question_class,
+                                  option=args.option, config_key=args.config_key,
+                                  config_value=args.config_value)
         print(f"created {rel(path, repo)}")
         print(f"deciders: {deciders} ({source})")
         if not args.no_index:

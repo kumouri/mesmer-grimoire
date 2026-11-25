@@ -862,6 +862,42 @@ def lesson_similarity(a: dict, b: dict) -> float:
     return round(baseline, 3)
 
 
+CONTEXT_CAP = 60  # context fingerprints kept per lesson; the oldest go first
+
+
+def norm_decision_text(text) -> str:
+    """A decision's question class or chosen option, folded so two ADRs that word the same answer
+    differently still match: lower case, punctuation gone, whitespace collapsed (spec 4.4)."""
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).split())
+
+
+def find_decision_match(lesson: dict, lessons):
+    """The active lesson that recorded the same decision (same question class and chosen option) as
+    `lesson`, else None. This is the S7 match, and it ignores wording and category on purpose."""
+    key = lesson.get("decision") or {}
+    cls, opt = norm_decision_text(key.get("class")), norm_decision_text(key.get("option"))
+    if not cls or not opt:
+        return None
+    for l in lessons:
+        if l.get("status") != "active" or l.get("id") == lesson.get("id"):
+            continue
+        k = l.get("decision") or {}
+        if norm_decision_text(k.get("class")) == cls and norm_decision_text(k.get("option")) == opt:
+            return l["id"]
+    return None
+
+
+def add_context(lesson: dict, entry: dict):
+    """Append one context fingerprint {ctx, stage, date, signal[, k]} to `lesson` in place. An entry
+    whose `k` (a hash of the candidate it came from) is already there is the same occurrence run
+    twice, and is not counted again."""
+    have = lesson.setdefault("contexts", [])
+    if entry.get("k") and any(e.get("k") == entry["k"] for e in have):
+        return
+    have.append(dict(entry))
+    del have[:-CONTEXT_CAP]
+
+
 def find_duplicate(cfg: Config, lesson: dict, lessons):
     """Best active, same-category near-duplicate at/above cfg.dup_threshold, else (None, 0.0)."""
     best_id, best = None, 0.0
@@ -1041,6 +1077,8 @@ def render_lessons_text(cfg: Config, lessons, tier: dict, sha: str) -> str:
                 sb.append(f"reflection-of: {src['reflection_of']}")
             meta = [f"confidence={l['confidence']}", f"tier={t}", f"memory={l.get('memory_type', 'semantic')}",
                     f"review={l.get('review', {}).get('state', '?')}"]
+            if isinstance(l.get("standard"), dict):
+                meta.append("standard")
             if (l.get("source", {}) or {}).get("stage"):
                 meta.append("learned-in=" + l["source"]["stage"])
             if l.get("related"):
@@ -1093,6 +1131,13 @@ def validate_record(cfg: Config, l: dict, schema, valid_prefixes=None):
     lid = l.get("id", "")
     if not any(re.match(rf"^{re.escape(p)}-\d{{4}}$", lid) for p in prefixes):
         errs.append(f"bad id '{lid}'")
+    ctxs = l.get("contexts")
+    if ctxs is not None and (not isinstance(ctxs, list)
+                             or any(not isinstance(e, dict) or not e.get("ctx") for e in ctxs)):
+        errs.append("bad contexts (a list of {ctx, stage, date, signal} fingerprints)")
+    for field in ("decision", "standard", "config_default"):
+        if l.get(field) is not None and not isinstance(l[field], dict):
+            errs.append(f"bad {field} (an object)")
     rv = l.get("review", {})
     if not isinstance(rv, dict) or rv.get("state") not in cfg.review_states:
         errs.append(f"bad review.state '{rv.get('state') if isinstance(rv, dict) else rv}'")
@@ -1286,6 +1331,13 @@ def build_lesson(cfg: Config, lessons, fields: dict, category_default, memory_de
         l.setdefault("related", csv(fields["related"]))
     if fields.get("supersedes"):
         l.setdefault("supersedes", csv(fields["supersedes"]))
+    # Phase 3 (spec 4.4): what the lesson decided, where it occurred, and the config key it maps to.
+    if fields.get("decision"):
+        l.setdefault("decision", dict(fields["decision"]))
+    if fields.get("config_default"):
+        l.setdefault("config_default", dict(fields["config_default"]))
+    if fields.get("context"):
+        l.setdefault("contexts", [dict(fields["context"])])
 
     l["id"] = next_id(cfg, lessons, taken=taken)
     l.setdefault("status", "active")
@@ -1327,7 +1379,9 @@ def _capture(cfg: Config, repo: Path, fields: dict, *, category_default, memory_
     # the agent's own distilled text, never pasted output, so a credential shape here is a bug or
     # a leak; refuse it at any tier rather than banking it.
     secret = find_secret(" ".join(x for x in (lesson.get("title"), lesson.get("lesson"),
-                                               lesson.get("rationale")) if x))
+                                               lesson.get("rationale"),
+                                               json.dumps(lesson.get("decision") or ""),
+                                               json.dumps(lesson.get("config_default") or "")) if x))
     if secret:
         raise EngineError(f"refusing to store a lesson carrying a credential shape ({secret}); "
                           f"nothing was saved (spec §4.6 Secrets)")
@@ -1373,7 +1427,8 @@ def _capture(cfg: Config, repo: Path, fields: dict, *, category_default, memory_
 
     # (B) hygiene: a near-duplicate reinforces the existing lesson instead of adding noise.
     if not force and not supersede:
-        dup_id, dup_sc = find_duplicate(cfg, lesson, lessons)
+        by_decision = find_decision_match(lesson, lessons)
+        dup_id, dup_sc = (by_decision, 1.0) if by_decision else find_duplicate(cfg, lesson, lessons)
         if dup_id:
             for tf in (shared_path(repo), local_path(repo)):
                 rows = read_jsonl(tf)
@@ -1385,13 +1440,15 @@ def _capture(cfg: Config, repo: Path, fields: dict, *, category_default, memory_
                         r["updated"] = today()
                         if r["reinforced"] >= 3 and r.get("confidence") != "high":
                             r["confidence"] = "high" if r.get("confidence") == "medium" else "medium"
+                        for entry in lesson.get("contexts") or []:
+                            add_context(r, entry)
                         changed = True
                 if changed:
                     write_jsonl(tf, rows)
                     break
             render_lessons_md(cfg, repo)
             return {"action": "reinforced", "dup_id": dup_id, "similarity": round(dup_sc, 2),
-                    "threshold": cfg.dup_threshold}
+                    "threshold": cfg.dup_threshold, "by": "decision" if by_decision else "similarity"}
 
     if supersede:
         by_id = {l["id"]: l for l in lessons}
@@ -1519,8 +1576,21 @@ def _promote_problem(lesson, lesson_id):
     return None
 
 
-def _outgoing_copy(lesson: dict, repo: Path, new_id: str, *, approved: bool) -> dict:
-    """The scrubbed copy of a local lesson that a promotion or export writes to a shared tier."""
+def _externalize(copy: dict) -> dict:
+    """Drop what names the work, for a store marked scope=external (spec 4.6, Provenance): the spec
+    or ticket id, the repo, anchors and the reflection text. The context hashes stay, so the store
+    can still count distinct contexts without learning what they were."""
+    src = copy.get("source")
+    if isinstance(src, dict):
+        for key in ("spec_id", "repo", "anchors", "reflection_of", "exported_from", "exported_to"):
+            src.pop(key, None)
+    return copy
+
+
+def _outgoing_copy(lesson: dict, repo: Path, new_id: str, *, approved: bool, external=False,
+                   shape=None) -> dict:
+    """The scrubbed copy of a local lesson that a promotion or export writes to a shared tier.
+    `shape(copy)` edits the copy and never the local original (a promotion to a standard uses it)."""
     copy = scrub_lesson(lesson, repo)
     copy["id"] = new_id
     copy["review"] = {"state": "approved" if approved else "proposed"}
@@ -1529,7 +1599,9 @@ def _outgoing_copy(lesson: dict, repo: Path, new_id: str, *, approved: bool) -> 
     copy.pop("superseded_by", None)
     if new_id != lesson["id"]:
         copy.setdefault("source", {})["exported_from"] = lesson["id"]
-    return copy
+    if shape:
+        shape(copy)
+    return _externalize(copy) if external else copy
 
 
 def _mark_exported(lesson: dict, tier: str, remote_id: str):
@@ -1539,7 +1611,7 @@ def _mark_exported(lesson: dict, tier: str, remote_id: str):
     lesson.setdefault("source", {})["exported_to"] = {"tier": tier, "remote_id": remote_id}
 
 
-def promote(cfg: Config, repo: Path, lesson_id: str, *, push=False) -> dict:
+def promote(cfg: Config, repo: Path, lesson_id: str, *, push=False, shape=None) -> dict:
     """Propose a local lesson for this repo's shared tier through a review PR.
 
     In a git repo the lesson is committed alone on `reflexion/<id>` (stage_review_pr), and the local
@@ -1551,7 +1623,7 @@ def promote(cfg: Config, repo: Path, lesson_id: str, *, push=False) -> dict:
 
     The result's `pr` is stage_review_pr's report; push=True also pushes the branch."""
     if not is_git_repo(repo):
-        return _promote_in_place(cfg, repo, lesson_id)
+        return _promote_in_place(cfg, repo, lesson_id, shape=shape)
     with store_lock(repo):
         local = read_jsonl(local_path(repo))
         lesson = {l["id"]: l for l in local}.get(lesson_id)
@@ -1563,7 +1635,7 @@ def promote(cfg: Config, repo: Path, lesson_id: str, *, push=False) -> dict:
         shared_id = next_id(cfg, working + local, taken=held) if lesson_id in held else lesson_id
         branch = f"{_REVIEW_BRANCH}{shared_id}"
         pr = stage_review_pr(cfg, repo, branch, f"reflexion: promote {shared_id} — {lesson['title']}",
-                             [_outgoing_copy(lesson, repo, shared_id, approved=True)])
+                             [_outgoing_copy(lesson, repo, shared_id, approved=True, shape=shape)])
         _mark_exported(lesson, "shared", shared_id)
         write_jsonl(local_path(repo), local)
         render_lessons_md(cfg, repo)
@@ -1573,7 +1645,7 @@ def promote(cfg: Config, repo: Path, lesson_id: str, *, push=False) -> dict:
             "is_git": True, "pr": pr}
 
 
-def _promote_in_place(cfg: Config, repo: Path, lesson_id: str) -> dict:
+def _promote_in_place(cfg: Config, repo: Path, lesson_id: str, *, shape=None) -> dict:
     """Promote in a repo that isn't under git: move the lesson to the shared tier as proposed."""
     with store_lock(repo):
         local = read_jsonl(local_path(repo))
@@ -1581,7 +1653,7 @@ def _promote_in_place(cfg: Config, repo: Path, lesson_id: str) -> dict:
         problem = _promote_problem(lesson, lesson_id)
         if problem:
             raise EngineError(problem)
-        copy = _outgoing_copy(lesson, repo, lesson_id, approved=False)
+        copy = _outgoing_copy(lesson, repo, lesson_id, approved=False, shape=shape)
         write_jsonl(shared_path(repo), read_jsonl(shared_path(repo)) + [copy])
         write_jsonl(local_path(repo), [l for l in local if l["id"] != lesson_id])
         render_lessons_md(cfg, repo)
@@ -1590,7 +1662,7 @@ def _promote_in_place(cfg: Config, repo: Path, lesson_id: str) -> dict:
             "is_git": False, "pr": pr}
 
 
-def export(cfg: Config, repo: Path, lesson_ids, to_tier: str, *, push=False) -> dict:
+def export(cfg: Config, repo: Path, lesson_ids, to_tier: str, *, push=False, shape=None) -> dict:
     """Promote chosen local lessons UP to a broader shared store (team/enterprise, etc.).
 
     Each exported lesson is scrubbed and copied under a NEW id in the store's own prefix. In a git
@@ -1599,13 +1671,16 @@ def export(cfg: Config, repo: Path, lesson_ids, to_tier: str, *, push=False) -> 
     pushes it. A store that isn't under git has no review, so the copies are written into it as
     proposed. Either way the local original is KEPT, marked proposed with a back-reference
     (`source.exported_to`), and the next `sync` after the merge retires it. Unlike recall, export is
-    a WRITE: it clones a store that isn't cached yet, and fails loudly if it can't reach it."""
+    a WRITE: it clones a store that isn't cached yet, and fails loudly if it can't reach it.
+
+    `shape(copy)` edits each outgoing copy (never the local original); a store with scope=external
+    also loses the spec, repo and anchor provenance (_externalize)."""
     from . import stores as _stores
 
     if to_tier in (None, "shared"):
         # default path: same-repo local -> shared, one entry per id
         return {"tier": "shared", "same_repo": True,
-                "results": [promote(cfg, repo, lid, push=push) for lid in lesson_ids]}
+                "results": [promote(cfg, repo, lid, push=push, shape=shape) for lid in lesson_ids]}
 
     st = _stores.resolve_store(cfg, to_tier)
     if st is None:
@@ -1632,7 +1707,8 @@ def export(cfg: Config, repo: Path, lesson_ids, to_tier: str, *, push=False) -> 
                 skipped.append({"id": lid, "reason": problem})
                 continue
             remote_id = _stores.next_store_id(st, store_lessons + copies, taken)
-            copy = _outgoing_copy(local_by_id[lid], repo, remote_id, approved=store_git)
+            copy = _outgoing_copy(local_by_id[lid], repo, remote_id, approved=store_git,
+                                  external=st.scope == "external", shape=shape)
             copy["created"] = today()
             copies.append(copy)
             exported.append({"local_id": lid, "remote_id": remote_id, "title": copy.get("title", "")})

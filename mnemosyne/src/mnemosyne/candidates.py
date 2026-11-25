@@ -13,6 +13,10 @@ FILES   memory/.capture/ in the memory repo. The directory carries its own `.git
                             lines that fold a verdict onto a candidate (the last label wins)
           decisions.jsonl   append-only: one line per hook invocation (`mnemosyne doctor` reads it),
                             rotated to decisions.1.jsonl past DECISION_LOG_MAX bytes
+          index.bin         a cache of candidates.jsonl folded to the slim rows `stop` and
+                            `session-start` need, so a hook parses only what was appended since;
+                            never a source of truth, rebuilt when missing or untrusted (below,
+                            "the hook's fold"; spec §4.7 "Spool read cost")
           state.json        tool failures awaiting a matching success, per session (signal S6)
           instructions/     hash-only, repo/session/full-line S4 claims (no event-window expiry)
           fired/            one empty marker per recent hook event, the double-fire guard (below)
@@ -59,16 +63,26 @@ PHASE 2 ASK  Phase 1 auto-stores S1 and S2 and asked about nothing else it could
         are labelled and ASK_MIN_PRECISION of them were worth a lesson, or a project opts one in
         with memory.ask.signals. A skip is remembered as a negative fingerprint, and "never ask
         about this kind" mutes a kind for good.
+
+PHASE 3 S7  A lesson that has recurred across enough contexts (docs/lessons-capture-spec.md section
+        4.4) raises one S7 candidate, from `mnemosyne.standards`, and triage asks "promote to a
+        standard?" with one option per tier the federation reaches. S7 is a count the engine made,
+        so it asks from the start; the answer is `standard promote`, never an auto-store. An ADR's
+        S1 candidate also carries the work it belonged to (`context.ctx`, a salted hash) and the
+        question class and chosen option it recorded.
 """
 from __future__ import annotations
 
 import datetime as _dt
 import fnmatch
+import gc
 import hashlib
 import json
+import marshal
 import os
 import re
 import secrets
+import sys
 import time
 from pathlib import Path
 
@@ -111,6 +125,7 @@ AUTO_SIGNALS = ("S1", "S2")
 # start, but are UNMEASURED: no shadow data exists for them yet. The signals that depend on guessing
 # at words or retries ask only once their own labelled candidates show they are worth the question.
 DETERMINISTIC_ASK = ("S8", "S9-S11")
+COMPUTED_ASK = ("S7",)        # a count the engine made from the lessons' own fingerprints
 MEASURED_ASK = ("S4", "S5", "S6", "S12")
 ASK_MIN_LABELLED = 10         # labelled candidates (current detectors) before a signal's precision counts
 ASK_MIN_PRECISION = 0.5       # lesson / labelled needed to leave shadow
@@ -211,19 +226,11 @@ else:
 
 
 def _read(path: Path) -> list:
-    rows = []
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
-        return rows
-    for line in text.splitlines():
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue  # a torn append; skip it
-        if isinstance(row, dict):
-            rows.append(row)
-    return rows
+        return []
+    return _parse_lines(text)
 
 
 def _now() -> str:
@@ -237,26 +244,200 @@ def new_id() -> str:
 # ----------------------------------------------------------------------------- spool API
 
 
+def _parse_lines(text: str) -> list:
+    rows = []
+    for line in text.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue  # a torn append; skip it
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
+def _full(row: dict) -> dict:
+    return dict(row, verdict=None, note=None, resolution=None, resolved_lesson=None)
+
+
+def _apply(row: dict, out: list, by_id: dict, muted: set, make, slim=False):
+    """Fold one spool row into (out, by_id, muted). `make` builds the record kept for a candidate:
+    the full row (a dict) for `_fold`, a slim row (a list, see `_row`) for `_slim_fold`. One
+    function folds both, so the two cannot drift apart."""
+    kind = row.get("type")
+    if kind == "candidate" and row.get("id"):
+        rec = make(row)
+        by_id[row["id"]] = rec
+        out.append(rec)
+    elif kind == "label" and row.get("id") in by_id:
+        if slim:
+            by_id[row["id"]][_VERDICT] = row.get("verdict")
+        else:
+            by_id[row["id"]].update(verdict=row.get("verdict"), note=row.get("note"))
+    elif kind == "resolution" and row.get("id") in by_id:
+        if slim:
+            by_id[row["id"]][_RES] = row.get("as")
+        else:
+            by_id[row["id"]].update(resolution=row.get("as"), resolved_lesson=row.get("lesson") or None)
+    elif kind == "mute" and row.get("kind"):
+        muted.add(str(row["kind"]))
+
+
 def _fold(repo: Path):
     """One pass over the spool: (every candidate, oldest first, with its `verdict` and `resolution`
     folded in; the kinds muted for good). The last label and the last resolution of a candidate win.
     `verdict` is None until labelled and `resolution` None until triaged: the two are independent
     (Phase 0 measures precision; Phase 1 triages). Callers that need several views take one fold,
-    because the spool is read whole and a hook may only spend a few milliseconds."""
+    because the spool is read whole. A hook doesn't use this: it reads `_slim_fold`."""
     out, by_id, muted = [], {}, set()
     for row in _read(capture_dir(repo) / CANDIDATES):
-        kind = row.get("type")
-        if kind == "candidate" and row.get("id"):
-            row = dict(row, verdict=None, note=None, resolution=None, resolved_lesson=None)
-            by_id[row["id"]] = row
-            out.append(row)
-        elif kind == "label" and row.get("id") in by_id:
-            by_id[row["id"]].update(verdict=row.get("verdict"), note=row.get("note"))
-        elif kind == "resolution" and row.get("id") in by_id:
-            by_id[row["id"]].update(resolution=row.get("as"), resolved_lesson=row.get("lesson") or None)
-        elif kind == "mute" and row.get("kind"):
-            muted.add(str(row["kind"]))
+        _apply(row, out, by_id, muted, _full)
     return out, muted
+
+
+# ----------------------------------------------------------------------------- the hook's fold
+# `stop` and `session-start` need only a handful of fields of each candidate, and the spool grows
+# without bound: parsing 13,000 lines of JSON took ~150 ms, over the 200 ms a hook body gets. So
+# a hook folds a SLIM view, through a small index kept beside the spool (INDEX): the slim rows
+# folded so far and the byte offset they end at. A run reads only what was appended since. The
+# index is a cache of a fold, never a source of truth: if it is missing, corrupt, from another
+# version, or doesn't match the spool (the spool shrank or was rewritten), the run folds the whole
+# spool, as before, and writes a fresh one. It is best-effort throughout: a write that fails (a
+# reader holds the file on Windows, a read-only store) costs the next run a full read, nothing
+# more, and no lock is taken. Two runs that race each write a valid index for the offset they
+# reached, and the last rename wins.
+
+INDEX = "index.bin"
+INDEX_MAGIC = b"MNEMOIDX1"    # followed by sha256 of the payload, then the marshalled payload
+INDEX_VERSION = 2
+_PY = (sys.version_info[0], sys.version_info[1], marshal.version)
+_WINDOW = 4096                # bytes of the spool's start, and of the bytes before the offset, that are checked
+
+
+# A slim row is a list: [id, signal, det, fp, session, repo, branch, kind, path, verdict, resolution].
+# They are every field the triage rules and the hooks read from a candidate; `path` is kept only
+# where it is read (an ADR path). Lists, not dicts: a dict per candidate was most of the cost.
+_ID, _SIG, _DET, _FP, _SESSION, _REPO, _BRANCH, _KIND, _PATH, _VERDICT, _RES = range(11)
+
+
+def _row(c: dict) -> list:
+    """The slim row of a candidate, from a spool row or from a folded candidate."""
+    ctx = c.get("context") if isinstance(c.get("context"), dict) else {}
+    ev = c.get("evidence") if isinstance(c.get("evidence"), dict) else {}
+    path = ev.get("path") if (c.get("signal") == "S1" or ev.get("kind") == "adr") else None
+    return [c["id"], c.get("signal"), c.get("det", 1), c.get("fp"), c.get("session"), ctx.get("repo"),
+            ctx.get("branch"), ev.get("kind") or None, path, c.get("verdict"), c.get("resolution")]
+
+
+def _slim(row: dict) -> list:
+    """The slim row of a candidate straight off the spool: unlabelled and untriaged."""
+    r = _row(row)
+    r[_VERDICT] = r[_RES] = None
+    return r
+
+
+def _slim_full(path: Path):
+    out, by_id, muted = [], {}, set()
+    for row in _read(path):
+        _apply(row, out, by_id, muted, _slim, slim=True)
+    return out, muted
+
+
+def _load_index(ipath: Path, f, size: int, mtime_ns: int):
+    """The index's state if it is valid for the open spool `f`, else None. Valid means: the right
+    magic, a payload whose sha256 matches (so a torn or damaged file never reaches `marshal`), the
+    right version and Python (marshal's format is the interpreter's), an offset the spool still
+    reaches, the spool's first and last bytes up to that offset hashing as they did, and, when
+    nothing was appended, the same modification time."""
+    try:
+        blob = ipath.read_bytes()
+        n = len(INDEX_MAGIC)
+        if blob[:n] != INDEX_MAGIC or hashlib.sha256(blob[n + 32:]).digest() != blob[n:n + 32]:
+            return None
+        gc_was = gc.isenabled()
+        gc.disable()              # a few thousand fresh lists: the collector would only walk them
+        try:
+            doc = marshal.loads(blob[n + 32:])
+        finally:
+            if gc_was:
+                gc.enable()
+        if doc["v"] != INDEX_VERSION or doc["py"] != _PY:
+            return None
+        offset = doc["offset"]
+        if offset < 0 or offset > size or (offset == size and doc["mtime"] != mtime_ns):
+            return None
+        f.seek(0)
+        head = f.read(min(offset, _WINDOW))
+        f.seek(max(0, offset - _WINDOW))
+        win = f.read(min(offset, _WINDOW))
+        if hashlib.sha256(head).hexdigest() != doc["head"] or hashlib.sha256(win).hexdigest() != doc["win"]:
+            return None
+        out = doc["rows"]
+        return {"offset": offset, "out": out, "by_id": {r[_ID]: r for r in out},
+                "muted": set(doc["muted"]), "head": head, "win": win}
+    except Exception:  # damaged, foreign or from another version: rebuild
+        return None
+
+
+def _write_index(ipath: Path, doc: dict):
+    """Swap the index in. No fsync (it is a cache) and no retries: a run that can't write leaves the
+    work to the next one."""
+    payload = marshal.dumps(doc)
+    tmp = ipath.with_name(f".{ipath.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    try:
+        tmp.write_bytes(INDEX_MAGIC + hashlib.sha256(payload).digest() + payload)
+        os.replace(str(tmp), str(ipath))
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def _indexed_fold(repo: Path, path: Path):
+    ipath = capture_dir(repo) / INDEX
+    try:
+        f = open(path, "rb")
+    except OSError:
+        return [], set()  # no spool yet: the same empty fold `_read` gives
+    with f:
+        st = os.fstat(f.fileno())
+        state = _load_index(ipath, f, st.st_size, st.st_mtime_ns)
+        if state is None:
+            state = {"offset": 0, "out": [], "by_id": {}, "muted": set(), "head": b"", "win": b""}
+        elif state["offset"] == st.st_size:
+            return state["out"], state["muted"]  # nothing appended since the index was written
+        out, by_id, muted, offset = state["out"], state["by_id"], state["muted"], state["offset"]
+        f.seek(offset)
+        data = f.read()
+        cut = data.rfind(b"\n") + 1            # a line is complete once its newline is written
+        consumed, rest = data[:cut], data[cut:]
+        for row in _parse_lines(consumed.decode("utf-8", errors="replace")):
+            _apply(row, out, by_id, muted, _slim, slim=True)
+        if consumed:
+            end = offset + len(consumed)
+            st2 = os.fstat(f.fileno())
+            _write_index(ipath, {
+                "v": INDEX_VERSION, "py": _PY, "offset": end,
+                "mtime": st2.st_mtime_ns if st2.st_size == end else None,
+                "head": hashlib.sha256((state["head"] + consumed)[:_WINDOW]).hexdigest(),
+                "win": hashlib.sha256((state["win"] + consumed)[-_WINDOW:]).hexdigest(),
+                "muted": sorted(muted), "rows": out})
+        # an unterminated last line is counted for this run but never indexed: it may still grow
+        for row in _parse_lines(rest.decode("utf-8", errors="replace")):
+            _apply(row, out, by_id, muted, _slim, slim=True)
+    return out, muted
+
+
+def _slim_fold(repo: Path):
+    """`_fold`, for a hook: the same candidates in the same order, with the same verdict, resolution
+    and muted kinds, but only the fields `untriaged`, `signal_status` and the hooks read. It reads
+    the spool through the index (above), and falls back to a whole read on any error."""
+    path = capture_dir(repo) / CANDIDATES
+    try:
+        return _indexed_fold(repo, path)
+    except Exception:  # an index is a cache: never let it fail a hook
+        return _slim_full(path)
 
 
 def candidates(repo: Path) -> list:
@@ -343,25 +524,36 @@ def signal_status(repo: Path, mem_cfg: dict = None, cands=None) -> dict:
     ASK_MIN_PRECISION of those were worth a lesson (`candidate label`), or when the project opts
     one in with memory.ask.signals. Everything else stays in shadow and says so."""
     cands = candidates(repo) if cands is None else cands
+    return _status_rows([_row(c) for c in cands], mem_cfg)
+
+
+def _status_rows(rows: list, mem_cfg: dict = None) -> dict:
+    """`signal_status` over slim rows, which the hooks use as they are."""
     names = ((mem_cfg or {}).get("ask") or {}).get("signals")
     optin = {SIGNAL_BY_NAME.get(str(n), str(n)) for n in names} if isinstance(names, list) else set()
+    tally = {sig: [0, 0] for sig in MEASURED_ASK}      # labelled, and of those worth a lesson
+    for r in rows:
+        t = tally.get(r[_SIG]) if r[_VERDICT] in VERDICTS and r[_DET] >= DETECTOR else None
+        if t is not None:
+            t[0] += 1
+            t[1] += r[_VERDICT] == "lesson"
     out = {}
     for sig in SIGNALS:
         if sig in AUTO_SIGNALS:
             out[sig] = {"status": "auto", "why": "a deterministic script signal"}
         elif sig in DETERMINISTIC_ASK:
             out[sig] = {"status": "ask", "why": "a fact a hook saw; unmeasured so far"}
+        elif sig in COMPUTED_ASK:
+            out[sig] = {"status": "ask", "why": "a count of a lesson's fingerprints, raised once per lesson"}
         elif sig in MEASURED_ASK:
             if sig in optin:
                 out[sig] = {"status": "ask", "why": "opted in by memory.ask.signals"}
                 continue
-            lab = [c for c in cands if c.get("signal") == sig and c.get("det", 1) >= DETECTOR
-                   and c.get("verdict") in VERDICTS]
-            good = sum(1 for c in lab if c["verdict"] == "lesson")
-            if len(lab) >= ASK_MIN_LABELLED and good / len(lab) >= ASK_MIN_PRECISION:
-                out[sig] = {"status": "ask", "why": f"measured: {good} of {len(lab)} labelled were lessons"}
+            labelled, good = tally[sig]
+            if labelled >= ASK_MIN_LABELLED and good / labelled >= ASK_MIN_PRECISION:
+                out[sig] = {"status": "ask", "why": f"measured: {good} of {labelled} labelled were lessons"}
             else:
-                have = f"{good} of {len(lab)} labelled were lessons" if lab else "none labelled"
+                have = f"{good} of {labelled} labelled were lessons" if labelled else "none labelled"
                 out[sig] = {"status": "shadow", "why": f"shadow, recorded but never asked: {have}; needs "
                             f"{ASK_MIN_LABELLED}+ labelled at {ASK_MIN_PRECISION:.0%}+ (or memory.ask.signals)"}
         else:
@@ -369,45 +561,49 @@ def signal_status(repo: Path, mem_cfg: dict = None, cands=None) -> dict:
     return out
 
 
-def _suppressed(c: dict, status: dict, muted: set, seen_fp: set, adr_paths: set):
-    """Why an unresolved candidate is not in the triage set, or None if it is."""
-    sig = c.get("signal")
+def _suppressed(r: list, status: dict, muted: set, seen_fp: set, adr_paths: set):
+    """Why an unresolved candidate (a slim row) is not in the triage set, or None if it is."""
+    sig = r[_SIG]
     st = status.get(sig, {}).get("status", "shadow")
     if st == "shadow":
         return "shadow"
-    if sig in MEASURED_ASK and c.get("det", 1) < DETECTOR:
+    if sig in MEASURED_ASK and r[_DET] < DETECTOR:
         return "stale"
-    if kind_of(c) in muted:
+    if (f"{sig}:{r[_KIND]}" if r[_KIND] else str(sig)) in muted:   # kind_of, on a row
         return "muted"
-    if c.get("fp") and c["fp"] in seen_fp:
+    if r[_FP] and r[_FP] in seen_fp:
         return "seen"
-    ev, ctx = c.get("evidence") or {}, c.get("context") or {}
-    if sig == "S9-S11" and ev.get("kind") == "adr" and (ctx.get("repo"), ev.get("path")) in adr_paths:
+    if sig == "S9-S11" and r[_KIND] == "adr" and (r[_REPO], r[_PATH]) in adr_paths:
         return "covered"      # the ADR script already raised S1 for this file
     return None
 
 
-def _triage_pool(fold, mem_cfg, project, branch, repo):
-    cands, muted = fold
-    status = signal_status(repo, mem_cfg, cands)
-    seen_fp = {c["fp"] for c in cands if c.get("fp") and c.get("resolution") in ("skipped", "stored")}
-    adr_paths = {((c.get("context") or {}).get("repo"), (c.get("evidence") or {}).get("path"))
-                 for c in cands if c.get("signal") == "S1"}
-    items, counts = [], {}
-    for c in cands:
-        if c.get("resolution"):
+def _pool_rows(rows: list, muted: set, mem_cfg, project, branch):
+    """The triage pool over slim rows: (the positions in `rows` of the untriaged ones, a count of
+    what was suppressed and why, each signal's status). `_triage_pool` and the hooks share it."""
+    status = _status_rows(rows, mem_cfg)
+    seen_fp = {r[_FP] for r in rows if r[_FP] and r[_RES] in ("skipped", "stored")}
+    adr_paths = {(r[_REPO], r[_PATH]) for r in rows if r[_SIG] == "S1"}
+    idx, counts = [], {}
+    for i, r in enumerate(rows):
+        if r[_RES]:
             continue
-        ctx = c.get("context") or {}
-        if project is not None and ctx.get("repo") != project:
+        if project is not None and r[_REPO] != project:
             continue
-        if branch is not None and ctx.get("branch") != branch:
+        if branch is not None and r[_BRANCH] != branch and r[_SIG] != "S7":
             continue
-        why = _suppressed(c, status, muted, seen_fp, adr_paths)
+        why = _suppressed(r, status, muted, seen_fp, adr_paths)
         if why:
             counts[why] = counts.get(why, 0) + 1
         else:
-            items.append(c)
-    return items, counts, status
+            idx.append(i)
+    return idx, counts, status
+
+
+def _triage_pool(fold, mem_cfg, project, branch, repo):
+    cands, muted = fold
+    idx, counts, status = _pool_rows([_row(c) for c in cands], muted, mem_cfg, project, branch)
+    return [cands[i] for i in idx], counts, status
 
 
 def untriaged(repo: Path, project=None, branch=None, mem_cfg=None, *, raw=False, fold=None) -> list:
@@ -423,11 +619,17 @@ def untriaged(repo: Path, project=None, branch=None, mem_cfg=None, *, raw=False,
         for c in fold[0]:
             ctx = c.get("context") or {}
             if c.get("resolution") or (project is not None and ctx.get("repo") != project) \
-                    or (branch is not None and ctx.get("branch") != branch):
+                    or (branch is not None and ctx.get("branch") != branch and c.get("signal") != "S7"):
                 continue
             out.append(c)
         return out
     return _triage_pool(fold, mem_cfg, project, branch, repo)[0]
+
+
+def untriaged_count(repo: Path, project=None, branch=None, mem_cfg=None) -> int:
+    """`len(untriaged(...))` for a hook: the same count, read through the spool's index."""
+    rows, muted = _slim_fold(repo)
+    return len(_pool_rows(rows, muted, mem_cfg, project, branch)[0])
 
 
 def auto_signals(mem_cfg: dict) -> set:
@@ -483,13 +685,16 @@ def ask_question(c: dict) -> str:
                 "ledger": "The phase ledger was written", "adr": "An ADR file was written"}.get(
                     sub, "A watched file was written")
         return f"{what} ({ev.get('path', '')}). Is there a decision or lesson in it to keep?"
+    if sig == "S7":
+        from . import standards
+        return standards.question_text(c)
     if sig == "S12":
         ids = ", ".join(ev.get("lessons") or [])
         return f"You corrected me after lesson(s) {ids} were recalled. Should a new lesson replace one?"
     return f"{c.get('name', sig)}: is there a lesson to keep?"
 
 
-def triage(repo: Path, mem_cfg: dict = None, *, project=None, branch=None) -> dict:
+def triage(repo: Path, mem_cfg: dict = None, *, project=None, branch=None, tiers=None) -> dict:
     """The triage plan for the untriaged candidates of one project: the rule table's outcome
     (spec §4.3) for each, `auto` for an auto signal within the per-session budget, else `ask`. This
     is read-only: it stores nothing. The lessons-triage skill reads it, writes the lesson text, and
@@ -499,7 +704,10 @@ def triage(repo: Path, mem_cfg: dict = None, *, project=None, branch=None) -> di
     `questions` is the one batched question set for the ask items: each has the four options of
     spec §4.3. `suppressed` counts what was left out and why (a signal still in shadow, a muted kind,
     a fingerprint already skipped) and `signals` says each signal's status, so a quiet checkpoint
-    explains itself."""
+    explains itself.
+
+    `tiers` are the tiers a standard (S7) can be promoted to, in the order offered
+    (`standards.offer_tiers`); without them an S7 question offers the shared tier only."""
     mem_cfg = mem_cfg or {}
     auto = auto_signals(mem_cfg)
     budget = auto_budget(mem_cfg)
@@ -519,10 +727,14 @@ def triage(repo: Path, mem_cfg: dict = None, *, project=None, branch=None) -> di
                      "reason": reason, "evidence": c.get("evidence") or {},
                      "context": c.get("context") or {}})
         if outcome == "ask":
+            if sig == "S7":
+                from . import standards
+                opts = standards.options(c, tiers)
+            else:
+                opts = [{"key": k, "label": lab} for k, lab in OPTIONS]
             questions.append({"id": c["id"], "signal": sig, "kind": kind_of(c),
                               "category": ask_category(c), "question": ask_question(c),
-                              "supersede": sig == "S12",
-                              "options": [{"key": k, "label": lab} for k, lab in OPTIONS]})
+                              "supersede": sig == "S12", "options": opts})
     return {"project": project, "branch": branch, "budget": budget, "auto_signals": sorted(auto),
             "untriaged": len(items), "auto": auto_count, "ask": len(items) - auto_count,
             "items": plan, "questions": questions, "suppressed": suppressed,
@@ -1006,9 +1218,16 @@ def _spool_for(root: Path, env):
     return repo, mem_cfg
 
 
-def record_adr(root, adr_id, path="", *, env=None):
+def record_adr(root, adr_id, path="", *, spec=None, question_class=None, option=None,
+               config_key=None, config_value=None, env=None):
     """Zethus's new-adr.py calls this after writing an ADR: append one S1 (decision) candidate.
-    Pointers only (the id and a scrubbed repo-relative path), never the ADR's text."""
+    Pointers only (the id and a scrubbed repo-relative path), never the ADR's text.
+
+    Phase 3 adds what makes a repeated answer countable (spec 4.4): the ADR's question class and
+    chosen option (short lines the agent wrote, scrubbed, dropped if they hold a credential shape),
+    the config key the answer maps to, if any, and the work it belongs to: `context.ref` is the
+    spec or ticket (else the branch), kept in this local spool only, and `context.ctx` its salted
+    hash, which is all a lesson will ever carry."""
     env = os.environ if env is None else env
     repo, _ = _spool_for(root, env)
     if repo is None:
@@ -1016,8 +1235,20 @@ def record_adr(root, adr_id, path="", *, env=None):
     ev = {"adr": str(adr_id)}
     if path:
         ev["path"] = core.scrub_machine_paths(str(path))
-    return add_candidate(repo, "S1", host="zethus-script", event="new-adr",
-                         context=project_context(Path(root)), evidence=ev)
+    extra = {"qclass": question_class, "option": option, "config_key": config_key,
+             "config_value": config_value}
+    extra = {k: core.scrub_machine_paths(str(v).strip())[:200] for k, v in extra.items() if v and str(v).strip()}
+    if extra and not core.find_secret(json.dumps(extra)) and ("qclass" in extra) == ("option" in extra):
+        ev.update(extra)
+    ctx = project_context(Path(root))
+    try:
+        from . import standards
+        found = standards.project_ref(repo, Path(root), spec=spec, branch=ctx.get("branch"), env=env)
+    except Exception:  # noqa: BLE001 - a script must never fail on this
+        found = None
+    if found:
+        ctx.update(ref=found["ref"], ctx=found["ctx"])
+    return add_candidate(repo, "S1", host="zethus-script", event="new-adr", context=ctx, evidence=ev)
 
 
 def _load_gates(repo: Path) -> dict:
@@ -1276,23 +1507,23 @@ def capture_event(mode: str, ev: dict, *, host=None, env=None, root=None):
                 rec["detail"] = "the host reports no tool outcome; S6 can't be seen here"
 
     elif mode in ("stop", "pre-compact", "session-start"):
-        fold = _fold(repo)
-        pending = [c for c in fold[0] if not c.get("verdict")]
-        mine = [c for c in pending if session and c.get("session") == session]
+        rows, muted = _slim_fold(repo)  # not `_fold`: a hook reads the spool through its index
+        pending = [r for r in rows if not r[_VERDICT]]
+        mine = [r for r in pending if session and r[_SESSION] == session]
         # The triage checkpoint is scoped to the project (one memory repo holds every project's
         # spool), and counts untriaged candidates — which includes the script-emitted S1/S2 that
         # carry no host session, so session-scoping alone would miss them.
-        untr = untriaged(repo, project=ctx.get("repo"), branch=ctx.get("branch"), mem_cfg=mem_cfg, fold=fold)
-        rec.update(pending=len(pending), pending_session=len(mine), untriaged=len(untr))
+        untr = len(_pool_rows(rows, muted, mem_cfg, ctx.get("repo"), ctx.get("branch"))[0])
+        rec.update(pending=len(pending), pending_session=len(mine), untriaged=untr)
         if mode == "stop":
             rec["stop_hook_active"] = bool(ev.get("stop_hook_active"))
             if untr and mode_str == "active" and not ev.get("stop_hook_active"):
                 # Phase 1: block once (the re-fire carries stop_hook_active) to force a triage.
                 rec.update(decision="block",
-                           detail=f"{len(untr)} candidate(s) await triage in {ctx.get('repo')}")
+                           detail=f"{untr} candidate(s) await triage in {ctx.get('repo')}")
             elif untr:
                 rec.update(decision="would-block",
-                           detail=f"{len(untr)} candidate(s) await triage in {ctx.get('repo')}; "
+                           detail=f"{untr} candidate(s) await triage in {ctx.get('repo')}; "
                                   + ("already re-fired after a block" if ev.get("stop_hook_active")
                                      else "shadow mode never blocks"))
             else:

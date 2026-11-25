@@ -6,6 +6,8 @@
 | Date | {{date}} |
 | Deciders | {{deciders}} |
 | Recorded by | {{recordedBy}} |
+| Question class | {{questionClass}} |
+| Chosen option | {{chosenOption}} |
 | Source | the spec section, ticket, PR or meeting where this was decided |
 | Enforced where | a file and symbol, a CI check, a branch rule — or "convention only" |
 | Supersedes | — |

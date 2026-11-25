@@ -1,6 +1,6 @@
 # Lessons capture and harness convergence: verification and spec (2026-10-29)
 
-**Status:** Phases 0 to 2 are built. The engine fixes B1–B6 merged on 2026-10-30 (PR #46). The
+**Status:** Phases 0 to 3 are built. The engine fixes B1–B6 merged on 2026-10-30 (PR #46). The
 candidate spool and the capture hooks ran in **shadow mode** for a month on one developer's
 machine; the result is in [§5.1](#51-shadow-week-result-2026-11-24). Phase 1 then added
 **auto-store** of the two deterministic, script-emitted signals (S1 an ADR, S2 a gate red→green),
@@ -12,9 +12,12 @@ batched, for the signals that have earned a question; the signals that are still
 shadow and say so. It also added Copilot's session-start output shape and Amphion's and Zethus's
 watched paths. Phase 1 and 2's visible behaviour is **opt-in** (`memory.mode: "active"`, else
 `MNEMOSYNE_CAPTURE_MODE`), so the default stays shadow and a package upgrade changes nothing on its
-own. Still open: the §4.7 cells that couldn't be checked from that host (VS Code, the Copilot cloud
-agent and Cursor), now including Phase 2's Copilot output shapes there. Still ahead: standards
-(Phase 3), the shared core (Phase 4).
+own. **Phase 3** added context fingerprints (a context is a spec or ticket, Q5), standards (S7: a
+lesson that recurs across contexts raises one "promote to standard?" question), promotion to the
+shared tier or any store in `config.stores` (Q3), and config-default proposals, all in active mode
+only ([§5.3](#53-phase-3-standards-and-the-exit-test-2026-11-24)). Still open: the §4.7 cells that
+couldn't be checked from that host (VS Code, the Copilot cloud agent and Cursor), now including
+Phase 2's Copilot output shapes there. Still ahead: the shared core (Phase 4).
 **All eight questions are ruled** (2026-10-29). Seven went as recommended: Zethus and Amphion
 stay two kits on a shared core (Q1); auto-store never stores the six excluded classes (Q2) and
 never writes beyond the local tier (Q7); a standard is three occurrences across two or more specs
@@ -362,7 +365,7 @@ transcript is parsed and no model is called from a hook, which is what killed Mo
 | S4 | The user explicitly says "remember", "always", "never", "from now on" | prompt hook (side effect only) | convention | **auto**: an explicit instruction is consent |
 | S5 | The user corrects the agent ("no,", "don't", "instead", "that's wrong") | prompt hook | convention / mistake | **ask** |
 | S6 | Tool failure followed by success on a similar command | post-tool hook | mistake | **ask** (high noise; Phase 0 measures it) |
-| S7 | A decision question is answered with the same option as a prior ADR or decision lesson | triage (lesson match) | standard | **ask to promote** |
+| S7 | A lesson recurs: three occurrences across two or more contexts in the window, or a decision's question class and chosen option repeat across ADRs | engine, after a capture (`mnemosyne.standards`) | standard | **ask to promote** |
 | S8 | `fresh-eyes-investigation` invoked (stuck twice) | post-tool hook on the skill / Zethus stage rule | lesson | **ask** at the next stage exit |
 | S9 | An *As built* deviation is written to a spec | post-tool hook on a watched path | decision | **ask** |
 | S10 | A friction-log entry with a workaround (Amphion `log-friction`) | post-tool hook on the watched path | process | **ask** |
@@ -440,7 +443,9 @@ candidate isn't asked twice.
 1. a shared-tier lesson with `memory_type: procedural`, confidence high, and the `standard` marker,
    via the normal promote PR; and
 2. where the answer maps to a config key (a gate command, `branchModel.maxBehind`, a commit
-   trailer), a **config default**, so Zethus stops asking the question at all.
+   trailer), a **config default**, so Zethus stops asking the question at all. **Built as a
+   proposal**: an ADR (or a capture) names the key and value (`--config-key`, `--config-value`),
+   and a promotion prints them as a JSON snippet to merge by hand. Nothing writes a config file.
 
 It never proposes writing into `AGENTS.md`, `CLAUDE.md` or Copilot instructions: those are routers
 and carry no detail (repo [`AGENTS.md`](../AGENTS.md)).
@@ -468,6 +473,26 @@ one came from. So twenty reinforcements in one spec look the same as three acros
 The thresholds are config keys (`memory.standard`, §4.7) whose defaults are the Q4 ruling. What
 counts as a context is not configurable.
 
+**As built (Phase 3).** `mnemosyne.standards` holds all of it:
+
+- **The reference** is, in order, an explicit spec or ticket id (`new-adr.py --spec`, `capture
+  --spec`), a ticket key found in the branch name, then the branch itself. The hash is
+  `sha256(salt, repo identity, reference)` cut to 16 hex digits. The repo identity is the origin URL
+  without scheme, login or `.git`, else the folder name. The salt is `MNEMOSYNE_CONTEXT_SALT`, else a
+  random per-memory-repo salt in the spool (`memory/.capture/salt`, which ignores itself). **Hashes
+  compare only under one salt**: a team that wants one count across machines sets one value.
+- **The lesson carries** `contexts` (`{ctx, date, signal[, stage][, k]}`, capped at 60; `k` hashes
+  the candidate so one candidate counts once), and for a decision `decision: {class, option}`. A
+  reinforce matches that pair first, folded for case and punctuation, and the similarity score
+  second. Neither the spec id, the ticket nor the branch is ever written to a lesson by this path.
+- **The question is raised once per lesson, ever** (`standards.raise_candidate`): any earlier S7
+  candidate for it, answered or not, stops another, so a skip or "never ask about this kind" is
+  final. It is raised after a `capture` or `reflect` that lands on a qualifying lesson, or by
+  `mnemosyne standard scan`. A lesson already promoted, retired or proposed is not raised.
+- **Active mode only.** In shadow mode (the default) `capture` records no fingerprint and reads no
+  decision key from a candidate, and nothing raises S7. A decision class and option typed on the
+  command line are always honoured.
+
 ### 4.5 Where each outcome lands
 
 These are Mnemosyne's own tiers ([design](../mnemosyne/docs/design.md#architecture)). The
@@ -485,7 +510,8 @@ store's repo.
 **Sharing defined in Mnemosyne's terms:** a lesson is *shared* when it sits in a committed file of
 any repo other than the developer's own gitignored local tier. Sharing therefore always means a
 `promote` or `export`, always produces a PR, and always runs the scrub. Where it can go is
-[Q3](#q3-federation-target), ruled: the tiers Mnemosyne's federation already defines, which are
+[Q3](#q3-federation-target), ruled (**Phase 3 builds it as `standard promote <id> --to <tier>`**,
+offering the shared tier and every writable store, `memory.offerTier` first): the tiers Mnemosyne's federation already defines, which are
 local, then the repo's shared tier, then any number of stores in `config.stores`, each its own
 git repo with a distinct id prefix. The spec adds no default store of its own. **Nothing from
 Ceryce's work may ever land in this repository**: its `mnemosyne/memory/` is a public demo store.
@@ -502,7 +528,7 @@ on every write, the local tier included. None of it is left to the agent.
 | **Machine identifiers** | The identifier guard's shapes: home-directory paths, drive paths, WSL mounts, non-allowlisted emails, repo URLs under foreign orgs ([`scripts/check_identifiers.py`](../scripts/check_identifiers.py)) | Block; show the match; offer the placeholder |
 | **Author** | The `$USER`/`$USERNAME` fallback (B6) | Never fall back to the login. Require `MNEMOSYNE_AUTHOR` or a configured handle, else write `unknown` |
 | **Anchors** | Absolute paths, or paths outside the repo | Rewrite to repo-relative; drop what can't be |
-| **Provenance** | `spec_id`, ticket keys, branch names | Kept in local and shared tiers; **replaced by the context hash** when exporting to a store marked `scope: "external"` |
+| **Provenance** | `spec_id`, ticket keys, branch names | Kept in local and shared tiers; **replaced by the context hash** when exporting to a store marked `scope: "external"`. **Built (Phase 3)**: the store's `scope` key is `internal` (default) or `external`, and an external export drops `spec_id`, `repo`, `anchors` and `reflection_of`, keeping `contexts` |
 | **Private terms** | Client, employer and project names | Optional denylist file **outside any repo** (`MNEMOSYNE_DENYLIST`), the same pattern as the private sweep in the guard's docstring. The list's content is never committed |
 | **Untrusted text** | Tool output, web pages, issue bodies | Never copied into a lesson verbatim. A candidate carries pointers (path, signal, exit code); the agent or user writes the lesson text |
 
@@ -605,11 +631,53 @@ files.
 
 **Hook rules, from the Morpheus retrospective:**
 
-- Hooks only append to the spool and exit. No git, no network, no model, no lock on the store. Each
-  is bounded at 200 ms.
+- Hooks only append to the spool and exit (and refresh the spool's read index, a cache: see "Spool
+  read cost" below). No git, no network, no model, no lock on the store. Each is bounded at 200 ms.
 - Every hook writes one log line per decision. A `mnemosyne doctor` command shows the last N
   decisions, so a fail-open hook never fails silently.
 - Every guard is tested with the variable set the way the host sets it.
+
+**Spool read cost.** `stop`, `pre-compact` and `session-start` count pending and untriaged
+candidates, so they fold the spool, and parsing every line of a 13,490-line spool took over 150 ms
+(§5.2 measured about 0.3 s). They read it through an index instead: `index.bin` beside the spool
+holds the slim rows folded so far (the fields the rules read, as lists) and the byte offset they end
+at, so a run parses only the lines appended since. The index is a cache of a fold, never a source
+of truth, and it is rebuilt from the spool whenever it can't be trusted:
+
+- **Missing, damaged or foreign:** a checksum on the payload, a version and the Python's marshal
+  format are checked before anything is decoded. Any failure folds the whole spool and writes a
+  fresh index. A read that fails for any reason at all falls back to the whole read, so a hook
+  never fails on the index (fail-open).
+- **S7 through the index:** an S7 stays in scope on every branch of its project, so the slim row keeps
+  the signal, repo and branch that rule reads, and a hook's count equals the full read's. `context.ref`
+  and `context.ctx` (an S1's work) are not in the row: they are read from the full fold when a capture
+  needs them. A change to the row's shape bumps the index version.
+- **The spool changed under it:** the offset must still be inside the file, the hash of the file's
+  first and last 4 KiB (up to that offset) must match, and, when nothing was appended, so must the
+  modification time. A spool that shrank, was archived, or lost a line is read whole. The one
+  edit this can't see is one that keeps the size, the first and last 4 KiB and the modification
+  time; delete `index.bin` after hand-editing the middle of a spool.
+- **A torn last line:** only complete lines (up to the last newline) are indexed. A line still
+  being written, or one whose newline hasn't landed, counts for that run but is never indexed, so
+  it is counted once when it completes and not at all if it is withdrawn.
+- **Concurrent hooks:** no lock. Each run writes the index for the offset it reached, to a temp
+  file in the same directory and then renames it, so a reader sees the old index or the new one.
+  The last rename wins, and an older index is still valid, just behind: the next run reads the
+  difference. On Windows a rename onto an index another run has open is refused; the run that
+  loses it leaves the work to the next, and costs nothing else.
+- **Same answers:** `tests/test_mnemosyne_spool_index.py` compares the hook's read with the full
+  read (`_fold`, `untriaged`) after appends, labels, resolutions, deletions, a truncated last line,
+  a damaged index and racing hooks. The rules themselves are shared, not copied (`_pool_rows`).
+
+Measured on the same 13,490-line synthetic spool, 30 cold runs each, back to back on one machine
+(Windows, Python 3.14, a busy desktop, so the absolute numbers are loose): the hook body, which is
+what the 200 ms bound covers, went from p50 164–179 ms (p95 216–236) at `stop` to p50 21 ms (p95
+32–59), and at `session-start` from p50 167–185 ms (p95 225–229) to p50 22 ms (p95 30–36). A whole
+`stop` invocation, interpreter start-up included, went from p50 330–348 ms to 168–176 ms, and a
+whole `session-start` (which reads the spool twice, once to capture and once for the digest) from
+512–561 ms to 188–204 ms. At 50,000 lines the body is p50 about 110–200 ms with a p95 past the
+bound on that machine, so the index buys roughly a fourfold margin, not an unbounded one;
+archiving old lines remains the answer to a spool that large.
 
 **Where judgement happens:** the agent triages the spool at three checkpoints, using a new
 `lessons-triage` skill that runs the rule table in §4.3 through the engine. The checkpoints are
@@ -794,7 +862,7 @@ All of these are inside Mnemosyne and stay stdlib-only.
 | The scrub (§4.6) on every committed-tier write, and its secrets rule on every write, local included; the author fallback removed | B6, Q2 | M |
 | `capture` / `reflect` refuse a `captured_by: hook:*` lesson that is `security`, supersedes another, or targets a tier other than local | Q2 | S |
 | Candidate spool beside the local tier (gitignored) with `candidate add/list/triage/dismiss`. **Built in Phase 0, shadow mode:** it lives in a `.capture` directory under the memory repo's `memory/`. That directory ignores itself, so a memory repo whose `.gitignore` predates it can't commit it. It has `candidate add/list/label/stats`; `label` records whether a candidate was worth a lesson, which is the precision data Phase 0 needs. `triage` and `dismiss` come with Phase 1 | §4.2 | M |
-| Context fingerprints on reinforce, and the `standard` marker | §4.4 | S–M |
+| Context fingerprints on reinforce, and the `standard` marker. **Built in Phase 3** (`mnemosyne.standards`, `core.add_context`, `core.find_decision_match`, the `standard` commands, `core.export(shape=…)`) | §4.4 | S–M |
 | `retire <id> --reason` and `doctor`. **`doctor` built in Phase 0**: it shows the last N hook decisions, counts and the slowest hook body. `retire` comes with Phase 1 | §4.3, §4.7 | S |
 | The bridge grows `post-tool`, `stop` and `pre-compact` modes, plus per-host output shapes. **The modes are built in Phase 0, shadow only**: they read every host's field names (§4.7.1) but print nothing. The output shapes come with Phase 1 and 2 | §4.7 | M |
 
@@ -820,7 +888,7 @@ Sizes follow stage 1: S is under half a day, M is half a day to two days, L is t
 | **0** | Engine fixes B1–B6 before any capture (Q8, ruled), with tests that fail before each fix. B4 is fixed as merged-means-approved (Q6); B6 is the scrub (§4.6) and the author fallback. Candidate spool and hooks in **shadow mode**: they record candidates and log decisions, but store nothing and ask nothing. Verify the unverified hook cells in §4.7 on real installs. **Built:** B1–B6 (PR #46); the spool, `doctor` and the bridge's capture modes, which detect S4–S6, S8 and S9–S11 (`tests/test_mnemosyne_capture.py`); hook cells checked on Claude Code, Copilot CLI and Codex (§4.7.1); the week of shadow data collected and read (§5.1). **Open:** VS Code, the cloud agent and Cursor | Bug fixes only; capture is observe-only | An MCP tool-call test green on Windows and Linux; an id-collision test; a merged review PR retires its local original with no hand edit; an export carrying a home-directory path or a login as author is blocked; one week of spool data showing the count and precision of each signal (`mnemosyne candidate stats`, after labelling with `candidate label`) | M–L |
 | **1** | Auto-store for S1 (ADR) and S2 (gate red → green) through Zethus's scripts. `session-start` recall digest. Claude Code `stop` triage of pending candidates through the `lessons-triage` skill. Local tier only (Q7). The Q2 exclusions hold from here: an S1 or S2 candidate in an excluded class is asked at the same triage, never saved. **Built:** `new-adr.py` emits S1 and `run-local-gates.py` emits S2 (`mnemosyne.candidates.record_adr` / `record_gate_results`, fail-open); `capture --captured-by hook:<signal> --candidate <id>` with the engine's Q2 refusals (security / supersede / non-local / secret) + confidence pinned to medium; `candidate triage` / `candidate resolve`, `retire`; the bridge's active-mode `session-start` digest and `stop` block; the `lessons-triage` skill; opt-in via `memory.mode: "active"`. Tests: `tests/test_mnemosyne_capture.py` (Phase1* classes), `tests/test_zethus_lessons_capture.py` | Yes: auto-store to local, one triage checkpoint | A Zethus run that records an ADR and fixes a red gate ends with two `SAVED:` lines and an empty spool; `retire` undoes either; no write outside `local.jsonl`; a `security` ADR is asked, not saved, and the engine refuses it as a hook capture | M |
 | 2 | Ask outcomes (S4–S6, S8–S12), batched; Copilot `sessionStart` and `.github/hooks/*.json`; Amphion watched paths. **First, tighten detection** (§5.1) and measure it on the shadow spool. **Built:** the tightened S4/S5/S6 detectors and the brief gate (`mnemosyne.detect`); measurement in §5.2; per-signal ask status (S8 and S9–S11 ask, S4/S5/S6/S12 stay in shadow until labelled precision earns them a question, or a project opts in); negative fingerprints and "never ask about this kind"; S12 from recalled ids; one batched question set (`candidate triage --format json`, `--numbered`); S9–S11 kinds, once per session and path; watched paths from Zethus's and Amphion's own keys; Copilot's JSON `additionalContext` for session-start and prompt in active mode; the double-fire guard (§4.7) also holds the digest to one print. Tests: `tests/test_mnemosyne_capture_phase2.py`. **Not seen on a real host:** VS Code, the Copilot cloud agent, and the `agentStop` block with these changes (it was seen in E2 with the Phase 1 reason text) | Yes, opt-in | Triage on Copilot CLI and VS Code; no double-fire with both files present. **Met in tests** (one digest from two files); **not met on a host**: no VS Code run, and the CLI was not driven again in this phase | M |
-| 3 | Context fingerprints (a context is a spec or ticket, Q5), standards (S7), promotion to shared or store, and config-default proposals. Promotion targets the tiers Mnemosyne's federation already has: the shared tier or any store in `config.stores` (Q3, ruled) | Yes | Three ADRs with the same answer across two specs produce exactly one "promote to standard?" question; three in one spec produce none (Q4) | M |
+| 3 | Context fingerprints (a context is a spec or ticket, Q5), standards (S7), promotion to shared or store, and config-default proposals. Promotion targets the tiers Mnemosyne's federation already has: the shared tier or any store in `config.stores` (Q3, ruled). **Built:** `mnemosyne.standards`; fingerprints on capture and reinforce; the decision-key match; `new-adr.py --question-class/--option/--spec/--config-key/--config-value` and two ADR template rows; S7 raised once per lesson and asked in the batched set with one option per tier; `standard list/scan/promote/config`; a store `scope` of `internal` or `external`; the opt-in gate (active mode only). Tests: `tests/test_mnemosyne_standards.py` | Yes, opt-in | Three ADRs with the same answer across two specs produce exactly one "promote to standard?" question; three in one spec produce none (Q4). **Met**, end to end through `new-adr.py`, `capture --candidate` and `candidate triage` ([§5.3](#53-phase-3-standards-and-the-exit-test-2026-11-24)) | M |
 | 4 | The shared core (Q1, ruled), inside the stage 1 installer: one source tree for the memory hook script and its `hooks.json`, the `memory` config schema, and the shared skills. Zethus and Amphion each install from it and keep their own names, READMEs and install paths. **Built toward it (2026-11-01):** Mnemosyne has its own installer, `mnemosyne/install.py`. It sets up the package, a local git memory repo (`~/repos/mnemosyne-local` by default, no remote), a persistent `MNEMOSYNE_REPO`, the Claude Code plugin through a local marketplace, and, with `--target`, a Copilot `.github/hooks/*.json` file (`mnemosyne.json`) generated from the plugin's `hooks.json`, so registration keeps one source; `--user` writes the same file to `~/.copilot/hooks`. `zethus/install.py --with-mnemosyne` calls it rather than copying it (`tests/test_mnemosyne_install.py`, `tests/test_zethus.py`). **Open:** the shared core itself and Amphion's install; the shared core's installer should call `mnemosyne/install.py` too | Packaging | Stage 1 §3.4 CI additions green; installing both kits registers each hook once; `tests/test_zethus.py` green | M, on top of the stage 1 installer |
 
 Phase 0 deliberately ships no capture. Building capture on an engine that loses lessons on merge
@@ -917,10 +985,54 @@ the heredoc rule only where the head still showed it (24 of them).
   candidates from the current detectors are labelled and at least half were worth a lesson
   (`mnemosyne candidate stats --current`). The spool's own labels will decide S5 first.
 - **Cost.** Reading the whole spool at `stop` and `session-start` took about 0.3 s on these 13,490
-  lines, over the 200 ms body bound (§4.7). The tightening shrinks what is written, but archiving old
-  lines is not built.
+  lines, over the 200 ms body bound (§4.7). That is fixed: the hooks read the spool through an
+  index and a body now takes about 20 ms on the same size (§4.7, "Spool read cost"). Archiving old
+  lines is still not built, and the index doesn't need it at this size.
 
 Nothing was labelled on the live spool, and no hook, config or plugin on the machine was touched.
+
+### 5.3 Phase 3: standards, and the exit test (2026-11-24)
+
+**The exit test** is `TestExitCriterion` in `tests/test_mnemosyne_standards.py`. It drives the real
+pieces in a scratch memory repo: Zethus's `new-adr.py` (a subprocess) records each ADR with
+`--question-class "merge strategy" --option "merge commits" --spec <id>`; `mnemosyne capture
+--captured-by hook:S1 --candidate <id>` stores it, with three different wordings; `mnemosyne candidate
+triage --format json` is read for S7 questions.
+
+| Case | Result |
+| --- | --- |
+| Three ADRs, one answer, specs A, A, B | After two: no question. After the third: the capture prints `STANDARD?`, and triage has **exactly one** S7 question, with options `promote:shared`, `skip`, `never`. One lesson, `reinforced` 2, three fingerprints over two distinct hashes. A fourth ADR in a third spec, or `standard scan`, raises no second one |
+| Three ADRs, one answer, all in spec A | **No question**, however often triage or `scan` runs. One lesson, three fingerprints, one distinct hash; `standard list` says `3 occurrences / 1 context`, below the rule |
+| A skip | Final: two more occurrences in two more specs raise nothing |
+
+The same file covers the rest: the window and `memory.standard` thresholds; the reference order
+(spec, then a ticket key in the branch, then the branch) and the salted, stable hash; no spec,
+ticket or branch name on a lesson; promotion to the shared tier (a review branch whose copy is a
+procedural `convention` at high confidence with the `standard` marker, the local original kept and
+unmarked) and to a configured store, internal and external; `offerTier` ordering with a read-only
+store left out; a config-default proposal that is printed and never written; and shadow mode, where
+`capture` records no fingerprint and nothing raises S7.
+
+**Not verified.**
+
+- **No real host.** The question set, its numbered form and the `standard promote` answer were run
+  through the CLI, not through a Claude Code or Copilot session: the Stop block, the host's question
+  tool and `lessons-triage` following the new S7 section are unobserved.
+- **Counting across machines.** Hashes compare only under one salt. Two developers who each keep the
+  default per-repo salt will not recognise one another's contexts, so a store that gathers promoted
+  standards from several people would count each of their hashes as distinct. Setting
+  `MNEMOSYNE_CONTEXT_SALT` to one value fixes it; nothing checks that they did.
+- **The shared tier is not re-offered.** Only a local lesson is promoted, so a recurring lesson that
+  already sits in a committed tier is not raised, and a lesson promoted to the shared tier cannot
+  later be offered to a store. That would need an in-place edit of a committed file, which no phase
+  has built.
+- **Real-spool precision.** There are no S7 candidates on any real spool, so nothing says how often
+  a raised S7 is worth a promotion. It asks from the start, like S8 and S9–S11, and is unmeasured.
+- **Config proposals are by hand.** The key and value come from the ADR author; the engine checks
+  only that the key is a dotted name and the value carries no credential shape. Whether the key
+  exists in a kit's config is not checked.
+- **`validate` on an auto-captured lesson.** A capture with no tags has an empty `trigger`, which
+  `validate` reports as a missing required field. That is older than this phase and is untouched.
 
 ---
 

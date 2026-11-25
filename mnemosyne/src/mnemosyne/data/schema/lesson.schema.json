@@ -73,6 +73,7 @@
             "remote_id": {"type": "string", "description": "The copy's id in that tier."}
           }
         },
+        "captured_by": {"type": "string", "description": "For an automated capture: hook:<signal>, so auto-captures can be listed and pruned as a group."},
         "exported_from": {"type": "string", "description": "On a promoted or exported copy whose id differs: the local id it came from."}
       }
     },
@@ -106,6 +107,36 @@
     "uses": {"type": "integer", "minimum": 0, "default": 0, "description": "Baseline recall count as authored/seeded. Live recall usage is tracked in the gitignored memory/usage.local.json sidecar so reads never churn this committed file; stats/prune merge the two."},
     "reinforced": {"type": "integer", "minimum": 0, "default": 0, "description": "How many times a near-duplicate capture reinforced this lesson instead of adding a new record. High reinforced = repeatedly re-learned; can earn higher confidence and protects against pruning."},
     "last_used": {"type": "string", "format": "date", "description": "ISO date this lesson was last reinforced (set by dedup-on-capture). A recency signal used by prune."},
+    "contexts": {
+      "type": "array",
+      "description": "Context fingerprints (spec 4.4): one per capture or reinforce, so recurrence can be counted across distinct specs or tickets. `ctx` is a salted hash of the repo's identity plus the spec or ticket id (else the branch), never the names; `k` hashes the candidate it came from, so one candidate counts once.",
+      "items": {
+        "type": "object",
+        "required": ["ctx"],
+        "properties": {
+          "ctx": {"type": "string"}, "stage": {"type": "string"}, "date": {"type": "string", "format": "date"},
+          "signal": {"type": "string"}, "k": {"type": "string"}
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "description": "For a decision lesson: the question class and the chosen option its ADR recorded. A later capture with the same pair reinforces this lesson whatever its wording (the S7 match).",
+      "properties": {"class": {"type": "string"}, "option": {"type": "string"}}
+    },
+    "standard": {
+      "type": "object",
+      "description": "The marker of a standard: a lesson that recurred across distinct contexts and was promoted as one. Set on the promoted copy only.",
+      "properties": {
+        "since": {"type": "string", "format": "date"}, "occurrences": {"type": "integer"},
+        "contexts": {"type": "integer"}, "windowDays": {"type": "integer"}
+      }
+    },
+    "config_default": {
+      "type": "object",
+      "description": "The config key this lesson's answer maps to, and its value. A proposal only: promotion prints it, nothing ever writes it.",
+      "properties": {"key": {"type": "string"}, "value": {}}
+    },
     "retired_reason": {"type": "string", "description": "If status=retired (by `mnemosyne prune`, or by `sync` once a promoted copy merged), the machine-written reason. The record is KEPT for audit, never deleted."}
   }
 }

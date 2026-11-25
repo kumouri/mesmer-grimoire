@@ -38,6 +38,8 @@ Each entry in `stores` is a broader, shared memory tier the primary repo federat
   path        alternatively, a path to an already-present memory repo (offline / tests); one of
               url|path is required (path wins if both are given)
   readonly    optional; if true, `promote --to <tier>` refuses to write to it (default false)
+  scope       optional; "internal" (default) or "external". A promotion to an external store drops
+              the spec id, repo, anchors and reflection text and keeps only the context hashes
 
 Each entry in `axes` is a dimension recall scores a lesson on:
 
@@ -177,8 +179,19 @@ def _norm_stores(raw) -> list:
             "url": s.get("url") or None, "path": s.get("path") or None,
             "readonly": bool(s.get("readonly", False)),
             "branch": s.get("branch") or None,
+            "scope": _norm_scope(tier, s.get("scope")),
         })
     return out
+
+
+def _norm_scope(tier, raw) -> str:
+    """A store's `scope`: "internal" (the default) or "external". An external store is read by people
+    beyond the project, so a promotion to it carries the context hash instead of the spec, ticket,
+    repo or branch names (docs/lessons-capture-spec.md section 4.6, Provenance)."""
+    scope = str(raw or "internal").strip().lower()
+    if scope not in ("internal", "external"):
+        raise ConfigError(f"store '{tier}': scope must be \"internal\" or \"external\", got {raw!r}")
+    return scope
 
 
 def _load_json(p: Path) -> dict:

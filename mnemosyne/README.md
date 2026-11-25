@@ -233,6 +233,7 @@ a git `url` (cloned into a cache by `sync`) or a `path` to an existing repo:
 | `config` | Print the resolved active config and its source. |
 | `candidate list` / `add` / `label` / `stats` | The lessons-capture spool (below): list recorded candidates, add one by hand, label one `lesson` or `noise` (precision data), and show each signal's count and precision. |
 | `candidate triage` / `resolve <id> <outcome>` | The triage checkpoint (below): the plan of untriaged candidates for this project (`auto` vs `ask`), and recording a candidate's outcome (`stored`/`asked`/`skipped`/`dropped`) so it leaves the untriaged set. |
+| `standard list` / `scan` / `promote <id>` / `config <id>` | Standards (below): the lessons that carry context fingerprints and whether they meet the rule; raise the "promote to standard?" question for any that do; promote one to the shared tier or a store (`--to <tier>`, a review PR); print the config default a lesson proposes (never written). |
 | `doctor` | What the capture hooks recorded and decided, newest last, plus the spool's health. |
 | `selftest` | Zero-dependency test suite. |
 
@@ -243,7 +244,9 @@ Environment: `MNEMOSYNE_REPO` (primary repo), `MNEMOSYNE_CONFIG` (config path), 
 (lesson author override; otherwise the memory repo’s git `user.name`, then `GIT_AUTHOR_NAME`,
 then `unknown`; never the OS login), `MNEMOSYNE_CACHE` (where url-stores are cloned; default `~/.mnemosyne/stores`),
 `MNEMOSYNE_LOCK_TIMEOUT` (seconds a save waits for the store lock; default 10),
-`MNEMOSYNE_CAPTURE` (`off` turns the capture hooks off; recall is unaffected), and
+`MNEMOSYNE_CONTEXT_SALT` (the salt context fingerprints are hashed under; set the same value on every
+machine that should count one set of contexts, else each memory repo keeps its own), `MNEMOSYNE_CAPTURE`
+(`off` turns the capture hooks off; recall is unaffected), and
 `MNEMOSYNE_CAPTURE_MODE` (`active` opts a session into Phase 1's visible behaviour — the
 session-start digest and the stop triage block; default `shadow`).
 
@@ -338,6 +341,35 @@ asked, not stored. Auto-stored lessons land at **medium** confidence and are und
 `mnemosyne retire <id> --reason …`. The shadow data (see the spec) showed the keyword signals
 (S4/S5/S6) were far too noisy to auto-store, which is why only the two script signals auto-store.
 
+### Standards: the same answer, in different work
+
+Phase 3 notices a lesson that keeps coming back and asks whether it should become a **standard**
+([spec §4.4](../docs/lessons-capture-spec.md#44-recurrence-the-same-answer-in-different-situations)).
+It is part of **active** mode and does nothing in shadow mode, so an upgrade changes nothing by itself.
+
+- **A context is a spec or ticket.** Each capture and each reinforce appends `{ctx, stage, date,
+  signal}` to the lesson. `ctx` is a salted hash of the repo's identity plus the spec or ticket id
+  (else a ticket key in the branch name, else the branch), so a shared tier can count distinct
+  contexts without learning a repo, ticket or branch name, and one long ticket counts once however
+  many sessions it spans.
+- **A decision is matched on its answer, not its wording.** `new-adr.py` takes `--question-class`
+  and `--option` (and `--spec`); the same pair in a later ADR reinforces the lesson the first one
+  became, however it is phrased.
+- **The rule** is 3 occurrences across at least 2 contexts within 180 days
+  (`"memory": {"standard": {"minOccurrences": 3, "minContexts": 2, "windowDays": 180}}`). When a
+  capture meets it, one **S7** candidate is raised, once per lesson, ever. Three ADRs with the same
+  answer across two specs make exactly one "promote to standard?" question; three in one spec make
+  none; a skip or "never ask about this kind" is final.
+- **A yes is `mnemosyne standard promote <id> --to <tier> --candidate <S7 id>`**: the ordinary
+  promote or export (a review PR, after scrub) with the copy made a procedural `convention` at high
+  confidence carrying the `standard` marker. The tiers are the ones the federation already has: the
+  repo's shared tier, or any store in `config.stores` (`memory.offerTier` names the one offered
+  first). A store with `"scope": "external"` also loses the spec id, repo, anchors and reflection
+  text; the context hashes stay.
+- **A config default is a proposal.** Give an ADR `--config-key branchModel.maxBehind --config-value 0`
+  and a promotion prints that as a JSON snippet (`standard config <id>` prints it any time). Nothing
+  is ever written to a config file.
+
 ### Which signals ask
 
 Phase 2 makes the rest ask, but a signal that is still noisy stays in **shadow**: recorded, counted,
@@ -367,7 +399,8 @@ this repo" still counts.
 
 - **Where it goes:** `memory/.capture/` in the memory repo. The directory ignores itself, so the
   spool is never committed. `candidates.jsonl` holds candidates and labels; `decisions.jsonl` holds
-  one line per hook run; a `fired` folder holds the short-lived markers that stop one event being
+  one line per hook run; `index.bin` is the hooks' read cache of `candidates.jsonl`, safe to delete;
+  a `fired` folder holds the short-lived markers that stop one event being
   handled twice.
 - **Repeated standing instructions:** S4 and S5 candidates are claimed once per host-provided session,
   repo path and complete matched instruction line (not the truncated excerpt). An exact line in
@@ -416,15 +449,18 @@ this repo" still counts.
   nothing new. VS Code and the cloud agent were not run: the shape there is unverified, and a host
   the bridge doesn't recognise as Copilot gets plain stdout. With both the repo's file and the user's
   present the engine's double-fire guard lets one run print and act.
-- **Cost:** `stop` and `session-start` read the whole spool, which took about 0.3 s on a 13,000-line
-  one, over the 200 ms a hook body should stay under. The tightened detectors write far fewer lines,
-  but nothing yet archives old ones.
+- **Cost:** `stop` and `session-start` read the spool through an index (`index.bin`, beside the spool),
+  so a hook parses only the lines added since the last one: about 20 ms on a 13,000-line spool,
+  where a whole read took 0.3 s. The index is a cache. If it is missing, damaged or no longer
+  matches the spool, the hook reads the spool whole and writes a new one; delete it after editing
+  the middle of a spool by hand. The spec's §4.7 ("Spool read cost") has the rules and the numbers.
+  Nothing yet archives old lines, and a spool several times larger would still outgrow the bound.
 
 ## Development
 
 ```bash
 PYTHONPATH=src python -m mnemosyne selftest     # zero-dep test suite
-python -m unittest tests.test_mnemosyne tests.test_mnemosyne_review_flow tests.test_mnemosyne_mcp_stdio tests.test_mnemosyne_capture tests.test_mnemosyne_install tests.test_zethus_lessons_capture
+python -m unittest tests.test_mnemosyne tests.test_mnemosyne_review_flow tests.test_mnemosyne_mcp_stdio tests.test_mnemosyne_capture tests.test_mnemosyne_spool_index tests.test_mnemosyne_install tests.test_zethus_lessons_capture
 ```
 
 The engine has no runtime dependencies; only the MCP server needs the `mcp` package (installed via
