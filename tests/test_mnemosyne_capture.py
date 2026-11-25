@@ -30,7 +30,7 @@ if str(MNEMOSYNE_SRC) not in sys.path:
     sys.path.insert(0, str(MNEMOSYNE_SRC))
 
 from mnemosyne import candidates as cd  # noqa: E402
-from mnemosyne import cli, core  # noqa: E402
+from mnemosyne import cli, core, load_config  # noqa: E402
 
 # Built at run time so no credential-shaped literal sits in a tracked file.
 FAKE_GITHUB_TOKEN = "gh" + "p_" + "A1b2C3d4" * 5
@@ -750,6 +750,186 @@ class SessionStartSkipsIdleSync(unittest.TestCase):
         linked = Path(self._td.name) / "linked"
         self.git("worktree", "add", "-q", "--detach", str(linked))
         self.assertTrue(core.has_remote(linked))
+
+
+class Phase1ScriptSignalsAndTriage(_Project):
+    """Phase 1: Zethus scripts emit S1/S2, the triage plan classifies, and capture_mode gates."""
+
+    def test_record_adr_emits_s1(self):
+        c = cd.record_adr(self.root, "2026-11-24-outbox", "docs/adr/2026-11-24-outbox.md", env=self.env)
+        self.assertEqual(c["signal"], "S1")
+        (stored,) = cd.candidates(self.root)
+        self.assertEqual((stored["host"], stored["evidence"]["adr"]), ("zethus-script", "2026-11-24-outbox"))
+        self.assertEqual(stored["context"], {"repo": self.root.name, "branch": "feat/demo"})
+
+    def test_gate_red_then_green_emits_s2_once(self):
+        cd.record_gate_results(self.root, [("pytest", "FAIL")], env=self.env)
+        self.assertEqual(self.signals(), [])              # a failure alone is not a lesson
+        cd.record_gate_results(self.root, [("pytest", "PASS")], env=self.env)
+        (c,) = cd.candidates(self.root)
+        self.assertEqual((c["signal"], c["evidence"]["gate"]), ("S2", "pytest"))
+        cd.record_gate_results(self.root, [("pytest", "PASS")], env=self.env)
+        self.assertEqual(self.signals(), ["S2"])          # a second green does not re-emit
+
+    def test_gate_green_only_emits_nothing(self):
+        for _ in range(2):
+            cd.record_gate_results(self.root, [("ruff", "PASS")], env=self.env)
+        self.assertEqual(self.signals(), [])
+
+    def test_scripts_are_silent_when_capture_is_off(self):
+        env = dict(self.env, MNEMOSYNE_CAPTURE="off")
+        self.assertIsNone(cd.record_adr(self.root, "x", env=env))
+        self.assertEqual(cd.record_gate_results(self.root, [("g", "FAIL")], env=env), [])
+        self.assertFalse(cd.capture_dir(self.root).exists())
+
+    def test_capture_mode_default_shadow_opt_in_active_and_off(self):
+        self.assertEqual(cd.capture_mode({}, self.env), "shadow")
+        self.assertEqual(cd.capture_mode({"mode": "active"}, self.env), "active")
+        self.assertEqual(cd.capture_mode({}, dict(self.env, MNEMOSYNE_CAPTURE_MODE="active")), "active")
+        self.assertEqual(cd.capture_mode({"enabled": False}, self.env), "off")
+        self.assertEqual(cd.capture_mode({}, dict(self.env, MNEMOSYNE_CAPTURE="off")), "off")
+
+    def test_triage_classifies_auto_vs_ask_scoped_to_the_project(self):
+        cd.record_adr(self.root, "2026-11-24-outbox", env=self.env)                        # S1 -> auto
+        cd.record_gate_results(self.root, [("g", "FAIL")], env=self.env)
+        cd.record_gate_results(self.root, [("g", "PASS")], env=self.env)                   # S2 -> auto
+        self.capture("prompt", self.ev(prompt="from now on always rebase"))               # S4 -> ask
+        plan = cd.triage(self.root, {}, project=self.root.name, branch="feat/demo")
+        self.assertEqual({it["signal"]: it["outcome"] for it in plan["items"]},
+                         {"S1": "auto", "S2": "auto", "S4": "ask"})
+        self.assertEqual((plan["auto"], plan["ask"]), (2, 1))
+        # scoped out: another project's candidate is not in this plan
+        self.assertEqual(cd.triage(self.root, {}, project="some-other-repo")["untriaged"], 0)
+
+    def test_triage_respects_the_per_session_budget(self):
+        for i in range(3):
+            cd.record_adr(self.root, f"2026-11-24-adr-{i}", env=self.env)
+        plan = cd.triage(self.root, {"autoStore": {"perSession": 1}},
+                         project=self.root.name, branch="feat/demo")
+        self.assertEqual([it["outcome"] for it in plan["items"]], ["auto", "ask", "ask"])
+
+    def test_s4_is_never_auto_even_if_the_config_lists_it(self):
+        # The shadow week showed S4 ~97% noise; Phase 1 keeps it at ask regardless of config.
+        self.capture("prompt", self.ev(prompt="from now on always rebase"))
+        plan = cd.triage(self.root, {"autoStore": {"signals": ["adr", "gate-red-green", "explicit-remember"]}},
+                         project=self.root.name, branch="feat/demo")
+        self.assertEqual(plan["auto_signals"], ["S1", "S2"])
+        self.assertEqual(plan["items"][0]["outcome"], "ask")
+
+    def test_a_script_candidate_does_not_block_in_shadow_mode(self):
+        cd.record_adr(self.root, "2026-11-24-outbox", env=self.env)
+        out = self.hook("stop", self.ev(hook_event_name="Stop", stop_hook_active=False))
+        self.assertEqual(out, "")                                   # shadow never blocks
+        self.assertEqual(cd.decisions(self.root)[-1]["decision"], "would-block")
+
+
+class Phase1EngineRefusals(_Project):
+    """Phase 1: an automated hook capture (captured_by set) obeys the Q2 exclusions the engine can
+    check, and the secrets rule runs on every write (spec §4.3 rule 2, §4.6, §4.8)."""
+
+    def cfg(self):
+        return load_config(None, self.root)
+
+    def test_a_clean_hook_capture_lands_local_at_medium_with_provenance(self):
+        res = core.capture(self.cfg(), self.root, {
+            "title": "Route order events through the outbox", "category": "decision",
+            "lesson": "Emit order events via the outbox table, never inline.",
+            "confidence": "high", "captured_by": "hook:S1"})
+        lesson = core.show(self.cfg(), self.root, res["id"])
+        self.assertEqual((res["tier"], lesson["confidence"]), ("local", "medium"))  # high is ignored
+        self.assertEqual(lesson["source"]["captured_by"], "hook:S1")
+
+    def test_hook_capture_refuses_security_supersede_shared_and_secrets(self):
+        base = {"title": "x", "lesson": "a durable decision", "category": "decision",
+                "captured_by": "hook:S1"}
+        for bad in ({**base, "category": "security", "lesson": "handle auth tokens"},
+                    {**base, "shared": True},
+                    {**base, "supersede": "L-0001"},
+                    {**base, "lesson": "set " + "pass" + "word=hunter2hunter2 in the env"}):
+            with self.assertRaises(core.EngineError):
+                core.capture(self.cfg(), self.root, {k: v for k, v in bad.items() if k != "supersede"},
+                             supersede=bad.get("supersede"))
+        self.assertEqual(self.lesson_files(), {})  # nothing was stored
+
+    def test_the_secrets_rule_blocks_an_ordinary_capture_too(self):
+        with self.assertRaises(core.EngineError):
+            core.capture(self.cfg(), self.root, {"title": "creds",
+                         "lesson": "the key is " + "AK" + "IA" + "ABCDEFGHIJKLMNOP"})
+
+
+class Phase1Cli(CandidateCli):
+    """Phase 1 exit criteria, driven through the CLI the triage skill uses."""
+
+    def test_triage_capture_candidate_resolve_empties_the_spool(self):
+        cd.record_adr(self.root, "2026-11-24-outbox", "docs/adr/2026-11-24-outbox.md", env=self.env)
+        cd.record_gate_results(self.root, [("pytest", "FAIL")], env=self.env)
+        cd.record_gate_results(self.root, [("pytest", "PASS")], env=self.env)
+        ids = {c["signal"]: c["id"] for c in cd.candidates(self.root)}
+        rc, out, _ = self.run_cli("candidate", "triage", "--project", self.root.name, "--branch", "feat/demo")
+        self.assertIn("2 auto", out)
+        rc, out, _ = self.run_cli("capture", "--category", "decision", "--captured-by", "hook:S1",
+                                  "--candidate", ids["S1"], "--title", "Route via the outbox",
+                                  "--lesson", "Emit order events via the outbox table.")
+        self.assertIn("SAVED:", out)
+        rc, out, _ = self.run_cli("reflect", "--category", "mistake", "--captured-by", "hook:S2",
+                                  "--candidate", ids["S2"], "--title", "Keep the pytest gate green",
+                                  "--lesson", "Fix the failing gate in the same phase.",
+                                  "--reflection-of", "the pytest gate went red then green")
+        self.assertIn("SAVED:", out)
+        self.assertEqual(cd.untriaged(self.root, project=self.root.name, branch="feat/demo"), [])
+        self.assertEqual(set(self.lesson_files()), {"local.jsonl"})  # nothing outside the local tier
+
+    def test_a_security_adr_is_asked_not_saved(self):
+        cd.record_adr(self.root, "2026-11-24-authz", "docs/adr/2026-11-24-authz.md", env=self.env)
+        sid = cd.candidates(self.root)[0]["id"]
+        rc, out, err = self.run_cli("capture", "--category", "security", "--captured-by", "hook:S1",
+                                    "--candidate", sid, "--title", "Authz model",
+                                    "--lesson", "Use narrowly scoped tokens.")
+        self.assertEqual(rc, 2)
+        self.assertIn("security", out + err)
+        self.assertEqual(self.lesson_files(), {})  # not saved
+        self.assertEqual(len(cd.untriaged(self.root, project=self.root.name, branch="feat/demo")), 1)
+        rc, out, _ = self.run_cli("candidate", "resolve", sid, "asked")  # the skill then asks
+        self.assertIn("RESOLVED:", out)
+        self.assertEqual(cd.untriaged(self.root, project=self.root.name, branch="feat/demo"), [])
+
+    def test_retire_undoes_an_auto_capture(self):
+        cfg = load_config(None, self.root)
+        res = core.capture(cfg, self.root, {"title": "Route via the outbox", "category": "decision",
+                           "lesson": "Emit via the outbox.", "captured_by": "hook:S1"})
+        rc, out, _ = self.run_cli("retire", res["id"], "--reason", "superseded by a clearer one")
+        self.assertEqual(rc, 0)
+        self.assertIn("RETIRED:", out)
+        self.assertEqual(core.show(cfg, self.root, res["id"])["status"], "retired")
+
+
+class Phase1ActiveBridge(_Project):
+    """Phase 1 visible behaviour, opt-in via the project config's memory.mode = active."""
+
+    def setUp(self):
+        super().setUp()
+        (self.root / ".github").mkdir()
+        (self.root / ".github" / "zethus.config.json").write_text(
+            json.dumps({"memory": {"mode": "active"}}), encoding="utf-8")
+
+    def test_stop_blocks_once_then_the_refire_does_not(self):
+        cd.record_adr(self.root, "2026-11-24-outbox", env=self.env)
+        out = self.hook("stop", self.ev(hook_event_name="Stop", stop_hook_active=False))
+        self.assertIn('"decision": "block"', out)
+        self.assertIn("await triage", out)
+        self.assertEqual([r["decision"] for r in cd.decisions(self.root) if r["mode"] == "stop"], ["block"])
+        out2 = self.hook("stop", self.ev(hook_event_name="Stop", stop_hook_active=True))
+        self.assertEqual(out2, "")  # the re-fire never loops
+
+    def test_stop_does_not_block_with_an_empty_spool(self):
+        out = self.hook("stop", self.ev(hook_event_name="Stop", stop_hook_active=False))
+        self.assertEqual(out, "")
+        self.assertEqual(cd.decisions(self.root)[-1]["decision"], "nothing-pending")
+
+    def test_session_start_prints_the_pending_triage_count(self):
+        cd.record_adr(self.root, "2026-11-24-outbox", env=self.env)
+        out = self.hook("session-start", self.ev(hook_event_name="SessionStart", source="startup"))
+        self.assertIn("await triage", out)
 
 
 class PluginRegistration(unittest.TestCase):

@@ -40,7 +40,9 @@ the mode names the host for the decision log when a registration knows it; other
 is inferred from the event's shape.
 """
 import json
+import os
 import sys
+from pathlib import Path
 
 
 def _load_event():
@@ -96,11 +98,65 @@ def do_session_start(event, host):
         from mnemosyne import core, load_config, resolve_repo
         repo = resolve_repo(None)
         cfg = load_config(None, repo)
-        if not core.sync_has_work(cfg, repo):
-            return 0  # local-only memory repo: nothing to pull, so skip sync's git calls
-        core.sync(cfg, repo)  # best-effort git pull; ignores no-remote / no-git
+        if core.sync_has_work(cfg, repo):
+            core.sync(cfg, repo)  # best-effort git pull; ignores no-remote / no-git
+    except Exception:
+        pass  # sync is best-effort; a failure must never stop the digest below
+    try:
+        _session_digest(mn, event)  # Phase 1: a recall digest + pending triage count (active mode)
     except Exception:
         return 0
+    return 0
+
+
+def _session_digest(mn, event):
+    """In ACTIVE capture mode, print a recall digest for the branch and the count of candidates
+    awaiting triage. Silent in shadow mode (Phase 0), so a package upgrade changes nothing until
+    the project config opts in. Claude Code injects SessionStart stdout as context (spec §4.7.1)."""
+    from mnemosyne import candidates as cd
+    root = Path(str(event.get("cwd") or os.getcwd()))
+    mem_cfg = cd.project_memory_config(root)
+    if cd.capture_mode(mem_cfg) != "active":
+        return
+    repo = cd.spool_repo(root)
+    ctx = cd.project_context(root)
+    branch = ctx.get("branch") or ""
+    query = " ".join(x for x in (ctx.get("repo"), branch.replace("/", " ").replace("-", " ")) if x)
+    pieces = []
+    try:
+        digest = mn.recall(query, as_text=True) if query else ""
+    except Exception:
+        digest = ""
+    if digest and "no reflexion lessons matched" not in digest:
+        pieces.append(digest)
+    if repo is not None:
+        try:
+            n = len(cd.untriaged(repo, project=ctx.get("repo"), branch=ctx.get("branch") or None))
+        except Exception:
+            n = 0
+        if n:
+            pieces.append(f"[Mnemosyne] {n} capture candidate(s) await triage in this project — "
+                          f"run the lessons-triage skill (`mnemosyne candidate triage`).")
+    if pieces:
+        print("\n\n".join(pieces))
+
+
+def do_stop(event, host):
+    """Record the stop event, and in ACTIVE mode block once (the re-fire carries stop_hook_active)
+    to force a triage of the pending candidates. In shadow mode it only records (never blocks)."""
+    if _mn() is None:
+        return 0
+    try:
+        from mnemosyne import candidates as cd
+        rec = cd.capture_event("stop", event, host=host)
+    except Exception:
+        return 0
+    if rec and rec.get("decision") == "block":
+        n = rec.get("untriaged", 0)
+        reason = (f"{n} capture candidate(s) await triage before this turn ends. Run the "
+                  f"lessons-triage skill: triage the spool (`mnemosyne candidate triage`), auto-store "
+                  f"the ADR and gate lessons to the local tier, and ask about the rest.")
+        print(json.dumps({"decision": "block", "reason": reason}))
     return 0
 
 
@@ -113,7 +169,7 @@ def _capture_only(mode):
 
 
 MODES = {"prompt": do_prompt, "session-start": do_session_start,
-         "post-tool": _capture_only("post-tool"), "stop": _capture_only("stop"),
+         "post-tool": _capture_only("post-tool"), "stop": do_stop,
          "pre-compact": _capture_only("pre-compact")}
 
 

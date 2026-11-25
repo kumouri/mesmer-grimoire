@@ -73,6 +73,10 @@ def build_parser(cfg: Config) -> argparse.ArgumentParser:
         cp.add_argument("--supersedes", help="lesson ids this replaces, csv (metadata only)")
         cp.add_argument("--supersede", help="single lesson id to mark superseded by this one")
         cp.add_argument("--shared", action="store_true", help="write straight to the shared tier (admin/seed; normally promote instead)")
+        cp.add_argument("--captured-by", dest="captured_by",
+                        help="provenance for an automated capture, e.g. hook:S1 — pins confidence=medium and "
+                             "enforces the auto-store rules (local tier only, never security/supersede/secret)")
+        cp.add_argument("--candidate", help="spool candidate id this capture resolves; marks it stored")
         cp.add_argument("--force", action="store_true", help="bank even if it looks like a transient failure or a near-duplicate (skips hygiene guards)")
 
     c = sub.add_parser("capture", aliases=["add"], help="save a lesson (decision/convention/...) to the local tier")
@@ -131,7 +135,12 @@ def build_parser(cfg: Config) -> argparse.ArgumentParser:
     hy.add_argument("--max-age-days", dest="max_age_days", type=int, default=cfg.prune_max_age_days)
     hy.set_defaults(func=cmd_hygiene)
 
-    from .candidates import SIGNALS, VERDICTS
+    rt = sub.add_parser("retire", help="retire ONE lesson (status->retired + reason); undoes an auto-capture")
+    rt.add_argument("id")
+    rt.add_argument("--reason", required=True, help="why it is being retired (kept for audit, never deleted)")
+    rt.set_defaults(func=cmd_retire)
+
+    from .candidates import RESOLUTIONS, SIGNALS, VERDICTS
     ca = sub.add_parser("candidate", help="the lessons-capture candidate spool (shadow mode: recorded, never stored)")
     csub = ca.add_subparsers(dest="candidate_cmd", required=True)
     cl = csub.add_parser("list", help="list recorded candidates, oldest first")
@@ -152,6 +161,16 @@ def build_parser(cfg: Config) -> argparse.ArgumentParser:
     cs = csub.add_parser("stats", help="count and precision of each signal")
     cs.add_argument("--days", type=int, help="only candidates from the last N days")
     cs.set_defaults(func=cmd_candidate_stats)
+    ct = csub.add_parser("triage", help="the triage plan for this project's untriaged candidates (read-only)")
+    ct.add_argument("--project", help="project to scope to (default: the cwd's repo name)")
+    ct.add_argument("--branch", help="branch to scope to (default: the cwd's branch)")
+    ct.set_defaults(func=cmd_candidate_triage)
+    cre = csub.add_parser("resolve", help="record a triage outcome so a candidate leaves the untriaged set")
+    cre.add_argument("id")
+    cre.add_argument("outcome", choices=RESOLUTIONS)
+    cre.add_argument("--lesson", default="", help="the lesson id a 'stored' outcome produced")
+    cre.add_argument("--note", default="")
+    cre.set_defaults(func=cmd_candidate_resolve)
 
     dr = sub.add_parser("doctor", help="what the capture hooks recorded and decided, newest last")
     dr.add_argument("--last", type=int, default=10, help="how many recent decisions to show")
@@ -212,7 +231,21 @@ def _capture_fields(cfg, args):
         "trigger": trigger, "stage": args.stage, "stages": args.stages, "spec": args.spec,
         "anchors": args.anchors, "reflection_of": getattr(args, "reflection_of", None),
         "related": args.related, "supersedes": args.supersedes, "shared": args.shared,
+        "captured_by": getattr(args, "captured_by", None),
     }
+
+
+def _resolve_candidate(repo, args, res):
+    """If --candidate was given and the capture landed, mark that spool candidate stored."""
+    cid = getattr(args, "candidate", None)
+    if not cid:
+        return
+    from . import candidates as cd
+    lesson_id = res.get("id") or res.get("dup_id") or ""
+    try:
+        cd.resolve(repo, cid, "stored", lesson=lesson_id)
+    except core.EngineError as e:
+        print(f"  note: candidate {cid} not resolved: {e}", file=sys.stderr)
 
 
 def _print_capture_result(cfg, res, fmt, kind_label=None):
@@ -242,6 +275,7 @@ def cmd_capture(cfg, repo, args):
     except core.LowValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 3
+    _resolve_candidate(repo, args, res)
     return _print_capture_result(cfg, res, args.format)
 
 
@@ -251,6 +285,7 @@ def cmd_reflect(cfg, repo, args):
     except core.LowValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 3
+    _resolve_candidate(repo, args, res)
     return _print_capture_result(cfg, res, args.format,
                                  kind_label="reflexion: captured from feedback on a prior run")
 
@@ -584,6 +619,64 @@ def cmd_candidate_stats(cfg, repo, args):
     return 0
 
 
+def cmd_candidate_triage(cfg, repo, args):
+    from . import candidates as cd
+    project, branch = args.project, args.branch
+    if project is None:
+        ctx = cd.project_context(Path.cwd())
+        project = ctx.get("repo")
+        if branch is None:
+            branch = ctx.get("branch")
+    mem_cfg = cd.project_memory_config(Path.cwd())
+    plan = cd.triage(repo, mem_cfg, project=project, branch=branch)
+    if args.format == "json":
+        print(json.dumps(plan, indent=2))
+        return 0
+    where = (project or "(all projects)") + (f"@{branch}" if branch else "")
+    print(f"TRIAGE: {plan['untriaged']} untriaged candidate(s) in {where} — {plan['auto']} auto, "
+          f"{plan['ask']} ask (auto signals: {', '.join(plan['auto_signals']) or 'none'}; "
+          f"per-session budget {plan['budget']}).")
+    for it in plan["items"]:
+        ev = it.get("evidence") or {}
+        detail = ", ".join(f"{k}={v}" for k, v in ev.items())
+        print(f"  {it['id']}  {it['signal']} {it['name']} [{it['kind']}]  -> {it['outcome'].upper()}"
+              f"  ({it['reason']})")
+        if detail:
+            print(f"      {detail}")
+    if plan["auto"]:
+        print("  AUTO: write the distilled one-line lesson yourself (never paste tool/ADR text), then "
+              "`mnemosyne capture --category <cat> --captured-by hook:<signal> --candidate <id> "
+              "--title ... --lesson ...` (the engine refuses security / supersede / shared / secret).")
+    if plan["ask"]:
+        print("  ASK: confirm with the user in one batched question set; on save add --candidate <id>, "
+              "on skip run `mnemosyne candidate resolve <id> skipped`.")
+    return 0
+
+
+def cmd_candidate_resolve(cfg, repo, args):
+    from . import candidates as cd
+    rec = cd.resolve(repo, args.id, args.outcome, lesson=args.lesson, note=args.note)
+    if args.format == "json":
+        print(json.dumps(rec, indent=2))
+        return 0
+    extra = f" (lesson {rec['lesson']})" if rec.get("lesson") else ""
+    print(f"RESOLVED: {rec['id']} as {rec['as']}{extra}.")
+    return 0
+
+
+def cmd_retire(cfg, repo, args):
+    res = core.retire(cfg, repo, args.id, args.reason)
+    if args.format == "json":
+        print(json.dumps(res, indent=2))
+        return 0
+    print(f"RETIRED: {res['id']} [{res['tier']}] — \"{res['title']}\" ({res['reason']}).")
+    print("  the record is KEPT for audit (status=retired), never deleted.")
+    if res["shared_touched"]:
+        print("  note: a shared lesson changed — commit memory/lessons.jsonl (a reviewed change).")
+    print(f"  Announce: reflexion retired a lesson ({res['id']}).")
+    return 0
+
+
 def cmd_doctor(cfg, repo, args):
     from . import candidates as cd
     d = cd.doctor(repo, args.last)
@@ -596,7 +689,8 @@ def cmd_doctor(cfg, repo, args):
         return 0
     print(f"DOCTOR: capture spool at {d['dir']} (self-ignored: {'yes' if d['self_ignored'] else 'NO'}) "
           f"— shadow mode: nothing is stored or asked.")
-    print(f"  candidates: {d['candidates']} ({d['pending']} pending)   decisions logged: {d['decisions']}")
+    print(f"  candidates: {d['candidates']} ({d['pending']} unlabelled, {d.get('untriaged', d['pending'])} "
+          f"untriaged)   decisions logged: {d['decisions']}")
     if d["by_decision"]:
         print("  by decision: " + ", ".join(f"{k}={v}" for k, v in sorted(d["by_decision"].items())))
     if d["last_by_mode"]:
