@@ -12,6 +12,7 @@ loads a user's plugins, and for user mode where a plugin can't be used.
     python zethus/install.py --user --uninstall                    # remove what --user installed
     python zethus/install.py --user --jetbrains-legacy             # + JetBrains' older global file
     python zethus/install.py --user --with-mnemosyne               # + Mnemosyne (memory + hooks)
+    python zethus/install.py --user --with-core                    # + the shared core (skills, and Mnemosyne)
     python zethus/install.py --user --migrate-to-plugin            # drop --user's copy for the plugin
                                                                    # (keeps the agent: add --drop-agent)
 
@@ -83,6 +84,15 @@ mode, Copilot's in ``~/.copilot/hooks``; its docstring says what goes where. It 
 Zethus step succeeds (an uninstall or a ``--migrate-to-plugin`` runs both), and the exit code is the
 worse of the two. Without the flag nothing about
 this installer changes.
+
+**``--with-core``** (either mode) then runs the grimoire installer's ``core`` bundle for Copilot,
+``install.py --bundle core --platform copilot`` from the clone's root: the skills Zethus and Amphion
+share (``flag-or-fix``, ``resume-interrupted-phase``, the general ``pr-description``) into the same
+skills folder, and, through the core's own requirement, Mnemosyne, so it replaces ``--with-mnemosyne``
+(giving both is the same as giving this). The core's files are recorded in the grimoire installer's
+manifest, never in this one, so an older copy of this installer re-run over the result leaves them
+alone. ``--uninstall`` takes them out again, unless Amphion still needs them. The Zethus step is
+unchanged and runs first.
 
 Exit codes: 0 installed / uninstalled / skipped for the plugin (or dry run) · 1 conflicts, nothing
 to uninstall, or a migration that left edited files · 2 usage error.
@@ -553,6 +563,46 @@ def run_mnemosyne(argv: list[str]) -> int:
     return module.main(argv)
 
 
+# --------------------------------------------------------------------------- --with-core
+
+
+GRIMOIRE_INSTALLER = KIT.parent / "install.py"
+
+
+def core_argv(args) -> list[str]:
+    """Zethus's flags, translated for the grimoire installer's ``core`` bundle on Copilot."""
+    argv = ["--platform", "copilot", "--bundle", "core"]
+    argv += ["--target", args.target] if args.target else ["--user"]
+    if args.force:
+        argv.append("--force")
+    if args.dry_run:
+        argv.append("--dry-run")
+    if args.uninstall:
+        argv.append("--uninstall")
+    if args.mnemosyne_repo:
+        argv += ["--memory-repo", args.mnemosyne_repo]
+    if args.mnemosyne_copilot_hooks_dir:
+        argv += ["--copilot-hooks-dir", args.mnemosyne_copilot_hooks_dir]
+    return argv
+
+
+def run_core(argv: list[str]) -> int:
+    """Call the grimoire installer in-process (one implementation, not a copy of it)."""
+    if not GRIMOIRE_INSTALLER.is_file():
+        print(f"install: --with-core needs install.py in the folder above zethus/ (run this from a "
+              "mesmer-grimoire clone)", file=sys.stderr)
+        return 2
+    module = sys.modules.get("grimoire_install")
+    if module is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("grimoire_install", GRIMOIRE_INSTALLER)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["grimoire_install"] = module
+        spec.loader.exec_module(module)
+    print("\ncore: install.py " + " ".join(argv))
+    return module.main(argv)
+
+
 # --------------------------------------------------------------------------- cli
 
 
@@ -580,11 +630,15 @@ def main(argv: list[str] | None = None) -> int:
                    help="then run mnemosyne/install.py: the package, a local memory repo, "
                         "MNEMOSYNE_REPO and its hooks (with --target, that repo's Copilot hooks; "
                         "with --user, ~/.copilot/hooks)")
+    p.add_argument("--with-core", action="store_true",
+                   help="then run the grimoire installer's core bundle for Copilot: the skills Zethus "
+                        "and Amphion share, and Mnemosyne (so it replaces --with-mnemosyne)")
     p.add_argument("--mnemosyne-repo", metavar="PATH",
-                   help="with --with-mnemosyne: the memory repo (default ~/repos/mnemosyne-local)")
+                   help="with --with-mnemosyne or --with-core: the memory repo (default "
+                        "~/repos/mnemosyne-local)")
     p.add_argument("--mnemosyne-copilot-hooks-dir", metavar="PATH",
-                   help="with --with-mnemosyne: write the user-level Copilot hook files here "
-                        "instead of ~/.copilot/hooks")
+                   help="with --with-mnemosyne or --with-core: write the user-level Copilot hook "
+                        "files here instead of ~/.copilot/hooks")
     args = p.parse_args(argv)
     if not args.user and (args.uninstall or args.jetbrains_legacy or args.migrate_to_plugin):
         p.error("--uninstall, --jetbrains-legacy and --migrate-to-plugin need --user (a repo install "
@@ -593,8 +647,11 @@ def main(argv: list[str] | None = None) -> int:
         p.error("--drop-agent needs --migrate-to-plugin (--uninstall already removes the agent)")
     if args.migrate_to_plugin and args.uninstall:
         p.error("--migrate-to-plugin already uninstalls the user-mode copy; use one or the other")
-    if (args.mnemosyne_repo or args.mnemosyne_copilot_hooks_dir) and not args.with_mnemosyne:
-        p.error("--mnemosyne-repo and --mnemosyne-copilot-hooks-dir need --with-mnemosyne")
+    if (args.mnemosyne_repo or args.mnemosyne_copilot_hooks_dir) and not (args.with_mnemosyne or args.with_core):
+        p.error("--mnemosyne-repo and --mnemosyne-copilot-hooks-dir need --with-mnemosyne or --with-core")
+    if args.with_core and args.migrate_to_plugin:
+        p.error("--with-core takes no --migrate-to-plugin: the core's files are not a plugin's; use "
+                "--with-mnemosyne for the hook files")
     if args.mnemosyne_copilot_hooks_dir and (args.uninstall or args.migrate_to_plugin):
         p.error("--uninstall and --migrate-to-plugin take no --mnemosyne-copilot-hooks-dir (the "
                 "manifest knows what was written)")
@@ -606,8 +663,11 @@ def main(argv: list[str] | None = None) -> int:
         code = action(args)
     else:
         code = install_repo(args)
-    if not args.with_mnemosyne or (code != 0 and not (args.uninstall or args.migrate_to_plugin)):
+    if not (args.with_mnemosyne or args.with_core) or (
+            code != 0 and not (args.uninstall or args.migrate_to_plugin)):
         return code                      # a refused install wrote nothing; stop there too
+    if args.with_core:                   # the core needs Mnemosyne, so this covers --with-mnemosyne too
+        return max(code, run_core(core_argv(args)))
     return max(code, run_mnemosyne(mnemosyne_argv(args)))
 
 

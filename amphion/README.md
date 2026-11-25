@@ -54,6 +54,21 @@ replaced it is in [the pipeline doc](docs/pipeline.md#docs-are-a-rule-not-a-stag
 
 **Plugin (recommended).** Install the `amphion` plugin from this repo; it carries all six skills.
 
+**Installer.** From a clone, one command puts the six skills in place (and, with them, the shared
+core's memory hooks, which register once):
+
+```bash
+python mesmer-grimoire/amphion/install.py --user --dry-run   # the plan; writes nothing
+python mesmer-grimoire/amphion/install.py --user             # ~/.claude/skills, for every project
+python mesmer-grimoire/amphion/install.py --target path/to/repo  # .claude/skills + .claude/amphion.config.json
+python mesmer-grimoire/amphion/install.py --user --platform copilot
+python mesmer-grimoire/amphion/install.py --user --uninstall
+```
+
+It is the [grimoire installer](../core/README.md#installing-from-it) with `--bundle amphion`. A file
+it didn't write is never overwritten, an existing config is never touched, and nothing is copied
+beside an installed Amphion plugin.
+
 **Manual.** Copy the skill folders into your skills directory — user-level for all projects, or
 `.claude/skills/` inside one project:
 

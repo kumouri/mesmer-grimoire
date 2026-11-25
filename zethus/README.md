@@ -244,7 +244,7 @@ the example, which is in [`zethus-conduct`](skills/zethus-conduct/SKILL.md#sign-
 | [`zethus.config.example.json`](zethus.config.example.json) | `.github/zethus.config.json` | Project facts: integration branch, gate commands, spec and ADR dirs, the doc-to-code map, the AI co-author trailer and commit signature. Its `identity` block stays empty: a shared file doesn't name one person. |
 | [`plugin.json`](plugin.json), [`com.github.copilot/hooks/`](com.github.copilot/hooks/session_start.py) | — | The [plugin](#install-the-plugin-default): its manifest, the `sessionStart` hook that injects the working agreement and says where the scripts and templates are (and the plugin version) and who the session works for, and the [`agentStop` / `userPromptSubmitted` stop guard](docs/never-stop-silently.md#enforcement-the-stop-guard-hook) that refuses a turn ending at a progress point or on a job the agent could do itself. |
 | [`agents/`](agents/zethus.agent.md), [`hooks/hooks.json`](hooks/hooks.json) | — | Generated copies of the agent and the hook registration at the plugin root, for IntelliJ ([why](#one-plugin-two-layouts)). |
-| [`install.py`](install.py) | — | Copies all of the above into place: into a repo (`--target`) or for your user account (`--user`, with `--uninstall` and `--migrate-to-plugin`). Never clobbers a file it didn't write, and writes nothing if there are conflicts. `--with-mnemosyne` also sets up [Mnemosyne](#add-mnemosyne-in-the-same-step). |
+| [`install.py`](install.py) | — | Copies all of the above into place: into a repo (`--target`) or for your user account (`--user`, with `--uninstall` and `--migrate-to-plugin`). Never clobbers a file it didn't write, and writes nothing if there are conflicts. `--with-mnemosyne` also sets up [Mnemosyne](#add-mnemosyne-in-the-same-step); `--with-core` adds the shared core too. |
 
 The scripts are Python 3.10+ standard library only. There are no PowerShell twins: Python runs
 natively on Windows, and a second implementation would be a second thing to drift.
@@ -585,6 +585,13 @@ python mesmer-grimoire/zethus/install.py --user --with-mnemosyne --mnemosyne-rep
 python mesmer-grimoire/zethus/install.py --user --with-mnemosyne --mnemosyne-copilot-hooks-dir ~/my-hooks
 python mesmer-grimoire/zethus/install.py --user --uninstall --with-mnemosyne
 ```
+
+`--with-core` is the same step with the shared core: it runs the grimoire installer's `core` bundle
+for Copilot, which adds the three skills Zethus and Amphion share (`flag-or-fix`,
+`resume-interrupted-phase`, the general `pr-description`) and, through the core, Mnemosyne, so it
+replaces `--with-mnemosyne`. Those files are recorded in the grimoire installer's own manifest, not
+Zethus's, so re-running an older `install.py` over the result leaves them alone. See
+[the core](../core/README.md#installing-from-it).
 
 It doesn't repeat any of Mnemosyne's setup. It calls Mnemosyne's own installer,
 [`mnemosyne/install.py`](../mnemosyne/install.py), and passes on `--target` or `--user`,

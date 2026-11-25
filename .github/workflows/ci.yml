@@ -106,6 +106,20 @@ jobs:
       - name: "Shared core: install.py --check"
         run: python install.py --check
 
+      # Blocking. A dry run of the installer into a throwaway home and repo, on Linux and Windows:
+      # the plan must build for every built host in both scopes, and write nothing. (The real
+      # installs run against fakes in tests/test_shared_core_install.py; a CI runner is no place to
+      # change a Claude Code or Copilot setup.)
+      - name: "Installer: dry run, --user and --target"
+        run: |
+          home="$RUNNER_TEMP/grimoire-home"
+          repo="$RUNNER_TEMP/grimoire-repo"
+          mkdir -p "$home" "$repo"
+          export HOME="$home" USERPROFILE="$home" LOCALAPPDATA="$home" APPDATA="$home"
+          python install.py --platform all --user --dry-run
+          python install.py --platform all --target "$repo" --dry-run
+          python -c "import pathlib, sys; left = [str(p) for d in sys.argv[1:] for p in pathlib.Path(d).rglob('*') if p.is_file()]; print(left or 'nothing written'); sys.exit(1 if left else 0)" "$home" "$repo"
+
       # Blocking. The agentskills.io name and description rules, for every skill in the repo.
       - name: "Skill frontmatter lint"
         run: python -m unittest tests.test_skill_rules -v
