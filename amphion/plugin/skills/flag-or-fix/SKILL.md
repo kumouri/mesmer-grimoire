@@ -66,7 +66,7 @@ the full diff. These headings are the ones [`pr-description`](../pr-description/
   to proceed.*
 
 If the situation cost you real time or had no clear path, it is also a friction point —
-[`log-friction`](../log-friction/SKILL.md).
+`log-friction`, Amphion's skill, where it is installed.
 
 ## Anti-patterns
 

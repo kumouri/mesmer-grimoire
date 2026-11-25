@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "python3 \"${PLUGIN_ROOT}/hooks/mnemosyne_hook.py\" session-start",
+        "powershell": "python \"${PLUGIN_ROOT}/hooks/mnemosyne_hook.py\" session-start"
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "python3 \"${PLUGIN_ROOT}/hooks/mnemosyne_hook.py\" prompt",
+        "powershell": "python \"${PLUGIN_ROOT}/hooks/mnemosyne_hook.py\" prompt"
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "python3 \"${PLUGIN_ROOT}/hooks/mnemosyne_hook.py\" post-tool",
+        "powershell": "python \"${PLUGIN_ROOT}/hooks/mnemosyne_hook.py\" post-tool",
+        "timeoutSec": 5
+      }
+    ],
+    "agentStop": [
+      {
+        "type": "command",
+        "bash": "python3 \"${PLUGIN_ROOT}/hooks/mnemosyne_hook.py\" stop",
+        "powershell": "python \"${PLUGIN_ROOT}/hooks/mnemosyne_hook.py\" stop",
+        "timeoutSec": 5
+      }
+    ],
+    "preCompact": [
+      {
+        "type": "command",
+        "bash": "python3 \"${PLUGIN_ROOT}/hooks/mnemosyne_hook.py\" pre-compact",
+        "powershell": "python \"${PLUGIN_ROOT}/hooks/mnemosyne_hook.py\" pre-compact",
+        "timeoutSec": 5
+      }
+    ]
+  }
+}

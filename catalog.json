@@ -1,0 +1,64 @@
+{
+  "$comment": "What the installer (install.py) knows about this repo. Read by install.py --check, --list and the install itself. Docs: core/README.md and docs/lessons-capture-spec.md (Phase 4).",
+  "version": 1,
+  "hosts": {
+    "claude": {"built": true},
+    "copilot": {"built": true},
+    "codex": {"built": false},
+    "cursor": {"built": false}
+  },
+  "bundles": {
+    "mnemosyne": {
+      "summary": "The memory engine: the package, a local memory repo, MNEMOSYNE_REPO, and the capture hooks. Installed by mnemosyne/install.py, never copied.",
+      "kind": "delegate",
+      "installer": "mnemosyne/install.py",
+      "requires": [],
+      "hosts": ["claude", "copilot"]
+    },
+    "core": {
+      "summary": "The shared core: the memory hook script and its registrations, the memory config schema and the skills both kits use. One source tree; the plugin folders carry byte copies.",
+      "kind": "files",
+      "source": "core",
+      "requires": ["mnemosyne"],
+      "hosts": ["claude", "copilot"],
+      "skills": ["flag-or-fix", "pr-description", "resume-interrupted-phase"],
+      "memorySchema": "core/memory.schema.json",
+      "hooks": {
+        "script": "core/hooks/mnemosyne_hook.py",
+        "claude": "core/hooks/hooks.json",
+        "copilot": "core/hooks/com.github.copilot/hooks.json"
+      },
+      "mirrors": [
+        {"from": "core/hooks/mnemosyne_hook.py", "to": "mnemosyne/plugin/hooks/mnemosyne_hook.py"},
+        {"from": "core/hooks/hooks.json", "to": "mnemosyne/plugin/hooks/hooks.json"},
+        {"from": "core/hooks/com.github.copilot/hooks.json", "to": "mnemosyne/plugin/com.github.copilot/hooks/hooks.json"},
+        {"from": "core/skills/flag-or-fix", "to": "amphion/plugin/skills/flag-or-fix"},
+        {"from": "core/skills/pr-description", "to": "amphion/plugin/skills/pr-description"},
+        {"from": "core/skills/resume-interrupted-phase", "to": "amphion/plugin/skills/resume-interrupted-phase"}
+      ]
+    },
+    "amphion": {
+      "summary": "Amphion: the spec-to-PR skills that are its own (load-context, initialize-ci, log-friction) and, from the core, the three it shares.",
+      "kind": "files",
+      "source": "amphion/plugin",
+      "requires": ["core"],
+      "hosts": ["claude", "copilot"],
+      "skills": ["initialize-ci", "load-context", "log-friction"],
+      "config": {"example": "amphion/amphion.config.example.json", "dest": ".claude/amphion.config.json"}
+    },
+    "zethus": {
+      "summary": "Zethus: the Copilot process kit, installed by zethus/install.py. A Claude Code, Codex or Cursor port is stage 2 (D7), not built.",
+      "kind": "delegate",
+      "installer": "zethus/install.py",
+      "requires": ["core"],
+      "hosts": ["copilot"],
+      "config": {"example": "zethus/zethus.config.example.json"}
+    }
+  },
+  "plugins": [
+    {"bundle": "amphion", "host": "claude", "marketplace": ".claude-plugin/marketplace.json", "name": "amphion", "source": "./amphion/plugin", "manifest": "amphion/plugin/.claude-plugin/plugin.json"},
+    {"bundle": "mnemosyne", "host": "claude", "marketplace": ".claude-plugin/marketplace.json", "name": "mnemosyne", "source": "./mnemosyne/plugin", "manifest": "mnemosyne/plugin/.claude-plugin/plugin.json"},
+    {"bundle": "zethus", "host": "copilot", "marketplace": ".github/plugin/marketplace.json", "name": "zethus", "source": "./zethus", "manifest": "zethus/plugin.json"},
+    {"bundle": "mnemosyne", "host": "copilot", "marketplace": ".github/plugin/marketplace.json", "name": "mnemosyne", "source": "./mnemosyne/plugin", "manifest": "mnemosyne/plugin/plugin.json"}
+  ]
+}

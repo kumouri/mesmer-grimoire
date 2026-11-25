@@ -101,6 +101,9 @@ overwritten. `--uninstall` reverses it all, using the record in
 `~/.mnemosyne/install-manifest.json`, and removes only what that record lists. It never removes
 the memory repo. The script's docstring has the full contract.
 
+The repo-root installer ([`install.py`](../install.py), `--bundle mnemosyne`, or any bundle that
+needs it) calls this one rather than repeating it.
+
 Zethus users can run this as part of the Zethus install:
 `python mesmer-grimoire/zethus/install.py --user --with-mnemosyne` (see
 [Zethus's README](../zethus/README.md#add-mnemosyne-in-the-same-step)).
@@ -265,7 +268,7 @@ mnemosyne/
 │   ├── cli.py                     # CLI (dynamic per-axis flags) + self-test
 │   ├── mcp_server.py              # MCP server (recall/capture/reflect/promote/export/prune/hygiene)
 │   └── data/                      # bundled schema + default, software-eng & multi-store configs
-├── plugin/                        # Claude Code plugin (skill + hooks + commands)
+├── plugin/                        # Claude Code plugin (skill + hooks + commands); its hook files are copies of ../core/hooks
 ├── memory/                        # a working demo store (lessons.jsonl + generated LESSONS.md)
 ├── mnemosyne.config.json          # this repo's active config (software-eng) — also a demo
 └── docs/design.md                 # architecture, recall algorithm, hygiene, governance

@@ -39,6 +39,10 @@ and vocabulary live in `.claude/amphion.config.json`, so the same six skills wor
 
 The stages compose but don't depend on each other: any one is useful alone.
 
+Three of the six (`flag-or-fix`, `resume-interrupted-phase`, `pr-description`) are the
+[shared core's](../core/README.md), which Zethus uses too. The copies in `plugin/skills/` are
+byte-identical to `core/skills/`; edit the source there, then run `python install.py --sync-core`.
+
 ### Keeping docs in sync: a rule, not a stage
 
 Amphion used to ship a seventh skill, `sync-claude-md`, that corrected the docs a diff made wrong.
@@ -49,6 +53,21 @@ replaced it is in [the pipeline doc](docs/pipeline.md#docs-are-a-rule-not-a-stag
 ## Install
 
 **Plugin (recommended).** Install the `amphion` plugin from this repo; it carries all six skills.
+
+**Installer.** From a clone, one command puts the six skills in place (and, with them, the shared
+core's memory hooks, which register once):
+
+```bash
+python mesmer-grimoire/amphion/install.py --user --dry-run   # the plan; writes nothing
+python mesmer-grimoire/amphion/install.py --user             # ~/.claude/skills, for every project
+python mesmer-grimoire/amphion/install.py --target path/to/repo  # .claude/skills + .claude/amphion.config.json
+python mesmer-grimoire/amphion/install.py --user --platform copilot
+python mesmer-grimoire/amphion/install.py --user --uninstall
+```
+
+It is the [grimoire installer](../core/README.md#installing-from-it) with `--bundle amphion`. A file
+it didn't write is never overwritten, an existing config is never touched, and nothing is copied
+beside an installed Amphion plugin.
 
 **Manual.** Copy the skill folders into your skills directory — user-level for all projects, or
 `.claude/skills/` inside one project:

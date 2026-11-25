@@ -1,6 +1,6 @@
 # Lessons capture and harness convergence: verification and spec (2026-10-29)
 
-**Status:** Phases 0 to 3 are built. The engine fixes B1–B6 merged on 2026-10-30 (PR #46). The
+**Status:** Phases 0 to 4 are built. The engine fixes B1–B6 merged on 2026-10-30 (PR #46). The
 candidate spool and the capture hooks ran in **shadow mode** for a month on one developer's
 machine; the result is in [§5.1](#51-shadow-week-result-2026-11-24). Phase 1 then added
 **auto-store** of the two deterministic, script-emitted signals (S1 an ADR, S2 a gate red→green),
@@ -15,9 +15,12 @@ watched paths. Phase 1 and 2's visible behaviour is **opt-in** (`memory.mode: "a
 own. **Phase 3** added context fingerprints (a context is a spec or ticket, Q5), standards (S7: a
 lesson that recurs across contexts raises one "promote to standard?" question), promotion to the
 shared tier or any store in `config.stores` (Q3), and config-default proposals, all in active mode
-only ([§5.3](#53-phase-3-standards-and-the-exit-test-2026-11-24)). Still open: the §4.7 cells that
+only ([§5.3](#53-phase-3-standards-and-the-exit-test-2026-11-24)). **Phase 4** built the shared core
+and the installer over it ([§5.4](#54-phase-4-the-shared-core-and-what-of-the-stage-1-installer-existed)):
+one source tree for the hook script, its registrations, the `memory` schema and the shared skills,
+and each hook registering once however many kits install it. Still open: the §4.7 cells that
 couldn't be checked from that host (VS Code, the Copilot cloud agent and Cursor), now including
-Phase 2's Copilot output shapes there. Still ahead: the shared core (Phase 4).
+Phase 2's Copilot output shapes there, and every installer path on a real Claude Code or Copilot.
 **All eight questions are ruled** (2026-10-29). Seven went as recommended: Zethus and Amphion
 stay two kits on a shared core (Q1); auto-store never stores the six excluded classes (Q2) and
 never writes beyond the local tier (Q7); a standard is three occurrences across two or more specs
@@ -875,7 +878,7 @@ All of these are inside Mnemosyne and stay stdlib-only.
   names the upgrade path.
 - **Gemini CLI and Antigravity hook adapters**, until a user needs them.
 - **Building the shared core.** Q1 chose it, and it is Phase 4; Phases 0–3 don't wait on it.
-  Fusing the kits is not planned at all.
+  Fusing the kits is not planned at all. (Built in Phase 4, [§5.4](#54-phase-4-the-shared-core-and-what-of-the-stage-1-installer-existed).)
 
 ---
 
@@ -889,7 +892,7 @@ Sizes follow stage 1: S is under half a day, M is half a day to two days, L is t
 | **1** | Auto-store for S1 (ADR) and S2 (gate red → green) through Zethus's scripts. `session-start` recall digest. Claude Code `stop` triage of pending candidates through the `lessons-triage` skill. Local tier only (Q7). The Q2 exclusions hold from here: an S1 or S2 candidate in an excluded class is asked at the same triage, never saved. **Built:** `new-adr.py` emits S1 and `run-local-gates.py` emits S2 (`mnemosyne.candidates.record_adr` / `record_gate_results`, fail-open); `capture --captured-by hook:<signal> --candidate <id>` with the engine's Q2 refusals (security / supersede / non-local / secret) + confidence pinned to medium; `candidate triage` / `candidate resolve`, `retire`; the bridge's active-mode `session-start` digest and `stop` block; the `lessons-triage` skill; opt-in via `memory.mode: "active"`. Tests: `tests/test_mnemosyne_capture.py` (Phase1* classes), `tests/test_zethus_lessons_capture.py` | Yes: auto-store to local, one triage checkpoint | A Zethus run that records an ADR and fixes a red gate ends with two `SAVED:` lines and an empty spool; `retire` undoes either; no write outside `local.jsonl`; a `security` ADR is asked, not saved, and the engine refuses it as a hook capture | M |
 | 2 | Ask outcomes (S4–S6, S8–S12), batched; Copilot `sessionStart` and `.github/hooks/*.json`; Amphion watched paths. **First, tighten detection** (§5.1) and measure it on the shadow spool. **Built:** the tightened S4/S5/S6 detectors and the brief gate (`mnemosyne.detect`); measurement in §5.2; per-signal ask status (S8 and S9–S11 ask, S4/S5/S6/S12 stay in shadow until labelled precision earns them a question, or a project opts in); negative fingerprints and "never ask about this kind"; S12 from recalled ids; one batched question set (`candidate triage --format json`, `--numbered`); S9–S11 kinds, once per session and path; watched paths from Zethus's and Amphion's own keys; Copilot's JSON `additionalContext` for session-start and prompt in active mode; the double-fire guard (§4.7) also holds the digest to one print. Tests: `tests/test_mnemosyne_capture_phase2.py`. **Not seen on a real host:** VS Code, the Copilot cloud agent, and the `agentStop` block with these changes (it was seen in E2 with the Phase 1 reason text) | Yes, opt-in | Triage on Copilot CLI and VS Code; no double-fire with both files present. **Met in tests** (one digest from two files); **not met on a host**: no VS Code run, and the CLI was not driven again in this phase | M |
 | 3 | Context fingerprints (a context is a spec or ticket, Q5), standards (S7), promotion to shared or store, and config-default proposals. Promotion targets the tiers Mnemosyne's federation already has: the shared tier or any store in `config.stores` (Q3, ruled). **Built:** `mnemosyne.standards`; fingerprints on capture and reinforce; the decision-key match; `new-adr.py --question-class/--option/--spec/--config-key/--config-value` and two ADR template rows; S7 raised once per lesson and asked in the batched set with one option per tier; `standard list/scan/promote/config`; a store `scope` of `internal` or `external`; the opt-in gate (active mode only). Tests: `tests/test_mnemosyne_standards.py` | Yes, opt-in | Three ADRs with the same answer across two specs produce exactly one "promote to standard?" question; three in one spec produce none (Q4). **Met**, end to end through `new-adr.py`, `capture --candidate` and `candidate triage` ([§5.3](#53-phase-3-standards-and-the-exit-test-2026-11-24)) | M |
-| 4 | The shared core (Q1, ruled), inside the stage 1 installer: one source tree for the memory hook script and its `hooks.json`, the `memory` config schema, and the shared skills. Zethus and Amphion each install from it and keep their own names, READMEs and install paths. **Built toward it (2026-11-01):** Mnemosyne has its own installer, `mnemosyne/install.py`. It sets up the package, a local git memory repo (`~/repos/mnemosyne-local` by default, no remote), a persistent `MNEMOSYNE_REPO`, the Claude Code plugin through a local marketplace, and, with `--target`, a Copilot `.github/hooks/*.json` file (`mnemosyne.json`) generated from the plugin's `hooks.json`, so registration keeps one source; `--user` writes the same file to `~/.copilot/hooks`. `zethus/install.py --with-mnemosyne` calls it rather than copying it (`tests/test_mnemosyne_install.py`, `tests/test_zethus.py`). **Open:** the shared core itself and Amphion's install; the shared core's installer should call `mnemosyne/install.py` too | Packaging | Stage 1 §3.4 CI additions green; installing both kits registers each hook once; `tests/test_zethus.py` green | M, on top of the stage 1 installer |
+| 4 | The shared core (Q1, ruled), inside the stage 1 installer: one source tree for the memory hook script and its `hooks.json`, the `memory` config schema, and the shared skills. Zethus and Amphion each install from it and keep their own names, READMEs and install paths. **Built toward it (2026-11-01):** Mnemosyne has its own installer, `mnemosyne/install.py`. It sets up the package, a local git memory repo (`~/repos/mnemosyne-local` by default, no remote), a persistent `MNEMOSYNE_REPO`, the Claude Code plugin through a local marketplace, and, with `--target`, a Copilot `.github/hooks/*.json` file (`mnemosyne.json`) generated from the plugin's `hooks.json`, so registration keeps one source; `--user` writes the same file to `~/.copilot/hooks`. `zethus/install.py --with-mnemosyne` calls it rather than copying it (`tests/test_mnemosyne_install.py`, `tests/test_zethus.py`). **Built (2026-11-25):** the shared core (`core/`), `catalog.json`, the root `install.py` (install and uninstall for Claude Code and Copilot, user and repo scope, `--check`, `--list`, `--sync-core`), Amphion's installer, `zethus/install.py --with-core`, and the stage 1 §3.4 CI additions ([§5.4](#54-phase-4-the-shared-core-and-what-of-the-stage-1-installer-existed)). **Open:** Codex and Cursor, and every installer path on a real host | Packaging | Stage 1 §3.4 CI additions green; installing both kits registers each hook once; `tests/test_zethus.py` green. **Met in tests and CI** (temp dirs, fakes for pip, `claude` and the registry); **not met on a real host** | M, on top of the stage 1 installer |
 
 Phase 0 deliberately ships no capture. Building capture on an engine that loses lessons on merge
 (B2) would bank data straight into the bug, which is why Q8 ruled the fixes first. And the signal
@@ -1033,6 +1036,111 @@ store left out; a config-default proposal that is printed and never written; and
   exists in a kit's config is not checked.
 - **`validate` on an auto-captured lesson.** A capture with no tags has an empty `trigger`, which
   `validate` reports as a missing required field. That is older than this phase and is untouched.
+
+### 5.4 Phase 4: the shared core, and what of the stage 1 installer existed
+
+**What existed before this phase** (checked against `origin/develop` at `aa808db`, 2026-11-25), and
+what Phase 4 did about each:
+
+| Stage 1 piece | Before | Phase 4 |
+| --- | --- | --- |
+| §3.2 root `install.py`, `--platform`, `--bundle`, `--list`, `--check` | **Absent.** No root installer | Built: `install.py`, with `--check`, `--list` and `--sync-core` first |
+| §3.1 `catalog.json` | **Absent** | Built: `catalog.json` (bundles, what each needs, hosts, the marketplace entries) |
+| §3.2 generalised engine: manifest, SHA check, foreign-file protection, conflict handling, dry run, prune | **Exists, Copilot-only,** in `zethus/install.py` (user scope: manifest and uninstall; repo scope: neither) | Kept as it is and **called**, not copied |
+| Package, memory repo, `MNEMOSYNE_REPO`, Claude plugin, Copilot hook files | **Exists** in `mnemosyne/install.py` (user and `--target`; manifest; uninstall) | Kept as it is and **called**, not copied |
+| §3.3 marketplaces | **Exists:** `.claude-plugin/marketplace.json` (Amphion, Mnemosyne) and `.github/plugin/marketplace.json` (Zethus, Mnemosyne) | Kept. `install.py --check` now holds them to the catalog and the plugin manifests |
+| Amphion's installer | **Absent.** Amphion was a plugin, or `cp -r` | Built, on the new root installer |
+| §3.4 CI: `install.py --check` | Absent | Built, a blocking CI step |
+| §3.4 CI: skill frontmatter lint | **Partly.** `tests/test_frontmatter.py` proved every file parses, `tests/test_zethus.py` held Zethus's names and lengths | Built for every skill in the repo: `tests/test_skill_rules.py`, its own CI step |
+| §3.4 CI: doc-pointer check | **Exists** (`scripts/check_doc_pointers.py`, blocking) | Unchanged; `core/skills` joins its example-docs list |
+| §3.4 CI: a dry run of `--platform all --user` and `--target` into a temp directory, on Linux and Windows | Absent | Built, with the installer |
+| Codex and Cursor strategies, their manifests, §3.1 neutral agent and instruction layout, the platforms reference doc, the shims | Absent | **Not built.** They are stage 2's host port (D7), not Phase 4; a Codex or Cursor `--platform` is refused until they are |
+
+**The shared core.** `core/` is the one source tree ([`core/README.md`](../core/README.md)): the memory
+hook script, its Claude-format and Copilot-format registrations, `memory.schema.json` and the skills
+both kits use (`flag-or-fix`, `resume-interrupted-phase`, the general `pr-description`).
+
+- **Copies, not references.** A plugin installed from a marketplace is copied on its own, so
+  `mnemosyne/plugin/` and `amphion/plugin/` cannot point out of their folders. They carry byte copies
+  of the core's files, listed under `core.mirrors` in the catalog and held in step by `install.py
+  --check`, as `scripts/sync_zethus_plugin_root.py` already does for Zethus's agent. No path an
+  existing install reads moved: `mnemosyne/install.py` still copies `mnemosyne/plugin/`, and the
+  marketplaces still point at the same folders.
+- **One `pr-description`.** Zethus keeps `zethus-pr-description` (D8, ruled: its other skills are
+  process-specific, and the general one is Amphion's). The core carries the general one, so a kit that
+  needs it gets one copy, and no skill was renamed.
+- **The `memory` schema** is derived from what `mnemosyne.candidates` and `mnemosyne.standards`
+  read, not from the example in §4.7. Both kits' example configs now carry `"memory": {"enabled":
+  true, "mode": "shadow"}`, which is what an absent block already meant, and `--check` holds them to
+  the schema.
+- **Fixed on the way:** the two shared skills linked to a sibling `log-friction` skill, which only
+  Amphion has; they now name the skill in prose, so neither kit has a dead link.
+
+**The installer.** [`install.py`](../install.py) composes what existed and adds what was missing.
+
+- **Called, not copied.** The `mnemosyne` and `zethus` bundles are *delegates*: the installer runs
+  `mnemosyne/install.py` and `zethus/install.py` through their own `main()`. Only the `core` and
+  `amphion` bundles are files it copies itself (their skills, and in a repo Amphion's example config,
+  never over a file that is there). `zethus/install.py --with-core` and the new `amphion/install.py`
+  are each kit's own door into the same code.
+- **Needs, not duplicates.** `core` needs `mnemosyne`; `zethus` and `amphion` each need `core`. A run
+  resolves the set once, in dependency order, so the core and Mnemosyne are installed once however
+  many kits ask. Only Mnemosyne's installer writes a hook registration (the Claude plugin, and for
+  Copilot `.github/hooks` or `~/.copilot/hooks`), and it is called once per run, so each hook
+  registers once.
+- **All or nothing.** The run is planned first and each delegate is rehearsed with its own
+  `--dry-run`; any conflict, in any bundle, writes nothing. A file the installer did not write is
+  never overwritten, even with `--force`; one it wrote and you edited needs `--force`. `--force` is
+  not passed to Mnemosyne's installer, where it would repoint `MNEMOSYNE_REPO`.
+- **Its own manifest.** `~/.mesmer-grimoire/install-manifest.json`, or `.mesmer-grimoire/` in a repo
+  (repo-relative keys, so a committed manifest names no machine). It records each file's hash, bundle
+  and host, and the bundles asked for per host. It never lists Zethus's or Mnemosyne's files, which
+  keep their manifests where they always were: that is what lets an older Zethus installer re-run over
+  a newer install leave the core alone.
+- **Uninstall** removes the unedited files of the bundles that leave, keeps a bundle something still
+  needs (removing Amphion keeps the core for Zethus), and hands Zethus and Mnemosyne to their own
+  uninstallers (user scope; in a repo their committed files go with git). The memory repo stays. A
+  repo's manifest is a committed file and so is input: a key that points outside the install's
+  folder is never followed, and a manifest of the wrong shape is read as none.
+- **Hosts.** Claude Code and Copilot. `--platform codex` and `cursor` are refused with a pointer here.
+  Zethus is Copilot-only, so `--platform all` skips it on Claude with a note.
+
+**Exit test** (`tests/test_shared_core_install.py`, 53 tests, every one on a temp home and repo with
+fakes for pip, `claude` and the Windows registry; git runs for real):
+
+| Claim | Evidence |
+| --- | --- |
+| Installing both kits into a temp target registers each hook once | Every JSON hook file under the temp home and repo is scanned: the six Claude events and the five Copilot events each appear exactly once, and the Claude plugin is installed once. Repeated for `--user`, for either install order, for a second run (the whole tree is byte-identical), and with `zethus/install.py --with-mnemosyne` or `--with-core` run first |
+| An older Zethus installer re-run over a new install loses, duplicates and renames nothing | `tests/fixtures/zethus_install_pre_phase4.py` is `zethus/install.py` as it stood at `aa808db`, run beside a copy of the kit. Over a new user install the whole tree and Zethus's manifest are unchanged; its `--uninstall` removes only Zethus's files and leaves the core's skills and the new manifest; over its own repo install the new installer refuses writing nothing, and with `--force` loses and changes nothing |
+| Upgrading an existing install loses, duplicates and renames nothing | An install made by that older installer plus `mnemosyne/install.py`, with a user config carrying its own keys, is upgraded by `--platform all --user --bundle zethus,amphion`: every earlier file is byte-identical, the config is byte-identical, Zethus's and Mnemosyne's manifest entries are unchanged, the hooks stay registered once, and the only additions are the core's and Amphion's skills and the new manifest. An edited kit file refuses the upgrade and is left as it was |
+| `tests/test_zethus.py` green | The full suite (1,100+ tests) passes locally and in CI |
+| Stage 1 §3.4 CI additions | `install.py --check`, the installer dry run on Linux and Windows, the skill lint and the doc-pointer check are blocking CI steps |
+
+**Open, with a recommendation each** (none blocks the layer; each needs Ceryce):
+
+1. **Claude Code in a repo: committed hooks?** A `--target` install on Claude registers the memory
+   hooks through the user-scope plugin only, because Mnemosyne's installer does not write
+   `.claude/settings.json`. A teammate on Claude Code without the plugin gets the skills and no hooks.
+   Merging a managed block into `.claude/settings.json` would fix that, at the cost of the 1.0.88
+   double-fire the engine's guard already handles. **Recommend: not yet.** Build it only when a team
+   asks for committed Claude hooks, as its own change.
+2. **The `all` skills layout.** Each host gets its native folder (`.claude/skills`, `.github/skills`),
+   so a host that reads both (VS Code reads `.claude/skills`) may list a skill twice. Stage 1 §2.4's
+   duplicate-skills test, which decides this, was not run: it needs each host installed. **Recommend:**
+   keep native folders; if a host shows duplicates, put Copilot's copy in `.agents/skills` for `all`.
+3. **The Zethus plugin does not carry the core's skills.** A Copilot user who installs only the
+   `zethus` plugin gets Zethus's skills, not `flag-or-fix` and the other two. **Recommend:** leave it,
+   and say so in the README: they arrive with `--with-core`, the Amphion plugin or the installer.
+   Mirroring them into the Zethus plugin would add three skills to every Zethus user's list and move
+   Zethus's agent-file link tests.
+4. **Codex and Cursor** (stage 2, D7): strategies, manifests and the neutral agent layout. Not Phase 4.
+
+**Not verified on a real host.** Every installer path ran against fakes and temp dirs. No real Claude
+Code or Copilot CLI, VS Code or IntelliJ was driven: the plugin install through `claude plugin`, the
+hook registrations being loaded and fired once, the skills being listed once, and `agentStop` and
+friends with the installed files are all unobserved. The CI dry run on a Windows runner reads (never
+writes) the registry. `--force` on a skill that an installed plugin also carries is untested beyond
+the fake.
 
 ---
 

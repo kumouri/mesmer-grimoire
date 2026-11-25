@@ -16,6 +16,7 @@ the old name.
 | Path | Contents | Read next |
 | --- | --- | --- |
 | `mnemosyne/` | Reflexion-memory engine: package, CLI, MCP server, plugin | [`mnemosyne/README.md`](mnemosyne/README.md), [`mnemosyne/docs/design.md`](mnemosyne/docs/design.md) |
+| `core/` | Shared core of Zethus and Amphion: the memory hook script and its registrations, the `memory` config schema, shared skills. Plugin folders hold byte copies. The installer is `install.py`, over `catalog.json` | [`core/README.md`](core/README.md) |
 | `amphion/` | Spec-to-PR pipeline: markdown skills under one plugin, config-driven, no runtime | [`amphion/README.md`](amphion/README.md), [`amphion/docs/pipeline.md`](amphion/docs/pipeline.md) |
 | `zethus/` | GitHub Copilot process kit: agent, skills, templates, stdlib scripts, installer | [`zethus/README.md`](zethus/README.md) |
 | `skills/`, `hooks/`, `commands/`, `agents/` | Standalone artifacts of each kind, one folder or file each | the directory's `README.md` |
