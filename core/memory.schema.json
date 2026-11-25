@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kumouri/mesmer-grimoire/core/memory.schema.json",
+  "title": "The memory block of zethus.config.json and amphion.config.json",
+  "description": "One schema for both kits. Every key is optional and the engine's defaults apply to any that is left out (lessons-capture spec, section 4.7). Q2's exclusions are not keys, by design.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {"type": "boolean", "description": "false turns capture off. Default true."},
+    "mode": {"enum": ["shadow", "active"], "description": "shadow records candidates and logs decisions only; active stores and asks. Default shadow."},
+    "repo": {"type": "string", "description": "The memory repo, when MNEMOSYNE_REPO is not set."},
+    "autoStore": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "signals": {"type": "array", "items": {"type": "string"}, "description": "Signal names or ids that may be stored without asking: adr, gate-red-green, explicit-remember."},
+        "perSession": {"type": "integer", "minimum": 0, "description": "How many an auto-store may save in one session. Default 5."}
+      }
+    },
+    "ask": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "signals": {"type": "array", "items": {"type": "string"}, "description": "Signals still in shadow that this project opts into asking."}
+      }
+    },
+    "watch": {
+      "type": "array",
+      "description": "Paths, globs or {path, kind} entries whose writes become candidates. Left out, they come from each kit's own config keys.",
+      "items": {
+        "oneOf": [
+          {"type": "string"},
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path"],
+            "properties": {"path": {"type": "string"}, "kind": {"type": "string"}}
+          }
+        ]
+      }
+    },
+    "standard": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "minOccurrences": {"type": "integer", "minimum": 1, "description": "Default 3."},
+        "minContexts": {"type": "integer", "minimum": 1, "description": "Default 2."},
+        "windowDays": {"type": "integer", "minimum": 1, "description": "Default 180."}
+      }
+    },
+    "offerTier": {"type": "string", "description": "The tier the agent suggests first when it asks to share: shared, or a store in config.stores. Empty suggests none."}
+  }
+}

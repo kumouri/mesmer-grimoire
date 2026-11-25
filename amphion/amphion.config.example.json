@@ -79,5 +79,10 @@
       { "name": "Process & Coordination", "includes": "Handoffs, review latency, orchestration and agent-delegation failures" },
       { "name": "External Services & Dependencies", "includes": "Third-party APIs, vendor limits, upstream bugs" }
     ]
+  },
+
+  "memory": {
+    "enabled": true,
+    "mode": "shadow"
   }
 }

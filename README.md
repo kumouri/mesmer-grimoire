@@ -40,6 +40,7 @@ stones set themselves. Pipeline + diagram: [amphion/docs/pipeline.md](amphion/do
 | Directory | What lives here |
 | --- | --- |
 | [`mnemosyne/`](mnemosyne/) | Reflexion-lessons memory engine (package · CLI · MCP server · plugin). |
+| [`core/`](core/) | The shared core: the memory hook script and its registrations, the `memory` config schema and the skills Zethus and Amphion both use. Plugin folders carry byte copies; `install.py --check` keeps them in step. |
 | [`amphion/`](amphion/) | Spec-to-PR implementation pipeline — six composable skills, one plugin. |
 | [`skills/`](skills/) | Standalone custom Skills not tied to an engine or package. |
 | [`hooks/`](hooks/) | Standalone Claude Code hooks. |
@@ -49,6 +50,7 @@ stones set themselves. Pipeline + diagram: [amphion/docs/pipeline.md](amphion/do
 | [`.claude-plugin/`](.claude-plugin/marketplace.json) | Claude Code plugin catalogue (Amphion, Mnemosyne). |
 | [`agents/`](agents/) | Custom subagent definitions. |
 | [`docs/`](docs/) | Cross-cutting docs, such as the [Morpheus retrospective](docs/morpheus-retrospective.md). |
+| [`install.py`](install.py), [`catalog.json`](catalog.json) | The grimoire installer and the catalog it reads. |
 | [`scripts/`](scripts/) | Repo-maintenance scripts: the CI identifier guard and the doc-pointer check. |
 | [`tests/`](tests/) | Python `unittest` suite covering mnemosyne and zethus. |
 
@@ -69,8 +71,9 @@ scripts (`run-local-gates`, `new-adr`, `new-spec`, `docs-pointer-check`) carry t
 `develop` or `main`:
 
 - **Validate artifacts** — markdownlint, JSON/YAML well-formedness, shellcheck.
-- **Python tests** — the identifier guard (below), the doc-pointer check (below), the
-  `unittest` suite, and an MCP-server smoke import.
+- **Python tests** — the identifier guard (below), the doc-pointer check (below), the shared
+  core's `install.py --check`, the skill frontmatter lint, the `unittest` suite, and an MCP-server
+  smoke import.
 
 Run the suite locally with:
 

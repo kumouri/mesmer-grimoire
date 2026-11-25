@@ -39,6 +39,10 @@ and vocabulary live in `.claude/amphion.config.json`, so the same six skills wor
 
 The stages compose but don't depend on each other: any one is useful alone.
 
+Three of the six (`flag-or-fix`, `resume-interrupted-phase`, `pr-description`) are the
+[shared core's](../core/README.md), which Zethus uses too. The copies in `plugin/skills/` are
+byte-identical to `core/skills/`; edit the source there, then run `python install.py --sync-core`.
+
 ### Keeping docs in sync: a rule, not a stage
 
 Amphion used to ship a seventh skill, `sync-claude-md`, that corrected the docs a diff made wrong.

@@ -23,6 +23,11 @@
     "dir": "docs/specs"
   },
 
+  "memory": {
+    "enabled": true,
+    "mode": "shadow"
+  },
+
   "sessionReview": {
     "listLimit": 30,
     "maxSessions": 30,

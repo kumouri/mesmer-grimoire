@@ -1034,6 +1034,45 @@ store left out; a config-default proposal that is printed and never written; and
 - **`validate` on an auto-captured lesson.** A capture with no tags has an empty `trigger`, which
   `validate` reports as a missing required field. That is older than this phase and is untouched.
 
+### 5.4 Phase 4: the shared core, and what of the stage 1 installer existed
+
+**What existed before this phase** (checked against `origin/develop` at `aa808db`, 2026-11-25), and
+what Phase 4 did about each:
+
+| Stage 1 piece | Before | Phase 4 |
+| --- | --- | --- |
+| §3.2 root `install.py`, `--platform`, `--bundle`, `--list`, `--check` | **Absent.** No root installer | Built: `install.py`, with `--check`, `--list` and `--sync-core` first |
+| §3.1 `catalog.json` | **Absent** | Built: `catalog.json` (bundles, what each needs, hosts, the marketplace entries) |
+| §3.2 generalised engine: manifest, SHA check, foreign-file protection, conflict handling, dry run, prune | **Exists, Copilot-only,** in `zethus/install.py` (user scope: manifest and uninstall; repo scope: neither) | Kept as it is and **called**, not copied |
+| Package, memory repo, `MNEMOSYNE_REPO`, Claude plugin, Copilot hook files | **Exists** in `mnemosyne/install.py` (user and `--target`; manifest; uninstall) | Kept as it is and **called**, not copied |
+| §3.3 marketplaces | **Exists:** `.claude-plugin/marketplace.json` (Amphion, Mnemosyne) and `.github/plugin/marketplace.json` (Zethus, Mnemosyne) | Kept. `install.py --check` now holds them to the catalog and the plugin manifests |
+| Amphion's installer | **Absent.** Amphion was a plugin, or `cp -r` | Built, on the new root installer |
+| §3.4 CI: `install.py --check` | Absent | Built, a blocking CI step |
+| §3.4 CI: skill frontmatter lint | **Partly.** `tests/test_frontmatter.py` proved every file parses, `tests/test_zethus.py` held Zethus's names and lengths | Built for every skill in the repo: `tests/test_skill_rules.py`, its own CI step |
+| §3.4 CI: doc-pointer check | **Exists** (`scripts/check_doc_pointers.py`, blocking) | Unchanged; `core/skills` joins its example-docs list |
+| §3.4 CI: a dry run of `--platform all --user` and `--target` into a temp directory, on Linux and Windows | Absent | Built, with the installer |
+| Codex and Cursor strategies, their manifests, §3.1 neutral agent and instruction layout, the platforms reference doc, the shims | Absent | **Not built.** They are stage 2's host port (D7), not Phase 4; a Codex or Cursor `--platform` is refused until they are |
+
+**The shared core.** `core/` is the one source tree ([`core/README.md`](../core/README.md)): the memory
+hook script, its Claude-format and Copilot-format registrations, `memory.schema.json` and the skills
+both kits use (`flag-or-fix`, `resume-interrupted-phase`, the general `pr-description`).
+
+- **Copies, not references.** A plugin installed from a marketplace is copied on its own, so
+  `mnemosyne/plugin/` and `amphion/plugin/` cannot point out of their folders. They carry byte copies
+  of the core's files, listed under `core.mirrors` in the catalog and held in step by `install.py
+  --check`, as `scripts/sync_zethus_plugin_root.py` already does for Zethus's agent. No path an
+  existing install reads moved: `mnemosyne/install.py` still copies `mnemosyne/plugin/`, and the
+  marketplaces still point at the same folders.
+- **One `pr-description`.** Zethus keeps `zethus-pr-description` (D8, ruled: its other skills are
+  process-specific, and the general one is Amphion's). The core carries the general one, so a kit that
+  needs it gets one copy, and no skill was renamed.
+- **The `memory` schema** is derived from what `mnemosyne.candidates` and `mnemosyne.standards`
+  read, not from the example in §4.7. Both kits' example configs now carry `"memory": {"enabled":
+  true, "mode": "shadow"}`, which is what an absent block already meant, and `--check` holds them to
+  the schema.
+- **Fixed on the way:** the two shared skills linked to a sibling `log-friction` skill, which only
+  Amphion has; they now name the skill in prose, so neither kit has a dead link.
+
 ---
 
 ## 6. Verification run for this document

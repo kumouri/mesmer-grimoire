@@ -88,7 +88,7 @@ brief, after a short backoff. Exactly one auto-retry. A second failure, or any n
 failure, means stop and surface a state summary to the user — see
 [`flag-or-fix`](../flag-or-fix/SKILL.md) for the escalation framing.
 
-Then, if the project keeps a friction log, invoke [`log-friction`](../log-friction/SKILL.md) with
+Then, if the project keeps a friction log, invoke `log-friction` (Amphion's skill, where it is installed) with
 the failure class (verbatim error), the signal lost and how it was re-established, the recovery
 cost (mode, retries, wall-time, whether the user had to intervene), and a tuning hint (chunk too
 big? run too long? wrong model?). Every recovery is friction by definition, and the accumulated

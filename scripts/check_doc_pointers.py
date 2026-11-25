@@ -81,6 +81,8 @@ HOST_DIRS = {
 EXAMPLE_DOCS = [
     ("amphion/plugin/skills/*",
      "Amphion's skills and stack references describe the project the skill is run in."),
+    ("core/skills/*",
+     "The shared core's skills are the same ones Amphion ships; they run inside a consuming project."),
     ("zethus/skills/*",
      "Zethus's skills and their worked examples run inside a consuming repo."),
     ("zethus/templates/*",

@@ -265,7 +265,7 @@ mnemosyne/
 │   ├── cli.py                     # CLI (dynamic per-axis flags) + self-test
 │   ├── mcp_server.py              # MCP server (recall/capture/reflect/promote/export/prune/hygiene)
 │   └── data/                      # bundled schema + default, software-eng & multi-store configs
-├── plugin/                        # Claude Code plugin (skill + hooks + commands)
+├── plugin/                        # Claude Code plugin (skill + hooks + commands); its hook files are copies of ../core/hooks
 ├── memory/                        # a working demo store (lessons.jsonl + generated LESSONS.md)
 ├── mnemosyne.config.json          # this repo's active config (software-eng) — also a demo
 └── docs/design.md                 # architecture, recall algorithm, hygiene, governance

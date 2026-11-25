@@ -100,6 +100,16 @@ jobs:
       - name: "Doc pointers: scan Markdown"
         run: python scripts/check_doc_pointers.py
 
+      # Blocking. The shared core (core/) is the one source of the memory hook script and the
+      # skills both kits share; the plugin folders carry byte copies. This fails while a copy
+      # drifts, or the catalog, a marketplace and a plugin manifest disagree.
+      - name: "Shared core: install.py --check"
+        run: python install.py --check
+
+      # Blocking. The agentskills.io name and description rules, for every skill in the repo.
+      - name: "Skill frontmatter lint"
+        run: python -m unittest tests.test_skill_rules -v
+
       - name: Install the MCP server's optional dependency (mnemosyne)
         run: python -m pip install --quiet "mcp>=1.2,<2"
 
