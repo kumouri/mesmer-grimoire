@@ -394,8 +394,15 @@ class Scope:
     def key(self, path: Path) -> str:
         return path.as_posix() if self.user else path.relative_to(self.base).as_posix()
 
-    def path(self, key: str) -> Path:
-        return Path(key) if self.user else self.base / key
+    def path(self, key: str) -> Path | None:
+        """The file a manifest key names, or ``None`` when it points outside this install's base. A
+        repo's manifest is a committed file, so a key like ``../../x`` must never reach an unlink."""
+        p = Path(key) if self.user else self.base / key
+        try:
+            p.resolve().relative_to(self.base.resolve())
+        except (ValueError, OSError):
+            return None
+        return p
 
     def show(self, path: Path) -> str:
         try:
@@ -411,8 +418,13 @@ def read_manifest(scope: Scope) -> dict:
         return {"version": 1, "bundles": {}, "files": {}}
     if not isinstance(doc, dict):
         return {"version": 1, "bundles": {}, "files": {}}
-    doc.setdefault("bundles", {})
-    doc.setdefault("files", {})
+    if not isinstance(doc.get("bundles"), dict):
+        doc["bundles"] = {}
+    doc["bundles"] = {h: [b for b in v if isinstance(b, str)] for h, v in doc["bundles"].items()
+                      if isinstance(v, list)}
+    if not isinstance(doc.get("files"), dict):
+        doc["files"] = {}
+    doc["files"] = {k: v for k, v in doc["files"].items() if isinstance(v, dict)}
     return doc
 
 
@@ -488,7 +500,7 @@ def plan_files(catalog: dict, root: Path, scope: Scope, host: str, bundles: list
     for key, rec in sorted(manifest["files"].items()):
         if rec.get("host") == host and rec.get("bundle") in owned_here and key not in planned:
             path = scope.path(key)
-            if path.is_file() and sha256(path.read_bytes()) == rec.get("sha256"):
+            if path is not None and path.is_file() and sha256(path.read_bytes()) == rec.get("sha256"):
                 steps.append(Step(path, b"", rec["bundle"], host, "remove", "no longer part of the bundle"))
     return steps
 
@@ -679,6 +691,10 @@ def uninstall(args, catalog: dict, root: Path, hosts: list[str], requested: list
         if h not in leaving or bundle not in leaving[h]:
             continue
         path = scope.path(key)
+        if path is None:
+            say("skip", key, "outside this install's folder; the manifest is not trusted for it")
+            manifest["files"].pop(key)
+            continue
         if not path.is_file():
             say("gone", scope.show(path))
             manifest["files"].pop(key)

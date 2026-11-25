@@ -531,6 +531,41 @@ class Uninstall(GrimoireCase):
         self.assertIn("dry run: nothing removed", out)
 
 
+class AHostileOrDamagedManifest(GrimoireCase):
+    """A repo's manifest is committed, so it is input, not a record to obey."""
+
+    def test_a_key_outside_the_repo_is_never_removed(self):
+        victim = Path(self._tmp.name) / "outside.txt"
+        victim.write_text("precious", encoding="utf-8")
+        sha = hashlib.sha256(victim.read_bytes()).hexdigest()
+        self.run_install("--platform", "claude", "--target", str(self.target), "--bundle", "amphion")
+        manifest = self.target / ".mesmer-grimoire/install-manifest.json"
+        doc = json.loads(manifest.read_text(encoding="utf-8"))
+        doc["files"]["../outside.txt"] = {"sha256": sha, "bundle": "amphion", "host": "claude"}
+        manifest.write_text(json.dumps(doc), encoding="utf-8")
+        code, out = self.run_install("--platform", "claude", "--target", str(self.target), "--uninstall")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(victim.read_text(encoding="utf-8"), "precious")
+        self.assertIn("outside this install's folder", out)
+
+    def test_a_manifest_that_is_not_the_right_shape_is_tolerated(self):
+        manifest = self.target / ".mesmer-grimoire/install-manifest.json"
+        manifest.parent.mkdir()
+        manifest.write_text(json.dumps({"bundles": {"claude": "amphion", "copilot": [1, "core"]},
+                                        "files": ["x"]}), encoding="utf-8")
+        code, out = self.run_install("--platform", "claude", "--target", str(self.target), "--bundle", "amphion")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(json.loads(manifest.read_text(encoding="utf-8"))["bundles"],
+                         {"copilot": ["core"], "claude": ["amphion"]})
+
+    def test_an_unreadable_manifest_is_the_same_as_none(self):
+        manifest = self.target / ".mesmer-grimoire/install-manifest.json"
+        manifest.parent.mkdir()
+        manifest.write_text("{not json", encoding="utf-8")
+        code, out = self.run_install("--platform", "claude", "--target", str(self.target), "--bundle", "amphion")
+        self.assertEqual(code, 0, out)
+
+
 class TheKitsOwnEntryPoints(GrimoireCase):
     def test_amphion_install_py_is_the_root_installer_for_amphion(self):
         spec = importlib.util.spec_from_file_location("amphion_install", REPO / "amphion/install.py")

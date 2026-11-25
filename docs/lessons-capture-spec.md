@@ -1099,11 +1099,13 @@ both kits use (`flag-or-fix`, `resume-interrupted-phase`, the general `pr-descri
   a newer install leave the core alone.
 - **Uninstall** removes the unedited files of the bundles that leave, keeps a bundle something still
   needs (removing Amphion keeps the core for Zethus), and hands Zethus and Mnemosyne to their own
-  uninstallers (user scope; in a repo their committed files go with git). The memory repo stays.
+  uninstallers (user scope; in a repo their committed files go with git). The memory repo stays. A
+  repo's manifest is a committed file and so is input: a key that points outside the install's
+  folder is never followed, and a manifest of the wrong shape is read as none.
 - **Hosts.** Claude Code and Copilot. `--platform codex` and `cursor` are refused with a pointer here.
   Zethus is Copilot-only, so `--platform all` skips it on Claude with a note.
 
-**Exit test** (`tests/test_shared_core_install.py`, 50 tests, every one on a temp home and repo with
+**Exit test** (`tests/test_shared_core_install.py`, 53 tests, every one on a temp home and repo with
 fakes for pip, `claude` and the Windows registry; git runs for real):
 
 | Claim | Evidence |
