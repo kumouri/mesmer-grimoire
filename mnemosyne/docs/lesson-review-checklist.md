@@ -22,5 +22,9 @@ shared, close the PR instead.
 - [ ] **No secrets / PII.** No credentials, tokens, customer data, or internal identifiers that
       shouldn't be shared. The engine already scrubbed the login name and absolute paths; a clean
       scrub is not clearance, so read the text anyway.
+- [ ] **A standard earned it.** If the lesson carries a `standard` marker, its `contexts` hold at
+      least the occurrences and distinct hashes the marker claims, inside the window. The hashes
+      are the only provenance an external store should hold: no spec id, repo, anchors or reflection
+      text, and `mnemosyne validate` is clean. A clean scrub is still not clearance.
 - [ ] **Authored by the engine.** The JSONL wasn't hand-edited (ids, stamps, and `LESSONS.md`
       are consistent; `mnemosyne validate` passes).

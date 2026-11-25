@@ -102,6 +102,11 @@ touches the network), `--to <tier>` exports up to one (opening the PR in *that* 
 local original retires automatically on the next `sync` once its PR merges. Relay the
 promotion/export line.
 
+A lesson that recurs across different specs or tickets is offered as a **standard** at triage (the
+`lessons-triage` skill). A yes is `mnemosyne standard promote <id> --to <tier>`: the same review PR,
+shaped as a procedural convention carrying the `standard` marker. `mnemosyne standard list` shows
+which lessons are close. A config default it proposes is printed, never written.
+
 ## Curate on demand
 
 ```

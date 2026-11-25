@@ -140,7 +140,8 @@ The local originals are kept and marked until the store's PR merges; the next `s
 them, leaving the store copies authoritative. A store that isn't a git repo has no PR to merge, so
 `export` writes into it as `proposed` and `sync` retires an original only once its copy reads
 `approved`. Usage tracking always writes to the primary gitignored sidecar; stores are read-only for
-usage.
+usage. A store may declare `scope: "external"` when people beyond the project read it; a promotion
+to one drops the spec id, repo, anchors and reflection text, and keeps only the context hashes.
 
 **Source of truth = the JSONL.** `memory/lessons.jsonl` is authoritative; `memory/LESSONS.md` is a
 **generated** human view, regenerated on every write and committed so PR diffs are readable.
@@ -271,6 +272,17 @@ signals and asks about the rest in one batched set, but only for signals that ha
 signal that guesses at words or retries (S4, S5, S6, S12) asks once its own labelled candidates are
 at least half worth a lesson, and until then it stays in shadow. That is the design's answer to the
 shadow data: noise is not asked about, and each signal's status is visible in `mnemosyne doctor`.
+
+**Standards (Phase 3).** A lesson that recurs across different work is a standard candidate
+([spec §4.4](../../docs/lessons-capture-spec.md#44-recurrence-the-same-answer-in-different-situations)).
+Every capture and reinforce appends a context fingerprint to the lesson: a salted hash of the repo's
+identity plus the spec or ticket id (else the branch), never the names themselves, so a shared tier
+can count distinct contexts without learning them. A decision lesson also carries its question class
+and chosen option, and a repeat of that pair reinforces it whatever the wording. Three occurrences
+across two contexts inside 180 days raise one `S7` candidate per lesson, which triage asks as
+"promote to standard?", with one option per tier the federation reaches. Promotion is the ordinary
+review-PR promote or export with the copy shaped as a standard; a config default is a proposal,
+printed and never written. It is active-mode only, and the code is `mnemosyne.standards`.
 
 ## Governance
 

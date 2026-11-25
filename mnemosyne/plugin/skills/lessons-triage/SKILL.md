@@ -8,7 +8,7 @@ description: >
   or writing lessons from scratch — that is the reflexion-memory skill.
 ---
 
-# Lessons triage (Mnemosyne, Phases 1 and 2)
+# Lessons triage (Mnemosyne, Phases 1 to 3)
 
 Zethus's scripts and the capture hooks detect *signals* and append *candidates* to a local spool;
 they never store or ask. This skill is the one place judgement happens: you run the rule table
@@ -101,10 +101,29 @@ What each kind of question is:
 | S9–S11 | A watched file was written (a spec, a friction-log entry, the phase ledger): is there a decision or lesson in it? The path is all you have: open the file | decision, or process for a friction entry |
 | S4, S5, S6 | Only if the project opted in: the person's own words, or a command that failed then passed | convention, convention, mistake |
 | S12 | Lessons recalled this session were then corrected: should a new lesson replace one? | convention, with `--supersede <id>` |
+| S7 | A lesson has recurred across enough specs or tickets: promote it to a standard? Its options are the tiers, not save or edit; see below | none: it promotes, it doesn't capture |
 
 For **S12**, if the person agrees, capture the replacement with `--supersede <old-id>`. The engine
 refuses a hook-made supersede, so this must be a plain capture the person approved, never
 `--captured-by`.
+
+### S7: promote to a standard
+
+An S7 question names a lesson that came up at least 3 times across at least 2 specs or tickets in
+180 days (`memory.standard`). Its options are one per tier the federation reaches, the shared tier
+and each writable store in `config.stores` (`memory.offerTier` is offered first), then *skip* and
+*never ask about this kind*. Recommend a tier only when the lesson reads as a rule for everyone who
+reads that tier; otherwise recommend *skip*. On a yes:
+
+```
+mnemosyne standard promote <lesson-id> --to <tier> --candidate <id>
+```
+
+That is the ordinary promote or export: a review PR, scrubbed, and merging it is the approval. Relay
+its `PROMOTED:` or `EXPORTED:` line and the `STANDARD:` line. If the question named a config key,
+the command also prints a **proposal** for that default as a JSON snippet. Show it to the person and
+leave it there: you never edit a config file for them. On *skip* and *never* use `candidate resolve`
+as above; a skipped standard is never asked again.
 
 ## 4. Done
 
@@ -115,7 +134,7 @@ Stop hook won't block again. Confirm with `mnemosyne candidate triage` (0 untria
 ## What this never does
 
 - Never stores beyond the local tier, never opens a PR (Q7). Sharing is a separate, reviewed
-  `promote` — see the reflexion-memory skill.
+  `promote` — see the reflexion-memory skill. A standard goes up only on a yes to its S7 question.
 - Never writes into `AGENTS.md`, `CLAUDE.md` or Copilot instructions; those are routers.
 - Never pastes tool output, web pages, issue bodies or transcript text into a lesson. You write the
   lesson; the candidate only points at where the signal came from.

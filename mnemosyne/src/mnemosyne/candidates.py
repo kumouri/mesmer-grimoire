@@ -59,6 +59,13 @@ PHASE 2 ASK  Phase 1 auto-stores S1 and S2 and asked about nothing else it could
         are labelled and ASK_MIN_PRECISION of them were worth a lesson, or a project opts one in
         with memory.ask.signals. A skip is remembered as a negative fingerprint, and "never ask
         about this kind" mutes a kind for good.
+
+PHASE 3 S7  A lesson that has recurred across enough contexts (docs/lessons-capture-spec.md section
+        4.4) raises one S7 candidate, from `mnemosyne.standards`, and triage asks "promote to a
+        standard?" with one option per tier the federation reaches. S7 is a count the engine made,
+        so it asks from the start; the answer is `standard promote`, never an auto-store. An ADR's
+        S1 candidate also carries the work it belonged to (`context.ctx`, a salted hash) and the
+        question class and chosen option it recorded.
 """
 from __future__ import annotations
 
@@ -111,6 +118,7 @@ AUTO_SIGNALS = ("S1", "S2")
 # start, but are UNMEASURED: no shadow data exists for them yet. The signals that depend on guessing
 # at words or retries ask only once their own labelled candidates show they are worth the question.
 DETERMINISTIC_ASK = ("S8", "S9-S11")
+COMPUTED_ASK = ("S7",)        # a count the engine made from the lessons' own fingerprints
 MEASURED_ASK = ("S4", "S5", "S6", "S12")
 ASK_MIN_LABELLED = 10         # labelled candidates (current detectors) before a signal's precision counts
 ASK_MIN_PRECISION = 0.5       # lesson / labelled needed to leave shadow
@@ -351,6 +359,8 @@ def signal_status(repo: Path, mem_cfg: dict = None, cands=None) -> dict:
             out[sig] = {"status": "auto", "why": "a deterministic script signal"}
         elif sig in DETERMINISTIC_ASK:
             out[sig] = {"status": "ask", "why": "a fact a hook saw; unmeasured so far"}
+        elif sig in COMPUTED_ASK:
+            out[sig] = {"status": "ask", "why": "a count of a lesson's fingerprints, raised once per lesson"}
         elif sig in MEASURED_ASK:
             if sig in optin:
                 out[sig] = {"status": "ask", "why": "opted in by memory.ask.signals"}
@@ -400,7 +410,7 @@ def _triage_pool(fold, mem_cfg, project, branch, repo):
         ctx = c.get("context") or {}
         if project is not None and ctx.get("repo") != project:
             continue
-        if branch is not None and ctx.get("branch") != branch:
+        if branch is not None and ctx.get("branch") != branch and c.get("signal") != "S7":
             continue
         why = _suppressed(c, status, muted, seen_fp, adr_paths)
         if why:
@@ -423,7 +433,7 @@ def untriaged(repo: Path, project=None, branch=None, mem_cfg=None, *, raw=False,
         for c in fold[0]:
             ctx = c.get("context") or {}
             if c.get("resolution") or (project is not None and ctx.get("repo") != project) \
-                    or (branch is not None and ctx.get("branch") != branch):
+                    or (branch is not None and ctx.get("branch") != branch and c.get("signal") != "S7"):
                 continue
             out.append(c)
         return out
@@ -483,13 +493,16 @@ def ask_question(c: dict) -> str:
                 "ledger": "The phase ledger was written", "adr": "An ADR file was written"}.get(
                     sub, "A watched file was written")
         return f"{what} ({ev.get('path', '')}). Is there a decision or lesson in it to keep?"
+    if sig == "S7":
+        from . import standards
+        return standards.question_text(c)
     if sig == "S12":
         ids = ", ".join(ev.get("lessons") or [])
         return f"You corrected me after lesson(s) {ids} were recalled. Should a new lesson replace one?"
     return f"{c.get('name', sig)}: is there a lesson to keep?"
 
 
-def triage(repo: Path, mem_cfg: dict = None, *, project=None, branch=None) -> dict:
+def triage(repo: Path, mem_cfg: dict = None, *, project=None, branch=None, tiers=None) -> dict:
     """The triage plan for the untriaged candidates of one project: the rule table's outcome
     (spec §4.3) for each, `auto` for an auto signal within the per-session budget, else `ask`. This
     is read-only: it stores nothing. The lessons-triage skill reads it, writes the lesson text, and
@@ -499,7 +512,10 @@ def triage(repo: Path, mem_cfg: dict = None, *, project=None, branch=None) -> di
     `questions` is the one batched question set for the ask items: each has the four options of
     spec §4.3. `suppressed` counts what was left out and why (a signal still in shadow, a muted kind,
     a fingerprint already skipped) and `signals` says each signal's status, so a quiet checkpoint
-    explains itself."""
+    explains itself.
+
+    `tiers` are the tiers a standard (S7) can be promoted to, in the order offered
+    (`standards.offer_tiers`); without them an S7 question offers the shared tier only."""
     mem_cfg = mem_cfg or {}
     auto = auto_signals(mem_cfg)
     budget = auto_budget(mem_cfg)
@@ -519,10 +535,14 @@ def triage(repo: Path, mem_cfg: dict = None, *, project=None, branch=None) -> di
                      "reason": reason, "evidence": c.get("evidence") or {},
                      "context": c.get("context") or {}})
         if outcome == "ask":
+            if sig == "S7":
+                from . import standards
+                opts = standards.options(c, tiers)
+            else:
+                opts = [{"key": k, "label": lab} for k, lab in OPTIONS]
             questions.append({"id": c["id"], "signal": sig, "kind": kind_of(c),
                               "category": ask_category(c), "question": ask_question(c),
-                              "supersede": sig == "S12",
-                              "options": [{"key": k, "label": lab} for k, lab in OPTIONS]})
+                              "supersede": sig == "S12", "options": opts})
     return {"project": project, "branch": branch, "budget": budget, "auto_signals": sorted(auto),
             "untriaged": len(items), "auto": auto_count, "ask": len(items) - auto_count,
             "items": plan, "questions": questions, "suppressed": suppressed,
@@ -1006,9 +1026,16 @@ def _spool_for(root: Path, env):
     return repo, mem_cfg
 
 
-def record_adr(root, adr_id, path="", *, env=None):
+def record_adr(root, adr_id, path="", *, spec=None, question_class=None, option=None,
+               config_key=None, config_value=None, env=None):
     """Zethus's new-adr.py calls this after writing an ADR: append one S1 (decision) candidate.
-    Pointers only (the id and a scrubbed repo-relative path), never the ADR's text."""
+    Pointers only (the id and a scrubbed repo-relative path), never the ADR's text.
+
+    Phase 3 adds what makes a repeated answer countable (spec 4.4): the ADR's question class and
+    chosen option (short lines the agent wrote, scrubbed, dropped if they hold a credential shape),
+    the config key the answer maps to, if any, and the work it belongs to: `context.ref` is the
+    spec or ticket (else the branch), kept in this local spool only, and `context.ctx` its salted
+    hash, which is all a lesson will ever carry."""
     env = os.environ if env is None else env
     repo, _ = _spool_for(root, env)
     if repo is None:
@@ -1016,8 +1043,20 @@ def record_adr(root, adr_id, path="", *, env=None):
     ev = {"adr": str(adr_id)}
     if path:
         ev["path"] = core.scrub_machine_paths(str(path))
-    return add_candidate(repo, "S1", host="zethus-script", event="new-adr",
-                         context=project_context(Path(root)), evidence=ev)
+    extra = {"qclass": question_class, "option": option, "config_key": config_key,
+             "config_value": config_value}
+    extra = {k: core.scrub_machine_paths(str(v).strip())[:200] for k, v in extra.items() if v and str(v).strip()}
+    if extra and not core.find_secret(json.dumps(extra)) and ("qclass" in extra) == ("option" in extra):
+        ev.update(extra)
+    ctx = project_context(Path(root))
+    try:
+        from . import standards
+        found = standards.project_ref(repo, Path(root), spec=spec, branch=ctx.get("branch"), env=env)
+    except Exception:  # noqa: BLE001 - a script must never fail on this
+        found = None
+    if found:
+        ctx.update(ref=found["ref"], ctx=found["ctx"])
+    return add_candidate(repo, "S1", host="zethus-script", event="new-adr", context=ctx, evidence=ev)
 
 
 def _load_gates(repo: Path) -> dict:

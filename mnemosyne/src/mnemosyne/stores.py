@@ -37,15 +37,16 @@ _BATCH_ENV = {"GIT_TERMINAL_PROMPT": "0", "GIT_SSH_COMMAND": "ssh -oBatchMode=ye
 class Store:
     """A resolved store: a broader shared memory tier backed by its own git repo."""
 
-    __slots__ = ("tier", "prefix", "url", "path", "readonly", "branch")
+    __slots__ = ("tier", "prefix", "url", "path", "readonly", "branch", "scope")
 
-    def __init__(self, tier, prefix, *, url=None, path=None, readonly=False, branch=None):
+    def __init__(self, tier, prefix, *, url=None, path=None, readonly=False, branch=None, scope="internal"):
         self.tier = tier
         self.prefix = prefix
         self.url = url
         self.path = path
         self.readonly = readonly
         self.branch = branch
+        self.scope = scope
 
     def __repr__(self):
         where = self.path or self.url or "?"
@@ -55,7 +56,8 @@ class Store:
 def resolve_stores(cfg) -> list:
     """Build Store objects from the normalized dicts in cfg.stores."""
     return [Store(s["tier"], s["prefix"], url=s.get("url"), path=s.get("path"),
-                  readonly=bool(s.get("readonly")), branch=s.get("branch"))
+                  readonly=bool(s.get("readonly")), branch=s.get("branch"),
+                  scope=s.get("scope") or "internal")
             for s in getattr(cfg, "stores", []) or []]
 
 

@@ -77,6 +77,13 @@ def build_parser(cfg: Config) -> argparse.ArgumentParser:
                         help="provenance for an automated capture, e.g. hook:S1 — pins confidence=medium and "
                              "enforces the auto-store rules (local tier only, never security/supersede/secret)")
         cp.add_argument("--candidate", help="spool candidate id this capture resolves; marks it stored")
+        cp.add_argument("--decision-class", dest="decision_class",
+                        help="a decision's question class (with --decision-option): a repeat of the same pair "
+                             "reinforces this lesson whatever the wording, and counts towards a standard")
+        cp.add_argument("--decision-option", dest="decision_option", help="the option the decision chose")
+        cp.add_argument("--config-key", dest="config_key",
+                        help="the config key this answer maps to, e.g. branchModel.maxBehind (a proposal only)")
+        cp.add_argument("--config-value", dest="config_value", help="that key's value, as JSON")
         cp.add_argument("--force", action="store_true", help="bank even if it looks like a transient failure or a near-duplicate (skips hygiene guards)")
 
     c = sub.add_parser("capture", aliases=["add"], help="save a lesson (decision/convention/...) to the local tier")
@@ -177,6 +184,24 @@ def build_parser(cfg: Config) -> argparse.ArgumentParser:
     cre.add_argument("--note", default="")
     cre.set_defaults(func=cmd_candidate_resolve)
 
+    sd = sub.add_parser("standard", help="standards: lessons that recurred across contexts, and promoting them")
+    ssub = sd.add_subparsers(dest="standard_cmd", required=True)
+    sdl = ssub.add_parser("list", help="lessons carrying context fingerprints: occurrences, contexts, and whether they qualify")
+    sdl.set_defaults(func=cmd_standard_list)
+    sds = ssub.add_parser("scan", help="raise the S7 'promote to standard?' candidate for every qualifying lesson not yet raised")
+    sds.set_defaults(func=cmd_standard_scan)
+    sdp = ssub.add_parser("promote", help="promote a recurring local lesson as a standard (a review PR in the shared tier or a store)")
+    sdp.add_argument("id", help="local lesson id")
+    sdp.add_argument("--to", choices=["shared"] + store_tiers, default="shared",
+                     help="destination tier: 'shared' (this repo, default) or a configured store")
+    sdp.add_argument("--push", action="store_true", help="also push the review branch (needs git+remote)")
+    sdp.add_argument("--candidate", help="the S7 candidate this answers; marks it stored")
+    sdp.add_argument("--force", action="store_true", help="promote though the lesson has not met the standard rule")
+    sdp.set_defaults(func=cmd_standard_promote)
+    sdc = ssub.add_parser("config", help="print the config default a lesson proposes (never written anywhere)")
+    sdc.add_argument("id", help="lesson id")
+    sdc.set_defaults(func=cmd_standard_config)
+
     dr = sub.add_parser("doctor", help="what the capture hooks recorded and decided, newest last")
     dr.add_argument("--last", type=int, default=10, help="how many recent decisions to show")
     dr.set_defaults(func=cmd_doctor)
@@ -240,6 +265,34 @@ def _capture_fields(cfg, args):
     }
 
 
+def _fields_with_standards(cfg, repo, args):
+    """The capture fields plus Phase 3's: the decision key, the config default, and (in active mode
+    only) this capture's context fingerprint. Returns (fields, the project's memory config)."""
+    from . import candidates as cd
+    from . import standards
+    fields = _capture_fields(cfg, args)
+    mem_cfg = cd.project_memory_config(Path.cwd())
+    cand = None
+    if getattr(args, "candidate", None):
+        cand = next((c for c in cd.candidates(repo) if c["id"] == args.candidate), None)
+    fields.update(standards.capture_fields(
+        repo, mem_cfg, candidate=cand, spec=args.spec, stage=args.stage,
+        signal=(getattr(args, "captured_by", None) or "").split(":")[-1], cwd=Path.cwd(),
+        decision_class=args.decision_class, decision_option=args.decision_option,
+        config_key=args.config_key, config_value=args.config_value))
+    return fields, mem_cfg
+
+
+def _after_capture(cfg, repo, res, mem_cfg):
+    """Raise S7 if the lesson this capture landed on now meets the standard rule (active mode)."""
+    from . import candidates as cd
+    from . import standards
+    lid = res.get("id") if res.get("action") == "saved" else res.get("dup_id")
+    cand = standards.after_capture(cfg, repo, lid, mem_cfg, cd.project_context(Path.cwd()))
+    if cand:
+        res["standard_candidate"] = cand["id"]
+
+
 def _resolve_candidate(repo, args, res):
     """If --candidate was given and the capture landed, mark that spool candidate stored."""
     cid = getattr(args, "candidate", None)
@@ -253,15 +306,25 @@ def _resolve_candidate(repo, args, res):
         print(f"  note: candidate {cid} not resolved: {e}", file=sys.stderr)
 
 
+def _print_standard_note(res):
+    if res.get("standard_candidate"):
+        lid = res.get("id") or res.get("dup_id")
+        print(f"  STANDARD?: {lid} has met the standard rule; the next triage asks whether to promote it "
+              f"(candidate {res['standard_candidate']}). Nothing is promoted until the answer is yes.")
+
+
 def _print_capture_result(cfg, res, fmt, kind_label=None):
     if fmt == "json":
         print(json.dumps(res, indent=2))
         return 0
     if res["action"] == "reinforced":
-        print(f"REINFORCED: {res['dup_id']} (similarity {res['similarity']:.2f} >= {res['threshold']}) — not banking a "
+        how = ("the same decision (question class and chosen option)" if res.get("by") == "decision"
+               else f"similarity {res['similarity']:.2f} >= {res['threshold']}")
+        print(f"REINFORCED: {res['dup_id']} ({how}) — not banking a "
               f"duplicate; its reinforced-count grew, and repeated reinforcement can earn higher confidence.")
         print(f"  If this is genuinely different, re-run with --force; to replace it, use --supersede {res['dup_id']}.")
         print(f"  Announce: reflexion reinforced an existing lesson ({res['dup_id']}) rather than adding a new one.")
+        _print_standard_note(res)
         return 0
     where = "SHARED" if res["shared"] else "LOCAL"
     print(f"SAVED: {res['id']} captured to {where} reflexion memory — \"{res['title']}\" "
@@ -271,26 +334,31 @@ def _print_capture_result(cfg, res, fmt, kind_label=None):
     if not res["shared"]:
         print(f"  Not yet shared with the team. Promote for PR review with: {PROG} promote {res['id']}")
     print(f"  Announce: a new lesson was saved to reflexion memory ({res['id']}).")
+    _print_standard_note(res)
     return 0
 
 
 def cmd_capture(cfg, repo, args):
+    fields, mem_cfg = _fields_with_standards(cfg, repo, args)
     try:
-        res = core.capture(cfg, repo, _capture_fields(cfg, args), force=args.force, supersede=args.supersede)
+        res = core.capture(cfg, repo, fields, force=args.force, supersede=args.supersede)
     except core.LowValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 3
     _resolve_candidate(repo, args, res)
+    _after_capture(cfg, repo, res, mem_cfg)
     return _print_capture_result(cfg, res, args.format)
 
 
 def cmd_reflect(cfg, repo, args):
+    fields, mem_cfg = _fields_with_standards(cfg, repo, args)
     try:
-        res = core.reflect(cfg, repo, _capture_fields(cfg, args), force=args.force, supersede=args.supersede)
+        res = core.reflect(cfg, repo, fields, force=args.force, supersede=args.supersede)
     except core.LowValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 3
     _resolve_candidate(repo, args, res)
+    _after_capture(cfg, repo, res, mem_cfg)
     return _print_capture_result(cfg, res, args.format,
                                  kind_label="reflexion: captured from feedback on a prior run")
 
@@ -632,8 +700,10 @@ def cmd_candidate_triage(cfg, repo, args):
         project = ctx.get("repo")
         if branch is None:
             branch = ctx.get("branch")
+    from . import standards
     mem_cfg = cd.project_memory_config(Path.cwd())
-    plan = cd.triage(repo, mem_cfg, project=project, branch=branch)
+    plan = cd.triage(repo, mem_cfg, project=project, branch=branch,
+                     tiers=standards.offer_tiers(cfg, mem_cfg))
     if args.format == "json":
         print(json.dumps(plan, indent=2))
         return 0
@@ -659,7 +729,9 @@ def cmd_candidate_triage(cfg, repo, args):
     if plan["ask"]:
         print("  ASK: put every question in one batched set (`--numbered` prints one). On save add "
               "--candidate <id>; on skip run `mnemosyne candidate resolve <id> skipped`; on \"never ask "
-              "about this kind\" run `mnemosyne candidate resolve <id> never`.")
+              "about this kind\" run `mnemosyne candidate resolve <id> never`. An S7 question is answered "
+              "with `mnemosyne standard promote <lesson> --to <tier> --candidate <id>` (a review PR; "
+              "nothing is promoted without a yes).")
     if plan.get("suppressed"):
         print("  left out: " + ", ".join(f"{n} {why}" for why, n in sorted(plan["suppressed"].items()))
               + "  (shadow = a signal that hasn't earned a question yet; see `mnemosyne doctor`)")
@@ -674,6 +746,95 @@ def cmd_candidate_resolve(cfg, repo, args):
         return 0
     extra = f" (lesson {rec['lesson']})" if rec.get("lesson") else ""
     print(f"RESOLVED: {rec['id']} as {rec['as']}{extra}.")
+    return 0
+
+
+def cmd_standard_list(cfg, repo, args):
+    from . import candidates as cd
+    from . import standards
+    mem_cfg = cd.project_memory_config(Path.cwd())
+    st = standards.settings(cfg, mem_cfg)
+    rows = standards.report(cfg, repo, mem_cfg)
+    if args.format == "json":
+        print(json.dumps({"rule": st, "mode": cd.capture_mode(mem_cfg), "lessons": rows}, indent=2))
+        return 0
+    print(f"STANDARDS: rule = {st['minOccurrences']} occurrences across {st['minContexts']}+ contexts within "
+          f"{st['windowDays']} days; fingerprints are recorded only in active capture mode "
+          f"(now: {cd.capture_mode(mem_cfg)}).")
+    if not rows:
+        print("  no lesson carries a context fingerprint yet.")
+    for r in rows:
+        flag = "standard" if r["standard"] else ("QUALIFIES" if r["qualifies"] else "below the rule")
+        asked = f", asked: {r['asked']}" if r["asked"] else ""
+        cfgk = f", config {r['config']}" if r["config"] else ""
+        print(f"  {r['id']}  {r['occurrences']} occurrence(s) / {r['contexts']} context(s)  [{flag}{asked}{cfgk}]  {r['title']}")
+    return 0
+
+
+def cmd_standard_scan(cfg, repo, args):
+    from . import candidates as cd
+    from . import standards
+    mem_cfg = cd.project_memory_config(Path.cwd())
+    raised = standards.scan(cfg, repo, mem_cfg, cd.project_context(Path.cwd()))
+    if args.format == "json":
+        print(json.dumps(raised, indent=2))
+        return 0
+    if not raised:
+        print("STANDARDS: no lesson newly qualifies.")
+    for c in raised:
+        ev = c["evidence"]
+        print(f"STANDARD?: {ev['lesson']} ({ev['occurrences']} occurrences across {ev['contexts']} contexts) "
+              f"raised as {c['id']}; the next triage asks whether to promote it.")
+    return 0
+
+
+def cmd_standard_promote(cfg, repo, args):
+    from . import candidates as cd
+    from . import standards
+    res = standards.promote(cfg, repo, args.id, args.to, cd.project_memory_config(Path.cwd()),
+                            push=args.push, force=args.force)
+    if args.candidate:
+        try:
+            cd.resolve(repo, args.candidate, "stored", lesson=args.id)
+        except core.EngineError as e:
+            print(f"  note: candidate {args.candidate} not resolved: {e}", file=sys.stderr)
+    if args.format == "json":
+        print(json.dumps(res, indent=2))
+        return 0
+    if res.get("same_repo"):
+        for r in res["results"]:
+            _print_shared_promote(r, args.push)
+    else:
+        _print_export(res, args.push)
+    n = res["standard"]
+    print(f"STANDARD: {args.id} goes up as a procedural convention at high confidence, marked standard "
+          f"({n['occurrences']} occurrences across {n['contexts']} contexts); its review PR decides it.")
+    _print_config_proposal(res.get("config_proposal"))
+    return 0
+
+
+def _print_config_proposal(prop):
+    if not prop:
+        return
+    print(f"  CONFIG DEFAULT (proposal, nothing was written): {prop['key']} = {json.dumps(prop['value'])}")
+    print("    " + json.dumps(prop["snippet"]))
+    print(f"    {prop['note']}")
+
+
+def cmd_standard_config(cfg, repo, args):
+    from . import standards
+    lessons, _tier = core.load_all(repo)
+    lesson = next((l for l in lessons if l.get("id") == args.id), None)
+    if lesson is None:
+        raise core.EngineError(f"{args.id} not found in the local or shared tier")
+    prop = standards.config_proposal(lesson)
+    if args.format == "json":
+        print(json.dumps(prop, indent=2))
+        return 0
+    if not prop:
+        print(f"{args.id} proposes no config default (it carries no config_default key).")
+        return 0
+    _print_config_proposal(prop)
     return 0
 
 

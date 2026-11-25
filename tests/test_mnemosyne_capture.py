@@ -763,7 +763,11 @@ class Phase1ScriptSignalsAndTriage(_Project):
         self.assertEqual(c["signal"], "S1")
         (stored,) = cd.candidates(self.root)
         self.assertEqual((stored["host"], stored["evidence"]["adr"]), ("zethus-script", "2026-11-24-outbox"))
-        self.assertEqual(stored["context"], {"repo": self.root.name, "branch": "feat/demo"})
+        ctx = dict(stored["context"])
+        # Phase 3: an ADR's candidate also names the work it belongs to (the branch, with no spec or
+        # ticket given) and that work's salted hash, which is all a lesson will carry.
+        self.assertRegex(ctx.pop("ctx"), r"^[0-9a-f]{16}$")
+        self.assertEqual(ctx, {"repo": self.root.name, "branch": "feat/demo", "ref": "feat/demo"})
 
     def test_gate_red_then_green_emits_s2_once(self):
         cd.record_gate_results(self.root, [("pytest", "FAIL")], env=self.env)
