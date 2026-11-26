@@ -56,7 +56,7 @@ The (a) hits, each now the agent's:
 | Datadog: the IDs were returned "so the user can verify" | The agent reads the change back itself |
 | Jenkins: the build number was returned "so the user can follow along" | The agent follows the build when the task needs its result |
 | Jenkins: a missing JRE stopped the jar commands | The agent uses the REST equivalent |
-| Jenkins on CloudBees: the jar was the reader's to download | The agent fetches it from `<JENKINS_URL>/jnlpJars/jenkins-cli.jar` |
+| Jenkins on CloudBees: the jar was the reader's to download | The agent fetches it from `<JENKINS_URL>/jnlpJars/jenkins-cli.jar`, with the URL from `jenkins.baseUrl`, then the environment, never a guess |
 | The working agreement said nothing general about who does the work | One rule: work with the agent's own tools is the agent's |
 | The stop guard accepted any `Why:` with "waiting on you" or "answer" in it, including "waiting on you to run the install" | It refuses a `Why:` that waits on the person to do work, unless it names what only they can give |
 | The stop guard accepted any failed-fetch stop | It refuses one that doesn't name the cause left for the person |

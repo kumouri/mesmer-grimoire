@@ -86,6 +86,14 @@
     "tokenEnvVars": ["JIRA_API_TOKEN", "JIRA_TOKEN"]
   },
 
+  "_jenkinsReadme": "This repository's Jenkins controller, read by the optional jenkins-cli skill (and scripts/jenkins-url.py). baseUrl is tried first, then the environment variable named by baseUrlEnv; if both are empty the skill asks you once and never guesses a URL. Use a placeholder host here and put the real one in your own config. jobPath is optional: the slash-separated folder path to this repository's job on the controller, e.g. team/app. Credentials are never config: JENKINS_USER and JENKINS_API_TOKEN stay in the environment.",
+
+  "jenkins": {
+    "baseUrl": "https://jenkins.example.com",
+    "baseUrlEnv": "JENKINS_URL",
+    "jobPath": "team/app"
+  },
+
   "_modernizationReadme": "Everything below is only read by the optional modernization extension (see docs/modernization-shared.md). Leave it out entirely if you haven't installed those skills and scripts.",
 
   "modernization": {
