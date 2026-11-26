@@ -639,6 +639,28 @@ The keys are the same in every location.
 | `identity.name`, `identity.handle` | `identity.py`, `new-adr`, `new-spec`, the `sessionStart` hook, agent | Who Zethus works for, written as you write it, in every field that records who asked, approved or decided. Highest priority, before `git config user.name` and `gh api user`. Set it in a personal config, not the committed one; `identity.py --save --name "…"` writes it. See [name the person, never a placeholder](docs/identity-of-the-person.md). |
 | `plan.checklist` | agent | `"auto"` (default): the plan goes in the todo tool where the agent has one, else as a checklist in every reply. `"always"`: the checklist goes in every reply as well, for a surface that accepts the tool but doesn't show it. See [Seeing the plan](#seeing-the-plan). |
 | `oneOff.confirm` | agent, [`run-one-off`](skills/run-one-off/SKILL.md) | `false` (default): a one-off command runs under the host's own permission prompt alone — the person asking is the go-ahead. `true`: the agent asks once, with the question tool, before running a one-off. Extra caution is a setting, never a new wall the agent invents. |
+| `jenkins.baseUrl` | [`jenkins-cli`](skills/jenkins-cli/SKILL.md), [`scripts/jenkins-url.py`](scripts/jenkins-url.py) | This repository's Jenkins controller, e.g. `https://jenkins.example.com`: an http(s) URL, trailing slash trimmed. Read first. Unset: the variable named by `jenkins.baseUrlEnv`. Both empty: the skill asks once and never guesses a URL or reuses one from another repository. See [Jenkins base URL](#jenkins-base-url). |
+| `jenkins.baseUrlEnv` | `jenkins-cli`, `jenkins-url.py` | The environment variable read when `jenkins.baseUrl` is unset. Default `JENKINS_URL`, the name `jenkins-cli.jar` itself reads. |
+| `jenkins.jobPath` | `jenkins-cli`, `jenkins-url.py` | Optional. The folder path to this repository's job on the controller, slash-separated (`team/app`). It becomes `/job/team/job/app` on the base URL, each name percent-encoded. Unset: the skill asks which job, or lists them. |
+
+### Jenkins base URL
+
+`jenkins.baseUrl` is the one place a repository says where its Jenkins is. Anything that needs the
+URL (the `jenkins-cli` skill's REST calls, its jar download from the controller) asks
+[`scripts/jenkins-url.py`](scripts/jenkins-url.py), which resolves it in this order and says which
+step answered:
+
+1. `jenkins.baseUrl` in the Zethus config (`config`).
+2. The environment variable `jenkins.baseUrlEnv` names, `JENKINS_URL` by default (`env`).
+3. Neither: exit `1`, and the skill asks the person once and offers to save the answer as
+   `jenkins.baseUrl`. It never guesses, never reads a URL out of a remote, a Jenkinsfile or a build
+   log, and never reuses one seen earlier.
+
+A value that is not an http(s) URL exits `2`; it is reported, not repaired. If the repository's job
+sits in folders on the controller, set `jenkins.jobPath` to `team/app` and the script prints the
+job's URL as `<baseUrl>/job/team/job/app`. Commit a placeholder host in the shared config and put
+the real one in an untracked `.copilot/zethus.config.json` or `~/.copilot/zethus/config.json`.
+Credentials are never config: `JENKINS_USER` and `JENKINS_API_TOKEN` stay in the environment.
 
 ### Branch models
 
@@ -924,6 +946,7 @@ there stops `install.py --user`.
 | [`skills/confluence-cli`](skills/confluence-cli/SKILL.md) | `.github/skills/` | Confluence through `cfl`, with a PowerShell REST fallback for the two things `cfl` lacks (comments, labels): CQL search, pages, attachments, spaces |
 | [`skills/datadog-cli`](skills/datadog-cli/SKILL.md) | `.github/skills/` | Datadog through the official Pup CLI: logs (with a cursor-paginated REST fallback), metrics, monitors, events, APM spans, dashboards, downtimes |
 | [`skills/jenkins-cli`](skills/jenkins-cli/SKILL.md) | `.github/skills/` | Jenkins or CloudBees CI through `jenkins-cli.jar` and the JSON API: jobs, builds, console logs, queue, nodes, plus CloudBees RBAC, service accounts and CasC bundle reload |
+| [`scripts/jenkins-url.py`](scripts/jenkins-url.py) | `.github/zethus/scripts/` | Resolves the Jenkins base URL for `jenkins-cli`: `jenkins.baseUrl`, then `jenkins.baseUrlEnv` (default `JENKINS_URL`), never a guess. Exit codes: `0` resolved · `1` none, ask the person · `2` usage error or not an http(s) URL |
 | [`skills/sonarqube-cli`](skills/sonarqube-cli/SKILL.md) | `.github/skills/` | SonarQube Server or Cloud: `sonar-scanner` to analyse, the official `sonar` CLI to read projects, quality gates, issues, hotspots and measures |
 
 **Not run live.** The commands were carried over from reviewed research notes. Nobody has run them

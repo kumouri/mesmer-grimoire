@@ -1,9 +1,11 @@
 ---
 name: jenkins-cli
-description: Drive a Jenkins controller from the terminal — plain Jenkins OR CloudBees CI, which is Jenkins-compatible — using the official jenkins-cli.jar plus the JSON REST API for reads (jobs, builds, console logs, queue, nodes), plus CloudBees RBAC/service-accounts/CasC-bundle-reload when the target is CloudBees CI. Use when the user asks to list/trigger/inspect/abort Jenkins jobs or builds, tail console output, check queue or agent state, fetch a job's config.xml, or manage CloudBees CI's RBAC/service-accounts/CasC bundles. Requires JENKINS_URL, JENKINS_USER, JENKINS_API_TOKEN in the environment (CloudBees CI targets may instead use CLOUDBEES_SERVICE_ACCOUNT / CLOUDBEES_SERVICE_ACCOUNT_TOKEN) plus a local JRE for jenkins-cli.jar. Never fires a mutating command (trigger, abort, config change, RBAC grant, CasC reload) without explicit user confirmation in the current turn.
+description: Drive a Jenkins controller from the terminal — plain Jenkins OR CloudBees CI, which is Jenkins-compatible — using the official jenkins-cli.jar plus the JSON REST API for reads (jobs, builds, console logs, queue, nodes), plus CloudBees RBAC/service-accounts/CasC-bundle-reload when the target is CloudBees CI. Use when the user asks to list/trigger/inspect/abort Jenkins jobs or builds, tail console output, check queue or agent state, fetch a job's config.xml, or manage CloudBees CI's RBAC/service-accounts/CasC bundles. Needs the controller's base URL (the `jenkins.baseUrl` config key, else JENKINS_URL in the environment, never guessed) and JENKINS_USER, JENKINS_API_TOKEN in the environment (CloudBees CI targets may instead use CLOUDBEES_SERVICE_ACCOUNT / CLOUDBEES_SERVICE_ACCOUNT_TOKEN) plus a local JRE for jenkins-cli.jar. Never fires a mutating command (trigger, abort, config change, RBAC grant, CasC reload) without explicit user confirmation in the current turn.
 ---
 
 # Jenkins skill
+
+> `<kit root>` is the folder holding Zethus's `scripts/` and `templates/`: the path announced at session start, else two folders above this skill's folder.
 
 Wraps two things Jenkins itself ships — **`jenkins-cli.jar`** (bundled with every controller at
 `<JENKINS_URL>/jnlpJars/jenkins-cli.jar`) and the **JSON REST API** (`/api/json` and friends) — no
@@ -25,10 +27,36 @@ version control: never commit either into a repository.
 
 ## 0. Setup / auth check — run this before anything else
 
-Required environment variables (placeholders — never hardcode real values):
+**The base URL comes first, from config, then the environment, never a guess.** Run the resolver:
+
+`python <kit root>/scripts/jenkins-url.py` (add `--json` to parse the result). It reads, in order:
+
+1. `jenkins.baseUrl` in the Zethus config: this repository's own controller.
+2. The environment variable named by `jenkins.baseUrlEnv` (default `JENKINS_URL`).
+3. Nothing: it exits `1`. Ask the person for the URL once, with the question tool, and offer to save
+   it as `jenkins.baseUrl` in the repository's config. Never infer a URL from a git remote, a
+   Jenkinsfile, a build log or anything seen earlier in the conversation, and never reuse one from
+   another repository.
+
+Say which source you used ("Jenkins URL from config `jenkins.baseUrl`" or "from `$JENKINS_URL`")
+the first time you touch the controller. An exit `2` means the configured value is not an http(s)
+URL: report it, don't repair it.
+
+If `jenkins.jobPath` is set (slash-separated folder names, e.g. `team/app`), the resolver also
+prints this repository's job URL, in Jenkins' `/job/team/job/app` form. Use it wherever §2 says
+`/job/<JOB_NAME>`, and `team/app` where the jar takes a job name. Otherwise ask which job, or list
+the jobs (§2.1) and let the person pick.
+
+Everything below uses `$jenkinsUrl` for the resolved base URL, and `<JENKINS_URL>` in prose:
+
+```powershell
+$jenkinsUrl = "<the baseUrl the resolver printed>"
+```
+
+The other two variables are credentials, environment only (placeholders — never hardcode real
+values):
 
 ```
-JENKINS_URL           # e.g. https://ci.example.internal
 JENKINS_USER          # the Jenkins account username
 JENKINS_API_TOKEN     # Manage Jenkins > Users > <user> > Security > API Token
 ```
@@ -44,10 +72,10 @@ run. Don't install a JRE unattended, and don't stop for it either: use the REST 
 for the task (trigger, stop, console text and `/whoAmI/api/json` all have one), which needs no JRE
 at all. Only a task with no REST path warrants offering a JRE install, once, with the question tool.
 
-Confirm the three env vars are set, then build the Basic-auth header used by every REST call below:
+Confirm the two credential vars are set, then build the Basic-auth header used by every REST call below:
 
 ```powershell
-if ($env:JENKINS_URL -and $env:JENKINS_USER -and $env:JENKINS_API_TOKEN) { "env present" } else { "env MISSING" }
+if ($jenkinsUrl -and $env:JENKINS_USER -and $env:JENKINS_API_TOKEN) { "env present" } else { "env MISSING" }
 
 $pair = "$($env:JENKINS_USER):$($env:JENKINS_API_TOKEN)"
 $basicAuth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pair))
@@ -58,7 +86,7 @@ Then verify auth actually works — don't assume a stale token is good:
 
 ```powershell
 try {
-  $resp = Invoke-WebRequest -Uri "$($env:JENKINS_URL)/api/json" -Headers $headers
+  $resp = Invoke-WebRequest -Uri "$jenkinsUrl/api/json" -Headers $headers
   "$($resp.StatusCode) - auth good, proceed"
 } catch {
   $status = $_.Exception.Response.StatusCode.value__
@@ -67,13 +95,13 @@ try {
 ```
 
 (bash equivalent, if ever running under Git Bash/WSL instead of PowerShell:
-`curl -s -o /dev/null -w "%{http_code}" -u "$JENKINS_USER:$JENKINS_API_TOKEN" "$JENKINS_URL/api/json"`)
+`curl -s -o /dev/null -w "%{http_code}" -u "$JENKINS_USER:$JENKINS_API_TOKEN" "$JENKINS_BASE_URL/api/json"`, with `JENKINS_BASE_URL` set to the resolved base URL)
 
 - `200` → auth good, proceed.
 - `401` → bad user/token — stop and tell the user, don't retry blindly (see Common failure signatures).
 - `403` → reachable and authenticated identity may be fine, but the account lacks a permission —
   stop and say which call got the 403.
-- connection error/timeout (the outer `catch`, no `$status`) → `JENKINS_URL` unreachable from this
+- connection error/timeout (the outer `catch`, no `$status`) → the resolved base URL is unreachable from this
   machine (VPN? typo?) — stop and say so.
 
 Never print `$env:JENKINS_API_TOKEN` in any command output, log line, or chat message. Prefer the
@@ -88,12 +116,12 @@ to fall back to the two-step crumb pattern if it gets a 403 whose body mentions 
 
 ```powershell
 # Step 1 — fetch the crumb (GET, safe, no confirmation needed)
-$crumb = Invoke-RestMethod -Uri "$($env:JENKINS_URL)/crumbIssuer/api/json" -Headers $headers
+$crumb = Invoke-RestMethod -Uri "$jenkinsUrl/crumbIssuer/api/json" -Headers $headers
 # $crumb looks like: { crumbRequestField = "Jenkins-Crumb"; crumb = "<value>" }
 
 # Step 2 — include it as a header on the mutating call
 $mutHeaders = $headers + @{ $crumb.crumbRequestField = $crumb.crumb }
-Invoke-RestMethod -Method Post -Uri "$($env:JENKINS_URL)/job/<JOB_NAME>/build" -Headers $mutHeaders
+Invoke-RestMethod -Method Post -Uri "$jenkinsUrl/job/<JOB_NAME>/build" -Headers $mutHeaders
 ```
 
 If a 403 with "No valid crumb" appears anywhere below, retry that same call once with the crumb
@@ -109,7 +137,7 @@ into a file you commit.
 ### 2.1 List jobs
 
 ```powershell
-(Invoke-RestMethod -Uri "$($env:JENKINS_URL)/api/json?tree=jobs[name,url,color]" -Headers $headers).jobs
+(Invoke-RestMethod -Uri "$jenkinsUrl/api/json?tree=jobs[name,url,color]" -Headers $headers).jobs
 ```
 
 `color` encodes status (`blue`=success, `red`=failed, `yellow`=unstable, `_anime` suffix=building).
@@ -117,13 +145,13 @@ into a file you commit.
 ### 2.2 Get job info
 
 ```powershell
-Invoke-RestMethod -Uri "$($env:JENKINS_URL)/job/<JOB_NAME>/api/json" -Headers $headers
+Invoke-RestMethod -Uri "$jenkinsUrl/job/<JOB_NAME>/api/json" -Headers $headers
 ```
 
 ### 2.3 Get job config.xml
 
 ```powershell
-Invoke-RestMethod -Uri "$($env:JENKINS_URL)/job/<JOB_NAME>/config.xml" -Headers $headers
+Invoke-RestMethod -Uri "$jenkinsUrl/job/<JOB_NAME>/config.xml" -Headers $headers
 ```
 
 Returns a parsed `[xml]` object (its content-type is `application/xml`); use `.OuterXml` if you need
@@ -133,20 +161,20 @@ config.xml back (`POST .../config.xml`), that's a mutating call — apply the co
 ### 2.4 Trigger a build (no parameters) — MUTATING, confirm first
 
 ```powershell
-java -jar jenkins-cli.jar -s "$env:JENKINS_URL" -auth "$($env:JENKINS_USER):$($env:JENKINS_API_TOKEN)" `
+java -jar jenkins-cli.jar -s "$jenkinsUrl" -auth "$($env:JENKINS_USER):$($env:JENKINS_API_TOKEN)" `
   build "<JOB_NAME>"
 ```
 
 REST equivalent:
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri "$($env:JENKINS_URL)/job/<JOB_NAME>/build" -Headers $headers
+Invoke-RestMethod -Method Post -Uri "$jenkinsUrl/job/<JOB_NAME>/build" -Headers $headers
 ```
 
 ### 2.5 Trigger a parameterised build — MUTATING, confirm first
 
 ```powershell
-java -jar jenkins-cli.jar -s "$env:JENKINS_URL" -auth "$($env:JENKINS_USER):$($env:JENKINS_API_TOKEN)" `
+java -jar jenkins-cli.jar -s "$jenkinsUrl" -auth "$($env:JENKINS_USER):$($env:JENKINS_API_TOKEN)" `
   build "<JOB_NAME>" -p PARAM_NAME=value -p OTHER_PARAM=value2
 ```
 
@@ -155,7 +183,7 @@ is visible):
 
 ```powershell
 $body = @{ PARAM_NAME = "value"; OTHER_PARAM = "value2" }
-$resp = Invoke-WebRequest -Method Post -Uri "$($env:JENKINS_URL)/job/<JOB_NAME>/buildWithParameters" `
+$resp = Invoke-WebRequest -Method Post -Uri "$jenkinsUrl/job/<JOB_NAME>/buildWithParameters" `
   -Headers $headers -Body $body
 $resp.Headers.Location
 ```
@@ -166,7 +194,7 @@ build number** (see Common failure signatures — queue item vs. build number, a
 ### 2.6 Get build status
 
 ```powershell
-Invoke-RestMethod -Uri "$($env:JENKINS_URL)/job/<JOB_NAME>/<BUILD_NUMBER>/api/json?tree=result,building,duration,timestamp" -Headers $headers
+Invoke-RestMethod -Uri "$jenkinsUrl/job/<JOB_NAME>/<BUILD_NUMBER>/api/json?tree=result,building,duration,timestamp" -Headers $headers
 ```
 
 `result` is `null` while `building:true`; otherwise one of `SUCCESS`/`FAILURE`/`ABORTED`/`UNSTABLE`.
@@ -176,7 +204,7 @@ Invoke-RestMethod -Uri "$($env:JENKINS_URL)/job/<JOB_NAME>/<BUILD_NUMBER>/api/js
 ```powershell
 $start = 0
 while ($true) {
-  $resp = Invoke-WebRequest -Uri "$($env:JENKINS_URL)/job/<JOB_NAME>/<BUILD_NUMBER>/logText/progressiveText?start=$start" -Headers $headers
+  $resp = Invoke-WebRequest -Uri "$jenkinsUrl/job/<JOB_NAME>/<BUILD_NUMBER>/logText/progressiveText?start=$start" -Headers $headers
   Write-Output $resp.Content
   $more = $resp.Headers['X-More-Data']
   $start = $resp.Headers['X-Text-Size']
@@ -190,16 +218,16 @@ single fetch instead of looping from `start=0` — hitting `progressiveText` aga
 log can exhaust heap on the Jenkins side (a known upstream issue):
 
 ```powershell
-Invoke-RestMethod -Uri "$($env:JENKINS_URL)/job/<JOB_NAME>/<BUILD_NUMBER>/consoleText" -Headers $headers
+Invoke-RestMethod -Uri "$jenkinsUrl/job/<JOB_NAME>/<BUILD_NUMBER>/consoleText" -Headers $headers
 ```
 
 Jar equivalent for a live tail:
-`java -jar jenkins-cli.jar -s "$env:JENKINS_URL" -auth "$($env:JENKINS_USER):$($env:JENKINS_API_TOKEN)" console "<JOB_NAME>" -f`
+`java -jar jenkins-cli.jar -s "$jenkinsUrl" -auth "$($env:JENKINS_USER):$($env:JENKINS_API_TOKEN)" console "<JOB_NAME>" -f`
 
 ### 2.8 Stop / abort a running build — MUTATING, confirm first
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri "$($env:JENKINS_URL)/job/<JOB_NAME>/<BUILD_NUMBER>/stop" -Headers $headers
+Invoke-RestMethod -Method Post -Uri "$jenkinsUrl/job/<JOB_NAME>/<BUILD_NUMBER>/stop" -Headers $headers
 ```
 
 No dedicated jar `stop` sub-command exists on all Jenkins versions consistently — the REST `/stop`
@@ -210,7 +238,7 @@ wastes someone else's build.
 ### 2.9 List the build queue
 
 ```powershell
-(Invoke-RestMethod -Uri "$($env:JENKINS_URL)/queue/api/json?tree=items[id,task[name],why,stuck]" -Headers $headers).items
+(Invoke-RestMethod -Uri "$jenkinsUrl/queue/api/json?tree=items[id,task[name],why,stuck]" -Headers $headers).items
 ```
 
 `why` explains what's blocking a queued item (e.g. waiting for an executor); `stuck:true` flags an
@@ -219,8 +247,8 @@ item that's been waiting abnormally long.
 ### 2.10 Get last successful / last failed build
 
 ```powershell
-Invoke-RestMethod -Uri "$($env:JENKINS_URL)/job/<JOB_NAME>/lastSuccessfulBuild/api/json?tree=number,timestamp,result" -Headers $headers
-Invoke-RestMethod -Uri "$($env:JENKINS_URL)/job/<JOB_NAME>/lastFailedBuild/api/json?tree=number,timestamp,result" -Headers $headers
+Invoke-RestMethod -Uri "$jenkinsUrl/job/<JOB_NAME>/lastSuccessfulBuild/api/json?tree=number,timestamp,result" -Headers $headers
+Invoke-RestMethod -Uri "$jenkinsUrl/job/<JOB_NAME>/lastFailedBuild/api/json?tree=number,timestamp,result" -Headers $headers
 ```
 
 Other useful aliases on the same pattern: `lastBuild`, `lastStableBuild`, `lastUnstableBuild`,
@@ -229,7 +257,7 @@ Other useful aliases on the same pattern: `lastBuild`, `lastStableBuild`, `lastU
 ### 2.11 List nodes / agents
 
 ```powershell
-(Invoke-RestMethod -Uri "$($env:JENKINS_URL)/computer/api/json?tree=computer[displayName,offline,numExecutors]" -Headers $headers).computer
+(Invoke-RestMethod -Uri "$jenkinsUrl/computer/api/json?tree=computer[displayName,offline,numExecutors]" -Headers $headers).computer
 ```
 
 ### 2.12 Resolve a queue item to its eventual build number
@@ -237,7 +265,7 @@ Other useful aliases on the same pattern: `lastBuild`, `lastStableBuild`, `lastU
 Right after triggering (2.4/2.5), poll the queue item, not a guessed build number:
 
 ```powershell
-$item = Invoke-RestMethod -Uri "$($env:JENKINS_URL)/queue/item/<QUEUE_ID>/api/json" -Headers $headers
+$item = Invoke-RestMethod -Uri "$jenkinsUrl/queue/item/<QUEUE_ID>/api/json" -Headers $headers
 if ($item.executable.number) { $item.executable.number } else { "not started yet" }
 ```
 
@@ -246,7 +274,7 @@ Once that number is non-null, that's the real build number to use in 2.6/2.7/2.8
 ### 2.13 Who am I / token sanity check
 
 ```powershell
-java -jar jenkins-cli.jar -s "$env:JENKINS_URL" -auth "$($env:JENKINS_USER):$($env:JENKINS_API_TOKEN)" who-am-i
+java -jar jenkins-cli.jar -s "$jenkinsUrl" -auth "$($env:JENKINS_USER):$($env:JENKINS_API_TOKEN)" who-am-i
 ```
 
 Useful as a lighter-weight auth probe than a full job list.
@@ -288,7 +316,7 @@ own shell-command approval prompt — the command itself will still need to clea
 Concretely:
 
 1. State exactly what will run: which job, which build number (for abort), which parameters (for a
-   parameterised trigger), against which `JENKINS_URL`.
+   parameterised trigger), against which base URL (and which source it came from).
 2. Get the user's go-ahead in this turn. Ask it with the harness's question tool ([why](../../docs/ask-with-the-question-tool.md)): two options, "Run it" (describe the exact effect) and "Don't run it" (nothing changes), neither preselected. Only a picked "Run it" runs it; a dismissed picker, no answer or a run with no one to ask means don't. With no question tool, ask a numbered list that accepts the number or any clear wording, never an exact phrase. A prior general instruction to "keep builds green" or
    similar does not count as standing authorization for a specific trigger/abort.
 3. If they decline or don't respond, don't run it — report back that it's pending.
@@ -319,13 +347,15 @@ no confirmation — they change nothing on the Jenkins controller.
   file this skill produces.
 - Rotate-on-suspicion: if a 401 shows up unexpectedly (not from a typo), treat the token as possibly
   compromised and tell the user to check/rotate it rather than retrying blind.
-- Never commit `JENKINS_URL`/`JENKINS_USER`/`JENKINS_API_TOKEN` values, and keep this skill's output
+- Never commit the controller URL, `JENKINS_USER` or `JENKINS_API_TOKEN` values into a file this skill produces (the URL belongs in the repository's own config key, with a placeholder host in any shared example), and keep this skill's output
   out of any repository.
 
 ## Acceptance checklist
 
 This checklist is for reviewing a session that used the skill, and the skill itself.
 
+- [ ] The base URL came from `jenkins.baseUrl`, else `$JENKINS_URL`, via `jenkins-url.py`, and the
+      session said which; it was never guessed or carried over from elsewhere.
 - [ ] Auth check (`/api/json` probe via `Invoke-WebRequest`) run and green before any other call
       this session.
 - [ ] Every read in this session used `/api/json` with a `tree=` filter, not an unfiltered fetch.
@@ -352,7 +382,7 @@ This checklist is for reviewing a session that used the skill, and the skill its
 CloudBees CI is a commercial Jenkins distribution. **Everything above in this skill —
 `jenkins-cli.jar`, the stock Jenkins REST API, the `-auth username:apiToken` pattern — works
 unmodified against a CloudBees CI instance.** Get `jenkins-cli.jar` from the target itself
-(`<JENKINS_URL>/jnlpJars/jenkins-cli.jar`, the file its own "Jenkins CLI" page links) rather than
+(`<JENKINS_URL>/jnlpJars/jenkins-cli.jar`, from the resolved base URL, the file its own "Jenkins CLI" page links) rather than
 assuming a copy from elsewhere matches the target's Jenkins core version. CloudBees CI adds a small number of extra REST endpoints and one extra CLI
 subcommand on top of that stock surface — nothing here requires a different tool.
 
@@ -366,8 +396,8 @@ with a service-account token skip the CSRF-crumb dance that personal-token POSTs
 
 ### Extra REST surface (curl or jenkins-cli, no special client needed)
 
-- **RBAC (folders+ / roles / groups)** — `${JENKINS_URL}/groups/api/json`, `.../groups/createGroup`,
-  `.../groups/{name}/addUser`, `.../groups/{name}/grantRole`, `${JENKINS_URL}/roles/api/json`,
+- **RBAC (folders+ / roles / groups)** — `$jenkinsUrl/groups/api/json`, `.../groups/createGroup`,
+  `.../groups/{name}/addUser`, `.../groups/{name}/grantRole`, `$jenkinsUrl/roles/api/json`,
   `.../roles/createRole`, `.../roles/{name}/grantPermissions`, etc. — same POST-with-token pattern
   as every other Jenkins REST write. Read-only listing (`.../api/json`) is safe to call freely;
   every create/delete/grant/revoke call is a mutation and needs the same dry-run/confirm discipline
